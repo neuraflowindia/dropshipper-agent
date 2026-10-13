@@ -278,7 +278,7 @@ class SupplierRouteTests(unittest.TestCase):
                   "navigation_status": 429, "completed_at": NOW, "owned_process_exited": True,
                   "retry_after": "7200", "snapshot": None}
         result = fetch_supplier_native_page(item, route="indiamart", folder=self.root / "native-refusal",
-            native_capture=lambda *_args: output)
+            native_capture=lambda *_args, **_kwargs: output)
         self.assertEqual(result["http_status"], 429)
         self.assertEqual(result["retry_after"], "7200")
         self.assertIs(result["owned_process_exited"], True)

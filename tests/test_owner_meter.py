@@ -136,11 +136,13 @@ class OperationLogSummaryTests(unittest.TestCase):
             dict(row, at="2026-10-13T18:03:00+00:00", event="source_outcome", state="failed", reason="OLD_FAILURE",
                  outcome_reused=True, actual_attempt=False),
             dict(row, at="2026-10-13T18:04:00+00:00", event="stage_finished", state="waiting", reason="MODEL_WAIT"),
+            dict(row, at="2026-10-13T18:04:30+00:00", event="programme_progress", state="usable",
+                 reason="PRODUCT_IMAGE_USABLE_SAVED", useful_result=True, error_reported=True),
             "not json", dict(row, at="2026-10-13T18:05:00+00:00", event="invocation_failed", state="failed")])
         self.write("run-old.jsonl", [dict(row, run_id="run-old", at="2026-10-14T00:00:00+00:00")], mtime=0)
         result = operation_log_summary(self.root, since=START)
         self.assertEqual(result["state"], "partial")
-        self.assertEqual((result["runs"], result["events"], result["useful_results"]), (1, 6, 1))
+        self.assertEqual((result["runs"], result["events"], result["useful_results"]), (1, 7, 2))
         self.assertEqual((result["failures"], result["reused_saved_failures"], result["waits"]), (2, 1, 1))
         self.assertEqual(result["top_failure_reasons"], {"SOURCE_BLOCKED": 1, "invocation_failed": 1})
         self.assertEqual(result["top_wait_reasons"], {"MODEL_WAIT": 1})

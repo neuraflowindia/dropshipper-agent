@@ -9,7 +9,7 @@ from product_radar.models import SafetyError, digest
 from product_radar.source_coverage import (_has_unapplied_receipt, _stage_receipt,
     bind_source_relevance, execute_source_run, prepare_source_tasks, source_access_context)
 from product_radar.storage import atomic_json, load_json
-from product_radar.supplier_route_acquisition import create_supplier_handlers
+from product_radar.supplier_route_acquisition import PARSER_VERSION, create_supplier_handlers
 from product_radar.supplier_search import APPLICATION_KIND, current_supplier_search_checks
 from product_radar.work_turns import bind_work_turn, open_work_turn
 import test_shared_supplier_search as fixtures
@@ -176,7 +176,7 @@ class SupplierUnchangedOriginalTests(unittest.TestCase):
         old_records = {rid: deepcopy(state["source_checks"][rid]) for rid in old_refs}
         old_path = Path(state["source_checks"][old_refs[0]]["reference"])
         old_bytes = old_path.read_bytes()
-        with patch("product_radar.supplier_search.PARSER_VERSION", 4):
+        with patch("product_radar.supplier_search.PARSER_VERSION", PARSER_VERSION + 1):
             self.assertEqual(self.checks(handlers)["counts"], {"acquired": 1})
             state = self.memory.snapshot(); after = state["query_tasks"][task_id]
             self.assertNotEqual(after["receipt_refs"], before["receipt_refs"])
@@ -210,7 +210,7 @@ class SupplierUnchangedOriginalTests(unittest.TestCase):
         check_id = task["target_results"][self.cid]["evidence_refs"][0]
         prior = state["source_checks"][check_id]
         self.memory.put("source_checks", check_id, dict(prior, reason="Unproved changed old check."), previous=prior)
-        for version in (3, 4):
+        for version in (PARSER_VERSION, PARSER_VERSION + 1):
             with self.subTest(parser_version=version), patch("product_radar.supplier_search.PARSER_VERSION", version):
                 result = self.checks(handlers)
                 self.assertEqual(result["counts"], {"blocked": 1})
@@ -232,7 +232,7 @@ class SupplierUnchangedOriginalTests(unittest.TestCase):
         self.assertEqual(self.checks(handlers)["counts"], {"acquired": 1})
         state = self.memory.snapshot(); task = state["query_tasks"][task_id]
         new_id = task["target_results"][self.cid]["evidence_refs"][0]
-        self.assertEqual(Path(state["source_checks"][new_id]["reference"]).name, "capture-parser-3.json")
+        self.assertEqual(Path(state["source_checks"][new_id]["reference"]).name, "capture-parser-" + str(PARSER_VERSION) + ".json")
         self.assertEqual(state["source_checks"][old_id], old)
         self.assertNotEqual(new_id, old_id)
         self.assertEqual(set(current_supplier_search_checks(state, self.cid,
@@ -248,7 +248,7 @@ class SupplierUnchangedOriginalTests(unittest.TestCase):
         proof = load_json(path); proof["parsed"]["reason"] = "Unproved changed old parser proof."
         proof["hash"] = digest({field: value for field, value in proof.items() if field != "hash"})
         atomic_json(path, proof)
-        with patch("product_radar.supplier_search.PARSER_VERSION", 4):
+        with patch("product_radar.supplier_search.PARSER_VERSION", PARSER_VERSION + 1):
             result = self.checks(handlers)
         self.assertEqual(result["counts"], {"blocked": 1})
         self.assertEqual(result["results"][0]["reason"], "SOURCE_ACQUISITION_ARTIFACT_CHANGED")

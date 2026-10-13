@@ -27,7 +27,7 @@ from .supplier_discovery import _parse_receipt, _search_url
 from .supplier_effort import _receipt_ref, failed_reader_receipt, record_supplier_effort
 
 VERSION = "supplier-public-routes-v1"
-PARSER_VERSION = 3
+PARSER_VERSION = 4
 SEARCH_ROUTES = ("google-suppliers", "google-maps", "indiamart", "tradeindia")
 ROUTES = (*SEARCH_ROUTES, "company-pages")
 MAX_RESULTS = 10
@@ -52,6 +52,25 @@ _DOM = """JSON.stringify((() => {
     text:text.slice(0,24000),text_truncated:text.length > 24000,
     links:Array.from(document.querySelectorAll('a[href]')).map(a=>a.href).filter(u=>/^https?:/.test(u)).slice(0,60)};
 })())"""
+# Client-rendered directories first paint placeholders (TradeIndia loading
+# skeletons, IndiaMART's static preview cards) and fill results afterwards.
+# Wait only for the page's own rendering to finish, capped well inside the
+# source action deadline; nothing is clicked, scrolled, retried or bypassed.
+_RENDER_PLACEHOLDERS = {"tradeindia": ".react-loading-skeleton", "indiamart": ".staticSearchPreview"}
+_RENDER_WAIT_MS = 15000
+_READY = """(() => {
+  const body = document.body;
+  if (document.readyState === 'loading' || !body || (body.innerText || '').length < 100) return false;
+  return !document.querySelector(PLACEHOLDER) || performance.now() > WAIT_MS;
+})()"""
+
+
+def _ready_expression(route):
+    """Route-owned render readiness for a native snapshot, or the default."""
+    placeholder = _RENDER_PLACEHOLDERS.get(route)
+    if placeholder is None:
+        return None
+    return _READY.replace("PLACEHOLDER", "'" + placeholder + "'").replace("WAIT_MS", str(_RENDER_WAIT_MS))
 
 
 def _query(value):
@@ -96,7 +115,10 @@ def _lead_url(route, value, *, parser_version=PARSER_VERSION):
                     and (parser_version < 3 or path not in ("", "/"))):
                 return clean
         if route == "tradeindia" and _host_allowed(route, host):
-            return clean if path.startswith(("/products/", "/seller-")) else None
+            # Version 4: the bare "/products/" directory index (a footer
+            # "Featured Products" link) is site navigation, not a result card.
+            return clean if (path.startswith(("/products/", "/seller-"))
+                             and (parser_version < 4 or path.rstrip("/") != "/products")) else None
     except (SafetyError, ValueError, AttributeError):
         pass
     return None
@@ -141,7 +163,7 @@ def parse_supplier_route_receipt(route, query, item, receipt, *, _legacy_service
     if route not in SEARCH_ROUTES:
         raise SafetyError("SUPPLIER_ROUTE_INVALID")
     parser_version = _parser_version if _parser_version is not None else 1 if _legacy_services else PARSER_VERSION
-    if type(parser_version) is not int or parser_version not in (1, 2, PARSER_VERSION):
+    if type(parser_version) is not int or not 1 <= parser_version <= PARSER_VERSION:
         raise SafetyError("SAVED_SUPPLIER_ROUTE_INVALID")
     expected = supplier_route_url(route, query)
     if item.get("url") != expected:
@@ -272,9 +294,11 @@ def fetch_supplier_native_page(item, *, route, folder, native_capture=None, on_d
     deadline_path = safe_path(folder / "native_outer_deadline.json")
     if deadline_path.exists():
         return _native_deadline_page_receipt(item, folder)
+    ready = _ready_expression(route)
     try:
         with source_phase("transport"):
-            output = native_capture(clean, _DOM, folder)
+            output = (native_capture(clean, _DOM, folder) if ready is None
+                      else native_capture(clean, _DOM, folder, ready_expression=ready))
     except SourceActionDeadline as error:
         if deadline_path.exists():
             error.execution_receipt = _native_deadline_page_receipt(item, folder)
@@ -438,7 +462,7 @@ def _validate_search_records(request, acquisition_id, records):
                         _native_deadline_page_receipt(item, Path(receipt["native_reference"]).parent))
             if original != receipt:
                 raise SafetyError("SAVED_SUPPLIER_ROUTE_INVALID")
-        if type(request.get("parser_version", 1)) is not int or request.get("parser_version", 1) not in (1, 2, PARSER_VERSION):
+        if type(request.get("parser_version", 1)) is not int or not 1 <= request.get("parser_version", 1) <= PARSER_VERSION:
             raise SafetyError("SAVED_SUPPLIER_ROUTE_INVALID")
         if row.get("transport") not in ("http", "browser") or row.get("parsed") != parse_supplier_route_receipt(
                 request["route"], request["query"], item, row.get("receipt"),
@@ -543,7 +567,7 @@ def replay_supplier_search(root, *, route, query, acquisition_id):
         original = load_json(original_path, MAX_RECORD_BYTES)
         request = original.get("request") if isinstance(original, dict) else None
         version = request.get("parser_version", 1) if isinstance(request, dict) else None
-        if (type(version) is not int or version not in (1, 2, PARSER_VERSION)
+        if (type(version) is not int or not 1 <= version <= PARSER_VERSION
                 or request not in (physical, dict(physical, parser_version=version))):
             raise SafetyError("SAVED_SUPPLIER_ROUTE_INVALID")
         if original_path == path:

@@ -507,7 +507,9 @@ def operation_log_summary(root, *, since=None, max_bytes=512 * 1024 * 1024):
                     totals["useful_results"] += 1
                 reused = (event == "source_outcome" and row.get("state") == "failed" and row.get("outcome_reused") is True
                           and row.get("actual_attempt") is False and not row.get("error_reported"))
-                if row.get("error_reported") or row.get("error_type") or row.get("state") == "failed":
+                # Same rule as the live counter: a filtered empty error marker
+                # on a useful result (e.g. a saved usable photo) is not a failure.
+                if row.get("error_type") or row.get("state") == "failed":
                     if reused:
                         totals["reused_saved_failures"] += 1
                     else:

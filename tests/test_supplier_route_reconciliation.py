@@ -13,7 +13,7 @@ from product_radar.research_memory import ResearchMemory
 from product_radar.source_coverage import execute_source_run, prepare_source_tasks, route_registry
 from product_radar.storage import Journal, atomic_json, load_json
 from product_radar.supplier_effort import VERSION as EFFORT_VERSION
-from product_radar.supplier_route_acquisition import (ROUTES, SEARCH_ROUTES, acquire_supplier_search,
+from product_radar.supplier_route_acquisition import (PARSER_VERSION, ROUTES, SEARCH_ROUTES, acquire_supplier_search,
     collect_supplier_company_pages, collect_supplier_search, create_supplier_handlers, replay_supplier_search,
     supplier_route_url)
 from test_supplier_discovery import CONCEPT, NOW
@@ -183,7 +183,7 @@ class SupplierReconciliationTests(unittest.TestCase):
 
     def test_empty_or_corrupt_partial_progress_is_not_proof_of_a_search(self):
         request = {"version": "supplier-public-routes-v1", "route": "indiamart", "query": QUERY,
-                   "url": supplier_route_url("indiamart", QUERY), "parser_version": 3}
+                   "url": supplier_route_url("indiamart", QUERY), "parser_version": PARSER_VERSION}
         path = self.memory.root / "supplier_routes" / "empty-progress" / "progress.json"
         atomic_json(path, {"request": request, "records": [], "content_hash": digest([request, []])})
         with self.assertRaisesRegex(SafetyError, "SAVED_SUPPLIER_ROUTE_PROGRESS_INVALID"):
@@ -195,7 +195,7 @@ class SupplierReconciliationTests(unittest.TestCase):
         later = deepcopy(original["record"])
         later["result"] = {"state": "complete", "reason": "Do not adopt this different parser file.", "results": []}
         later["content_hash"] = digest([later["request"], later["records"], later["result"]])
-        atomic_json(Path(original["reference"]).parent / "capture-parser-3.json", later)
+        atomic_json(Path(original["reference"]).parent / ("capture-parser-" + str(PARSER_VERSION) + ".json"), later)
         replay = replay_supplier_search(self.memory.root, route="indiamart", query=QUERY, acquisition_id="saved-acquisition")
         self.assertEqual(replay["record"], original["record"])
         self.assertEqual(replay["reference"], original["reference"])
@@ -210,7 +210,7 @@ class SupplierReconciliationTests(unittest.TestCase):
             "request": old["request"], "records": old["records"], "content_hash": digest([old["request"], old["records"]])})
         replay = replay_supplier_search(self.memory.root, route="indiamart", query=QUERY, acquisition_id="saved-acquisition")
         self.assertEqual(replay["record"], old)
-        self.assertFalse((Path(original["reference"]).parent / "capture-parser-3.json").exists())
+        self.assertFalse((Path(original["reference"]).parent / ("capture-parser-" + str(PARSER_VERSION) + ".json")).exists())
 
     def test_a_later_valid_but_different_response_cannot_replace_retained_original_progress(self):
         original = self.acquire()
