@@ -1,0 +1,246 @@
+{
+  "schema_version": "1.0",
+  "created_for": "NeuraFlow Product Opportunity Radar manufactured preview",
+  "created_on": "2026-08-15",
+  "asset_count": 13,
+  "product_asset_count": 12,
+  "cover_asset_count": 1,
+  "assets": [
+    {
+      "asset_id": "DEMO-001",
+      "title": "Oil Spray Bottle",
+      "source_file": "01-oil-spray-bottle.png",
+      "source_dimensions": [
+        1122,
+        1402
+      ],
+      "source_sha256": "d74b04ec121ed9dce934baa5ca1f5232998bcebcf75d6af92e83354766b28cc9",
+      "report_file": "01-oil-spray-bottle.jpg",
+      "report_dimensions": [
+        1000,
+        1250
+      ],
+      "report_sha256": "35565ee7a079f8dc00624c2ce2f454b8c881188b8d131839c1344eea81d750c2",
+      "generation_method": "OpenAI built-in image generation",
+      "usage_boundary": "Illustrative product visual; not market evidence"
+    },
+    {
+      "asset_id": "DEMO-002",
+      "title": "Rechargeable Cordless Picture Light",
+      "source_file": "02-rechargeable-cordless-picture-light.png",
+      "source_dimensions": [
+        1122,
+        1402
+      ],
+      "source_sha256": "fd8223ab1bbddf5067a5de46adaff7a9589a535c31deffa9e52669210ffd2f01",
+      "report_file": "02-rechargeable-cordless-picture-light.jpg",
+      "report_dimensions": [
+        1000,
+        1250
+      ],
+      "report_sha256": "7fc549f2d40ddea37e03d3bed23e7c5f252707171fc94fee24f4f57478220ce1",
+      "generation_method": "OpenAI built-in image generation",
+      "usage_boundary": "Illustrative product visual; not market evidence"
+    },
+    {
+      "asset_id": "DEMO-003",
+      "title": "Motion-Activated Cat Ball",
+      "source_file": "03-motion-activated-cat-ball.png",
+      "source_dimensions": [
+        1122,
+        1402
+      ],
+      "source_sha256": "d2aa5dad95de4b8c7aa0d4189609f2059b33758e9f48c2ec0a58d07b541bbd25",
+      "report_file": "03-motion-activated-cat-ball.jpg",
+      "report_dimensions": [
+        1000,
+        1250
+      ],
+      "report_sha256": "0e238d53680fb9284dc83a2144f018b8efb4aeec48332264b4b49c0124f3a07c",
+      "generation_method": "OpenAI built-in image generation",
+      "usage_boundary": "Illustrative product visual; not market evidence"
+    },
+    {
+      "asset_id": "DEMO-004",
+      "title": "Silicone Suction Feeding Set",
+      "source_file": "04-silicone-suction-feeding-set.png",
+      "source_dimensions": [
+        1122,
+        1402
+      ],
+      "source_sha256": "14a617ec4301fd0316f05cef4718af0b590c4722f432c48ff6595b821d757ef8",
+      "report_file": "04-silicone-suction-feeding-set.jpg",
+      "report_dimensions": [
+        1000,
+        1250
+      ],
+      "report_sha256": "6c25d67b8453bd91ee6973d7dac23c55f9e4f766d3c877cc4ff7ab6691adc076",
+      "generation_method": "OpenAI built-in image generation",
+      "usage_boundary": "Illustrative product visual; not market evidence"
+    },
+    {
+      "asset_id": "DEMO-005",
+      "title": "Manual Vegetable Chopper and Slicer",
+      "source_file": "05-manual-vegetable-chopper-and-slicer.png",
+      "source_dimensions": [
+        1122,
+        1402
+      ],
+      "source_sha256": "06535dd3c3c6dda2bfc7a89f5dba4776751cc31b75771eda6b0ca55a939daa79",
+      "report_file": "05-manual-vegetable-chopper-and-slicer.jpg",
+      "report_dimensions": [
+        1000,
+        1250
+      ],
+      "report_sha256": "f65a0d8529dcd4f091f6660bbaa0668d3ea11b86300ff7eb3eb8e030eea7c27d",
+      "generation_method": "OpenAI built-in image generation",
+      "usage_boundary": "Illustrative product visual; not market evidence"
+    },
+    {
+      "asset_id": "DEMO-006",
+      "title": "Pleated Mushroom Table Lamp",
+      "source_file": "06-pleated-mushroom-table-lamp.png",
+      "source_dimensions": [
+        1122,
+        1402
+      ],
+      "source_sha256": "16cc423a9e0ad6bfac0dd057a29c750bcfa773448eb0948a896b1d617eed125b",
+      "report_file": "06-pleated-mushroom-table-lamp.jpg",
+      "report_dimensions": [
+        1000,
+        1250
+      ],
+      "report_sha256": "6f87ccec2f611911352f3ee2283a61a3128627c6bae78e89168e47fb69a926ff",
+      "generation_method": "OpenAI built-in image generation",
+      "usage_boundary": "Illustrative product visual; not market evidence"
+    },
+    {
+      "asset_id": "DEMO-007",
+      "title": "Self-Watering Plant Spike Set",
+      "source_file": "07-self-watering-plant-spike-set.png",
+      "source_dimensions": [
+        1122,
+        1402
+      ],
+      "source_sha256": "33b9bb426cef6186fcb10c8e7a1512c93f176c914bd0157785450f907d939171",
+      "report_file": "07-self-watering-plant-spike-set.jpg",
+      "report_dimensions": [
+        1000,
+        1250
+      ],
+      "report_sha256": "95d9423d43add6d425d442f34d1a45a17c7a08978e56a90993a197abbbf327b0",
+      "generation_method": "OpenAI built-in image generation",
+      "usage_boundary": "Illustrative product visual; not market evidence"
+    },
+    {
+      "asset_id": "DEMO-008",
+      "title": "Self-Cleaning Pet Grooming Brush",
+      "source_file": "08-self-cleaning-pet-grooming-brush.png",
+      "source_dimensions": [
+        1122,
+        1402
+      ],
+      "source_sha256": "6881ccf3c04cc8427f46e16934fc499a5393f69df5def7d5b3d3bd4e3befd018",
+      "report_file": "08-self-cleaning-pet-grooming-brush.jpg",
+      "report_dimensions": [
+        1000,
+        1250
+      ],
+      "report_sha256": "c24ca74a6c45950786d19713c81b9a8465a3a955735cdee0d1bc87a7221d288e",
+      "generation_method": "OpenAI built-in image generation",
+      "usage_boundary": "Illustrative product visual; not market evidence"
+    },
+    {
+      "asset_id": "DEMO-009",
+      "title": "Stroller Organiser Bag",
+      "source_file": "09-stroller-organiser-bag.png",
+      "source_dimensions": [
+        1122,
+        1402
+      ],
+      "source_sha256": "ca266a7f4847f1116860c5e9ac35973a4015fea804b25326bb2bac4a78dcbff7",
+      "report_file": "09-stroller-organiser-bag.jpg",
+      "report_dimensions": [
+        1000,
+        1250
+      ],
+      "report_sha256": "63baafcdd59e7bf74245d69302625282f912cffed4752823258cbef208c65894",
+      "generation_method": "OpenAI built-in image generation",
+      "usage_boundary": "Illustrative product visual; not market evidence"
+    },
+    {
+      "asset_id": "DEMO-010",
+      "title": "Adjustable Baby-Proof Cabinet Lock Set",
+      "source_file": "10-adjustable-baby-proof-cabinet-lock-set.png",
+      "source_dimensions": [
+        1122,
+        1402
+      ],
+      "source_sha256": "27a09ed434d7248653873485be85a8fb37e348257f2dd9597d8b12f4dac64cff",
+      "report_file": "10-adjustable-baby-proof-cabinet-lock-set.jpg",
+      "report_dimensions": [
+        1000,
+        1250
+      ],
+      "report_sha256": "e7d2d6a49e7d5f606dce46580c036572dadf4451cc957a9c5398f65a40944d18",
+      "generation_method": "OpenAI built-in image generation",
+      "usage_boundary": "Illustrative product visual; not market evidence"
+    },
+    {
+      "asset_id": "DEMO-011",
+      "title": "Clip-On Sink Strainer Basket",
+      "source_file": "11-clip-on-sink-strainer-basket.png",
+      "source_dimensions": [
+        1122,
+        1402
+      ],
+      "source_sha256": "2c27349d5be8ded771857075279cf8aac4401d5e0c76d0bb3b97d3058f41ddce",
+      "report_file": "11-clip-on-sink-strainer-basket.jpg",
+      "report_dimensions": [
+        1000,
+        1250
+      ],
+      "report_sha256": "4a5fd4c2dde26cfdff95e5224d06908b72369b9fb86dce093a6eae020ffc6ec7",
+      "generation_method": "OpenAI built-in image generation",
+      "usage_boundary": "Illustrative product visual; not market evidence"
+    },
+    {
+      "asset_id": "DEMO-012",
+      "title": "Silicone Paw Cleaner Cup",
+      "source_file": "12-silicone-paw-cleaner-cup.png",
+      "source_dimensions": [
+        1122,
+        1402
+      ],
+      "source_sha256": "56f569569d4ea6af928679cf791b52b9ecbae200bec99487e80c88ecaec484d6",
+      "report_file": "12-silicone-paw-cleaner-cup.jpg",
+      "report_dimensions": [
+        1000,
+        1250
+      ],
+      "report_sha256": "810c3176d60d125ccb6143f9e7e60a34795454f9a75e9d369b2182bc919e14a7",
+      "generation_method": "OpenAI built-in image generation",
+      "usage_boundary": "Illustrative product visual; not market evidence"
+    },
+    {
+      "asset_id": "COVER",
+      "title": "Product Research Still Life",
+      "source_file": "cover-product-research-still-life.png",
+      "source_dimensions": [
+        1122,
+        1402
+      ],
+      "source_sha256": "b80f7aebec0757843843a26fc9d19f356dd498969ce98410a69e8d1ff299a323",
+      "report_file": "cover-product-research-still-life.jpg",
+      "report_dimensions": [
+        1000,
+        1250
+      ],
+      "report_sha256": "75e59521e18c131bb52f13b993d633dfc62505c799eff9e5053463457dfa0b7a",
+      "generation_method": "OpenAI built-in image generation",
+      "usage_boundary": "Illustrative product visual; not market evidence"
+    }
+  ],
+  "contact_sheet": "media/client-preview/product-visuals/contact-sheet.png",
+  "prompt_record": "docs/client-preview/design/image_generation_prompts.md"
+}

@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.1",
+  "approved_on": "2026-08-16",
+  "provider_brand": "NeuraFlow",
+  "service_name": "Product Opportunity Radar",
+  "service_descriptor": "Weekly product research for clearer test decisions",
+  "price_inr": 1500,
+  "price_display": "₹1,500",
+  "price_period": "per month",
+  "tax_wording": "Plus legally applicable taxes, if any.",
+  "billing": "Paid monthly in advance.",
+  "delivery_count": 4,
+  "delivery_cadence": "Four weekly PDF-and-Excel reports each month.",
+  "normal_delivery_day": "Monday",
+  "delivery_channel": "Email delivery with a WhatsApp notification and download link.",
+  "setup_fee": "Free setup.",
+  "initial_price_period": "Price fixed for the first two months.",
+  "opportunity_limit": "Up to 12 eligible opportunities in each weekly report. A shorter list is used when the evidence is weaker.",
+  "implementation_target": "Setup normally takes seven days after the service is confirmed and the required branding and access are ready.",
+  "call_to_action": "Choose a start date and confirm the service with NeuraFlow.",
+  "included": [
+    "Four weekly PDF-and-Excel reports each month",
+    "Up to 12 eligible opportunities in each report",
+    "Week-over-week changes after a comparable earlier report",
+    "Quick-commerce context where available",
+    "Possible supplier leads where evidence is available",
+    "Review before delivery"
+  ],
+  "excluded": [
+    "Guaranteed counts, demand, sales, margin, profit, or performance",
+    "Supplier contact, negotiation, audit, recommendation, or verification",
+    "Compliance, certification, safety, or legal decisions",
+    "Ad creation, media buying, or store integration",
+    "Unlimited or custom on-demand research",
+    "Software login, real-time monitoring, or daily alerts"
+  ],
+  "client_responsibilities": [
+    "Decide which products, if any, deserve further testing",
+    "Check product compliance, warnings, age guidance, and claims",
+    "Check supplier identity, stock, terms, and suitability",
+    "Sample product quality, packaging, delivery, and returns",
+    "Calculate landed cost, pricing, margin, and business risk"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 3,
+  "categories": ["Home and Decor", "Baby Products", "Home and Kitchen", "Travel and Outdoor"],
+  "timezone": "Asia/Kolkata",
+  "publication_weekdays": [1, 3, 5],
+  "publication_time": "09:00",
+  "minimum_products": 10,
+  "target_products": 15,
+  "maximum_products": 20,
+  "fit_policy_id": "fit-10-v1",
+  "minimum_kpi_matches": 5,
+  "good_fit_kpi_matches": 6,
+  "maximum_update_fraction": "0.20",
+  "apify_period_limit_usd": "4.50",
+  "apify_protected_buffer_usd": "0.50",
+  "apify_penny_tolerance_usd": "0.05",
+  "initial_trial_limit_usd": "0.75",
+  "initial_future_allocation_usd": "3.75",
+  "bilingual_issue_count": 2,
+  "trial_pdf_languages": ["en", "hi-Latn"],
+  "ongoing_pdf_language": null,
+  "shared_excel": true
+}

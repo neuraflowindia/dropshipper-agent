@@ -1,0 +1,328 @@
+{
+  "evidence_type": "public_metadata_snapshot_not_live_output",
+  "observed_at": "2026-10-04T21:59:43+00:00",
+  "actor": {
+    "data": {
+      "id": "xeDvp8Y8h5CF6a7y2",
+      "actorPermissionLevel": "LIMITED_PERMISSIONS",
+      "isPPEPlatformUsagePaidByUser": null,
+      "pricingInfos": [
+        {
+          "apifyMarginPercentage": 0.2,
+          "createdAt": "2026-05-17T10:06:38.323Z",
+          "notifiedAboutFutureChangeAt": "2026-05-17T10:06:58.866Z",
+          "pricingModel": "PAY_PER_EVENT",
+          "pricingPerEvent": {
+            "actorChargeEvents": {
+              "explore-result": {
+                "eventDescription": "One keyword analysis result with interest over time, regional interest, related queries and related topics",
+                "eventPriceUsd": 0.002,
+                "eventTitle": "Explore Result"
+              },
+              "result": {
+                "eventDescription": "Legacy single-event pricing; replaced by trending-result and explore-result",
+                "eventPriceUsd": 0.002,
+                "eventTitle": "Result (legacy)"
+              },
+              "trending-result": {
+                "eventDescription": "One trending search item with related news",
+                "eventPriceUsd": 0.001,
+                "eventTitle": "Trending Result",
+                "isPrimaryEvent": true
+              }
+            }
+          },
+          "startedAt": "2026-06-01T10:06:37.019Z"
+        }
+      ]
+    }
+  },
+  "build": {
+    "data": {
+      "id": "c69GkRZWfzoTTwJmt",
+      "buildNumber": "0.0.14",
+      "status": "SUCCEEDED",
+      "actorDefinition": {
+        "input": {
+          "description": "Scrape Google Trends — get daily trending searches or analyze keyword interest over time, related queries, topics, and regional interest.",
+          "properties": {
+            "category": {
+              "default": "0",
+              "description": "Filter explore results by category.",
+              "editor": "select",
+              "enum": [
+                "0",
+                "3",
+                "47",
+                "44",
+                "22",
+                "12",
+                "5",
+                "7",
+                "71",
+                "8",
+                "45",
+                "64",
+                "11",
+                "13",
+                "958",
+                "19",
+                "16",
+                "299",
+                "14",
+                "66",
+                "29",
+                "533",
+                "174",
+                "18",
+                "20",
+                "67"
+              ],
+              "enumTitles": [
+                "All categories",
+                "Arts & Entertainment",
+                "Autos & Vehicles",
+                "Beauty & Fitness",
+                "Books & Literature",
+                "Business & Industrial",
+                "Computers & Electronics",
+                "Finance",
+                "Food & Drink",
+                "Games",
+                "Health",
+                "Hobbies & Leisure",
+                "Home & Garden",
+                "Internet & Telecom",
+                "Jobs & Education",
+                "Law & Government",
+                "News",
+                "Online Communities",
+                "People & Society",
+                "Pets & Animals",
+                "Real Estate",
+                "Reference",
+                "Science",
+                "Shopping",
+                "Sports",
+                "Travel"
+              ],
+              "prefill": "0",
+              "title": "Category",
+              "type": "string"
+            },
+            "date": {
+              "description": "End date of the daysBack window. Defaults to today in the chosen timezone. Format: YYYY-MM-DD. Used in trending mode.",
+              "editor": "textfield",
+              "title": "End Date (YYYY-MM-DD)",
+              "type": "string"
+            },
+            "daysBack": {
+              "default": 1,
+              "description": "Number of days of trending data to fetch (ending on 'date'). 1 = current day only. Used in trending mode.",
+              "editor": "number",
+              "maximum": 90,
+              "minimum": 1,
+              "prefill": 1,
+              "title": "Days Back",
+              "type": "integer"
+            },
+            "exploreConcurrency": {
+              "default": 3,
+              "description": "Parallel Playwright pages in explore mode. Higher = faster but risk of rate limits. Default 3, max 5.",
+              "editor": "number",
+              "maximum": 5,
+              "minimum": 1,
+              "prefill": 3,
+              "title": "Explore Concurrency",
+              "type": "integer"
+            },
+            "geo": {
+              "default": "",
+              "description": "ISO 2-letter country code (e.g., US, GB, DE, JP). Leave empty for worldwide. If you omit this field entirely, the search runs worldwide rather than the US shown in the form.",
+              "editor": "textfield",
+              "prefill": "US",
+              "title": "Country",
+              "type": "string"
+            },
+            "googleProperty": {
+              "default": "",
+              "description": "Filter by Google property.",
+              "editor": "select",
+              "enum": [
+                "",
+                "images",
+                "news",
+                "youtube",
+                "froogle"
+              ],
+              "enumTitles": [
+                "Web Search",
+                "Google Images",
+                "Google News",
+                "YouTube Search",
+                "Google Shopping"
+              ],
+              "prefill": "",
+              "title": "Google Property",
+              "type": "string"
+            },
+            "keywords": {
+              "description": "Comma-separated keywords to analyze. Used in 'explore' mode. Example: 'bitcoin, ethereum, solana'. Max 100 keywords.",
+              "editor": "textfield",
+              "prefill": "web scraping",
+              "title": "Keywords",
+              "type": "string"
+            },
+            "language": {
+              "default": "en-US",
+              "description": "Locale code passed to Google Trends as 'hl'. Affects label/region/related-query language. Used in both modes.",
+              "editor": "select",
+              "enum": [
+                "en-US",
+                "en-GB",
+                "pt-BR",
+                "pt-PT",
+                "es-ES",
+                "es-MX",
+                "fr-FR",
+                "de-DE",
+                "it-IT",
+                "ja-JP",
+                "ko-KR",
+                "zh-CN",
+                "zh-TW",
+                "ru-RU",
+                "hi-IN",
+                "ar-SA"
+              ],
+              "enumTitles": [
+                "English (US)",
+                "English (UK)",
+                "Portuguese (Brazil)",
+                "Portuguese (Portugal)",
+                "Spanish (Spain)",
+                "Spanish (Mexico)",
+                "French (France)",
+                "German (Germany)",
+                "Italian (Italy)",
+                "Japanese (Japan)",
+                "Korean (Korea)",
+                "Chinese (Simplified)",
+                "Chinese (Traditional)",
+                "Russian (Russia)",
+                "Hindi (India)",
+                "Arabic (Saudi Arabia)"
+              ],
+              "prefill": "en-US",
+              "title": "Language",
+              "type": "string"
+            },
+            "maxResults": {
+              "default": 10,
+              "description": "Maximum trending items per day. Google's RSS feed returns up to ~10 items per day, so values above 10 have no effect. With daysBack > 1, this caps each day independently (not total). Used in 'trending' mode only.",
+              "editor": "number",
+              "maximum": 50,
+              "minimum": 1,
+              "prefill": 10,
+              "title": "Max Results",
+              "type": "integer"
+            },
+            "mode": {
+              "default": "trending",
+              "description": "'trending' = daily trending searches by country. 'explore' = keyword interest over time, related queries/topics, and regional interest.",
+              "editor": "select",
+              "enum": [
+                "trending",
+                "explore"
+              ],
+              "enumTitles": [
+                "Trending (daily trending searches)",
+                "Explore (keyword interest analysis)"
+              ],
+              "prefill": "trending",
+              "title": "Mode",
+              "type": "string"
+            },
+            "timeRange": {
+              "default": "today 12-m",
+              "description": "Time range for explore mode data.",
+              "editor": "select",
+              "enum": [
+                "now 1-H",
+                "now 4-H",
+                "now 1-d",
+                "now 7-d",
+                "today 1-m",
+                "today 3-m",
+                "today 12-m",
+                "today 5-y"
+              ],
+              "enumTitles": [
+                "Past hour",
+                "Past 4 hours",
+                "Past day",
+                "Past 7 days",
+                "Past 30 days",
+                "Past 90 days",
+                "Past 12 months",
+                "Past 5 years"
+              ],
+              "prefill": "today 12-m",
+              "title": "Time Range",
+              "type": "string"
+            },
+            "timezone": {
+              "default": "UTC",
+              "description": "IANA timezone name. Determines which 'today' Google returns for trending. Used in trending mode.",
+              "editor": "select",
+              "enum": [
+                "UTC",
+                "America/New_York",
+                "America/Chicago",
+                "America/Denver",
+                "America/Los_Angeles",
+                "America/Sao_Paulo",
+                "America/Mexico_City",
+                "America/Toronto",
+                "Europe/London",
+                "Europe/Paris",
+                "Europe/Berlin",
+                "Europe/Madrid",
+                "Europe/Moscow",
+                "Africa/Cairo",
+                "Africa/Johannesburg",
+                "Asia/Dubai",
+                "Asia/Kolkata",
+                "Asia/Shanghai",
+                "Asia/Tokyo",
+                "Asia/Seoul",
+                "Asia/Singapore",
+                "Australia/Sydney"
+              ],
+              "prefill": "UTC",
+              "title": "Timezone",
+              "type": "string"
+            },
+            "trendingConcurrency": {
+              "default": 8,
+              "description": "Parallel HTTP fetches in trending mode. Higher = faster + cheaper compute. Default 8, max 15.",
+              "editor": "number",
+              "maximum": 15,
+              "minimum": 1,
+              "prefill": 8,
+              "sectionCaption": "Performance",
+              "title": "Trending Concurrency",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "schemaVersion": 1,
+          "title": "Google Trends Scraper",
+          "type": "object"
+        }
+      }
+    }
+  }
+}

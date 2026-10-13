@@ -1,0 +1,1520 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light only">
+  <title>NeuraFlow Product Opportunity Brief · Illustrative</title>
+  <style>
+:root {
+  --cream: #F9F3EC;
+  --cream-deep: #EEE5DB;
+  --maroon: #6B1F2B;
+  --navy: #24384B;
+  --muted-navy: #647487;
+  --mustard: #C49A37;
+  --sage: #93A28E;
+  --rose: #C9949A;
+  --charcoal: #292C2F;
+  --mid: #696A6C;
+  --line: #D8D0C8;
+  --pale-navy: #E5EAF0;
+  --pale-maroon: #EEDDE0;
+  --pale-mustard: #F1E5C5;
+  --pale-sage: #E1E8DE;
+  --pale-rose: #F0E1E3;
+  --white: #FFFFFF;
+  --display: "Arial Narrow", "Aptos Narrow", "Roboto Condensed", Arial, sans-serif;
+  --sans: Aptos, "Segoe UI", Arial, sans-serif;
+  --serif: Georgia, "Times New Roman", serif;
+}
+
+@page { size: A4 portrait; margin: 0; }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #D9D4CE; color: var(--charcoal); }
+body { font-family: var(--sans); font-size: 10.6pt; line-height: 1.42; }
+a { color: var(--maroon); text-decoration: none; border-bottom: 0.25mm solid rgba(107,31,43,.42); }
+strong { font-weight: 700; }
+
+.page {
+  position: relative;
+  width: 210mm;
+  height: 297mm;
+  padding: 14mm 16mm 15mm 17mm;
+  overflow: hidden;
+  background: var(--cream);
+  break-after: page;
+  page-break-after: always;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.page:last-child { break-after: auto; page-break-after: auto; }
+.page-inner { height: 100%; display: flex; flex-direction: column; }
+.page-top { display: flex; justify-content: flex-end; min-height: 12mm; }
+.folio { width: 12mm; text-align: center; color: var(--maroon); font-family: var(--display); font-weight: 700; font-size: 13pt; line-height: 1; }
+.folio::after { content: ""; display: block; width: 8mm; height: .35mm; margin: 2.3mm auto 0; background: var(--maroon); }
+.page-head { margin-top: 1mm; margin-bottom: 7mm; padding-right: 18mm; }
+.kicker { margin: 0 0 2mm; color: var(--maroon); font-family: var(--sans); font-size: 8.4pt; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+h1, h2, h3, p { margin-top: 0; }
+h1 { margin-bottom: 0; color: var(--navy); font-family: var(--display); font-stretch: condensed; font-size: 29pt; line-height: .98; letter-spacing: -.015em; text-transform: uppercase; }
+h2 { color: var(--navy); font-family: var(--display); font-size: 17pt; line-height: 1.05; text-transform: uppercase; }
+h3 { margin-bottom: 2mm; color: var(--maroon); font-family: var(--sans); font-size: 8.5pt; line-height: 1.2; letter-spacing: .09em; text-transform: uppercase; }
+.lede { max-width: 145mm; margin: 3mm 0 0; font-family: var(--serif); font-size: 11.2pt; line-height: 1.5; color: #3D3B39; }
+.page-content { flex: 1; min-height: 0; }
+.page-footer { position: absolute; left: 17mm; right: 16mm; bottom: 7mm; display: flex; justify-content: space-between; color: var(--mid); font-size: 7.4pt; letter-spacing: .02em; }
+.section-rule { height: .35mm; background: var(--line); border: 0; margin: 4mm 0; }
+.section-rule.maroon { width: 27mm; background: var(--maroon); margin-left: 0; }
+.muted { color: var(--mid); }
+.serif { font-family: var(--serif); }
+.small { font-size: 8.6pt; line-height: 1.42; }
+.micro { font-size: 7.5pt; line-height: 1.35; }
+.nowrap { white-space: nowrap; }
+
+/* Cover */
+.cover-page { padding: 0; display: grid; grid-template-columns: 112mm 98mm; }
+.cover-copy { position: relative; z-index: 2; height: 297mm; padding: 18mm 13mm 0 18mm; background: var(--cream); }
+.cover-logo { width: 49mm; height: 24mm; object-fit: contain; object-position: left center; }
+.cover-title { margin-top: 43mm; color: var(--navy); font-family: var(--display); font-size: 32pt; font-weight: 800; line-height: .98; letter-spacing: -.02em; text-transform: uppercase; }
+.cover-subtitle { margin-top: 7mm; padding-top: 5mm; border-top: .45mm solid var(--maroon); color: var(--maroon); font-family: var(--serif); font-size: 14pt; }
+.cover-disclosure { position: absolute; left: 18mm; right: 13mm; bottom: 56mm; color: var(--mid); font-size: 8.8pt; font-style: italic; line-height: 1.45; }
+.cover-band { position: absolute; left: 0; right: 0; bottom: 0; height: 46mm; padding: 10mm 13mm 8mm 18mm; background: var(--navy); color: var(--cream); }
+.cover-band .week { font-family: var(--display); font-size: 15pt; font-weight: 700; text-transform: uppercase; }
+.cover-band .client { margin-top: 3mm; font-family: var(--serif); font-size: 10.5pt; }
+.cover-visual { position: relative; height: 297mm; overflow: hidden; }
+.cover-visual img { width: 100%; height: 100%; object-fit: cover; }
+.cover-visual::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(249,243,236,.17), rgba(249,243,236,0) 28%); }
+.cover-folio { position: absolute; top: 17mm; right: 11mm; z-index: 4; color: var(--maroon); font-family: var(--display); font-size: 13pt; font-weight: 700; text-align: center; }
+.cover-folio::after { content: ""; display: block; width: 8mm; height: .35mm; margin: 2.3mm auto 0; background: var(--maroon); }
+
+/* Overview */
+.metric-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; border-top: .35mm solid var(--line); border-bottom: .35mm solid var(--line); }
+.metric { min-height: 34mm; padding: 6mm 4mm 4mm; border-right: .3mm solid var(--line); }
+.metric:last-child { border-right: 0; }
+.metric-value { color: var(--maroon); font-family: var(--display); font-size: 27pt; font-weight: 700; line-height: .9; }
+.metric-label { margin-top: 2.7mm; font-family: var(--serif); font-size: 8.8pt; line-height: 1.25; }
+.signal-total { display: grid; grid-template-columns: 48mm 1fr; align-items: end; gap: 7mm; margin: 8mm 0 7mm; }
+.signal-total .ratio { color: var(--navy); font-family: var(--display); font-size: 40pt; font-weight: 700; line-height: .82; }
+.signal-total .explain { padding-bottom: 1mm; font-family: var(--serif); font-size: 11pt; line-height: 1.45; }
+.category-lines { border-top: .35mm solid var(--line); }
+.category-line { display: grid; grid-template-columns: 38mm 1fr 14mm; align-items: center; min-height: 16mm; border-bottom: .3mm solid var(--line); }
+.category-name { color: var(--navy); font-family: var(--display); font-weight: 700; text-transform: uppercase; }
+.category-track { position: relative; height: .35mm; background: var(--line); }
+.category-track::after { content: ""; position: absolute; top: -1.5mm; right: 0; width: 3.4mm; height: 3.4mm; border-radius: 50%; background: var(--maroon); }
+.category-count { text-align: right; color: var(--maroon); font-family: var(--display); font-size: 16pt; font-weight: 700; }
+
+/* Reading guide */
+.signal-guide { border-top: .45mm solid var(--navy); }
+.guide-row { display: grid; grid-template-columns: 36mm 1fr; gap: 7mm; padding: 5mm 0; border-bottom: .3mm solid var(--line); }
+.guide-label { color: var(--navy); font-family: var(--display); font-size: 14pt; font-weight: 700; text-transform: uppercase; }
+.guide-copy { font-family: var(--serif); font-size: 10.7pt; line-height: 1.48; }
+.concept-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5mm 8mm; margin-top: 7mm; }
+.concept { padding-top: 3mm; border-top: .35mm solid var(--maroon); }
+.concept p { margin-bottom: 0; font-size: 9.4pt; line-height: 1.45; }
+
+/* Category overview */
+.category-blocks { border-top: .45mm solid var(--navy); }
+.category-block { display: grid; grid-template-columns: 39mm 1fr 30mm; gap: 6mm; padding: 4.7mm 0; border-bottom: .3mm solid var(--line); }
+.category-block-title { color: var(--maroon); font-family: var(--display); font-size: 15pt; font-weight: 700; text-transform: uppercase; }
+.category-product-list { margin: 0; padding: 0; list-style: none; font-family: var(--serif); font-size: 9.5pt; }
+.category-product-list li + li { margin-top: 1.2mm; }
+.category-mix { align-self: center; text-align: right; color: var(--navy); font-size: 8.5pt; line-height: 1.35; }
+.no-padding-note { margin-top: 7mm; padding: 5mm 6mm; background: var(--pale-mustard); border-left: 1mm solid var(--mustard); font-family: var(--serif); font-size: 10.5pt; line-height: 1.5; }
+
+/* Movement */
+.movement-list { border-top: .45mm solid var(--navy); }
+.movement-row { display: grid; grid-template-columns: 24mm 36mm 1fr; gap: 5mm; padding: 4.2mm 0; border-bottom: .3mm solid var(--line); align-items: start; }
+.movement-count { color: var(--maroon); font-family: var(--display); font-size: 24pt; font-weight: 700; line-height: .9; }
+.movement-status { color: var(--navy); font-family: var(--display); font-size: 12.5pt; font-weight: 700; text-transform: uppercase; }
+.movement-products { font-family: var(--serif); font-size: 9.5pt; line-height: 1.45; }
+.movement-explain { display: block; margin-top: 1mm; color: var(--mid); font-family: var(--sans); font-size: 8.3pt; }
+.coverage-note { margin-top: 7mm; display: grid; grid-template-columns: 29mm 1fr; gap: 7mm; padding-top: 5mm; border-top: .45mm solid var(--maroon); }
+.coverage-note .mark { color: var(--mustard); font-family: var(--display); font-size: 25pt; font-weight: 700; }
+
+/* Product pages */
+.product-page { padding-top: 11mm; }
+.product-page .page-top { min-height: 10mm; }
+.product-hero { display: grid; grid-template-columns: 1fr 70mm; gap: 8mm; min-height: 76mm; padding-bottom: 5mm; border-bottom: .45mm solid var(--maroon); }
+.product-rank { color: var(--maroon); font-family: var(--display); font-size: 30pt; font-weight: 700; line-height: .8; }
+.product-name { margin: 3mm 0 2mm; color: var(--navy); font-family: var(--display); font-size: 23pt; font-weight: 800; line-height: .98; text-transform: uppercase; }
+.product-meta { color: var(--mid); font-family: var(--serif); font-size: 10.2pt; }
+.label-row { display: flex; align-items: center; gap: 4mm; margin-top: 5mm; }
+.label-chip { display: inline-block; padding: 2.1mm 3.2mm 1.8mm; font-size: 8.2pt; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.label-strong { background: var(--pale-sage); color: var(--navy); }
+.label-promising { background: var(--pale-maroon); color: var(--maroon); }
+.label-worth-watching { background: var(--pale-mustard); color: #6C4D0D; }
+.signal-count { color: var(--navy); font-family: var(--display); font-size: 19pt; font-weight: 700; }
+.available-count { color: var(--mid); font-size: 8.5pt; }
+.listing-band { margin-top: 4mm; color: var(--mid); font-size: 8.8pt; }
+.product-image { margin: 0; }
+.product-image img { display: block; width: 70mm; height: 67mm; object-fit: cover; }
+.product-image figcaption { margin-top: 1.5mm; color: var(--mid); font-size: 7.2pt; text-align: right; }
+.ledger-title { margin: 4.5mm 0 2mm; color: var(--maroon); font-size: 8.2pt; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.signal-ledger { border-top: .4mm solid var(--navy); }
+.signal-row { display: grid; grid-template-columns: 27mm 24mm 63mm 1fr; gap: 4mm; min-height: 15mm; padding: 2.8mm 0; border-bottom: .28mm solid var(--line); align-items: start; }
+.signal-name { color: var(--navy); font-family: var(--display); font-size: 10.6pt; font-weight: 700; text-transform: uppercase; }
+.outcome { font-size: 8pt; font-weight: 700; text-transform: uppercase; }
+.outcome-positive { color: #3F5B44; }
+.outcome-not-positive { color: #7B5A16; }
+.outcome-missing { color: var(--maroon); }
+.signal-evidence { font-size: 8.5pt; line-height: 1.36; }
+.signal-meaning { color: #3E3D3B; font-family: var(--serif); font-size: 8.9pt; line-height: 1.38; }
+.signal-links { display: block; margin-top: 1mm; font-family: var(--sans); font-size: 7.2pt; }
+.insight-grid { display: grid; grid-template-columns: 1.06fr .94fr; gap: 7mm; margin-top: 5mm; }
+.insight { padding-top: 3mm; border-top: .35mm solid var(--navy); }
+.insight p { margin-bottom: 0; font-family: var(--serif); font-size: 9.6pt; line-height: 1.46; }
+.context-lines { font-size: 8.8pt; line-height: 1.45; }
+.context-lines div + div { margin-top: 1.8mm; }
+.review-panel { margin-top: 4.5mm; padding: 3.5mm 4mm; border-left: 1mm solid var(--sage); background: var(--pale-sage); }
+.review-panel.flagged { border-color: var(--rose); background: var(--pale-rose); }
+.review-title { margin-bottom: 1mm; color: var(--navy); font-size: 8pt; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.review-panel.flagged .review-title { color: var(--maroon); }
+.review-copy { margin: 0; font-family: var(--serif); font-size: 8.8pt; line-height: 1.4; }
+.supplier-strip { margin-top: 4.5mm; padding-top: 3mm; border-top: .35mm solid var(--maroon); }
+.supplier-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6mm; }
+.supplier-mini { min-height: 20mm; }
+.supplier-name { color: var(--navy); font-size: 8.7pt; font-weight: 700; }
+.supplier-meta { margin: .8mm 0; color: var(--mid); font-size: 7.6pt; }
+.supplier-limit { font-family: var(--serif); font-size: 7.9pt; line-height: 1.34; }
+.excel-pointer { margin-top: 2mm; color: var(--mid); font-size: 7.4pt; text-align: right; }
+
+/* Supplier digest */
+.supplier-digest-page .page-head { margin-bottom: 4mm; }
+.supplier-digest-note { margin-bottom: 3.5mm; padding: 3.2mm 4mm; background: var(--pale-mustard); border-left: 1mm solid var(--mustard); font-family: var(--serif); font-size: 8.8pt; line-height: 1.38; }
+.digest-groups { border-top: .45mm solid var(--navy); }
+.digest-category { margin-top: 2mm; }
+.digest-category-title { margin: 0; padding: 1.7mm 2.5mm 1.4mm; background: var(--navy); color: var(--cream); font-size: 7.5pt; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+.digest-row { display: grid; grid-template-columns: 47mm 49mm 1fr; gap: 4mm; min-height: 13mm; padding: 2.1mm 2.4mm; border-bottom: .25mm solid var(--line); }
+.digest-product { color: var(--navy); font-size: 7.7pt; font-weight: 700; line-height: 1.3; }
+.digest-supplier { font-size: 7.5pt; line-height: 1.32; }
+.digest-limit { font-family: var(--serif); font-size: 7.4pt; line-height: 1.31; }
+.digest-meta { display: block; margin-top: .7mm; color: var(--mid); font-size: 6.9pt; }
+
+/* Coverage */
+.coverage-stats { display: grid; grid-template-columns: repeat(4, 1fr); border-top: .4mm solid var(--navy); border-bottom: .35mm solid var(--line); }
+.coverage-stat { min-height: 35mm; padding: 5mm 3.5mm 3mm; border-right: .3mm solid var(--line); }
+.coverage-stat:last-child { border-right: 0; }
+.coverage-value { color: var(--maroon); font-family: var(--display); font-size: 25pt; font-weight: 700; line-height: .9; }
+.coverage-label { margin-top: 2.7mm; font-family: var(--serif); font-size: 8.5pt; line-height: 1.3; }
+.limitation-list { margin: 7mm 0 0; padding: 0; list-style: none; border-top: .4mm solid var(--maroon); }
+.limitation-list li { display: grid; grid-template-columns: 34mm 1fr; gap: 6mm; padding: 4.2mm 0; border-bottom: .25mm solid var(--line); }
+.limitation-label { color: var(--navy); font-family: var(--display); font-size: 10pt; font-weight: 700; text-transform: uppercase; }
+.limitation-copy { font-family: var(--serif); font-size: 9.5pt; line-height: 1.45; }
+
+/* Method */
+.method-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 10mm; }
+.method-list { margin: 0; padding: 0; list-style: none; counter-reset: method; border-top: .4mm solid var(--navy); }
+.method-list li { counter-increment: method; position: relative; min-height: 25mm; padding: 4mm 0 4mm 14mm; border-bottom: .25mm solid var(--line); font-family: var(--serif); font-size: 9.5pt; line-height: 1.42; }
+.method-list li::before { content: counter(method, decimal-leading-zero); position: absolute; left: 0; top: 3.2mm; color: var(--maroon); font-family: var(--display); font-size: 15pt; font-weight: 700; }
+.responsibility-box { padding: 5mm; background: var(--pale-navy); border-top: 1mm solid var(--navy); }
+.responsibility-box ul { margin: 3mm 0 0; padding-left: 5mm; font-size: 9.2pt; line-height: 1.48; }
+.responsibility-box li + li { margin-top: 2mm; }
+.final-boundary { margin-top: 6mm; padding-top: 4mm; border-top: .45mm solid var(--maroon); font-family: var(--serif); font-size: 9.5pt; line-height: 1.5; }
+.contact-block { margin-top: 7mm; display: flex; align-items: center; gap: 6mm; }
+.contact-block img { width: 35mm; height: 17mm; object-fit: contain; object-position: left center; }
+.contact-copy { color: var(--mid); font-size: 8pt; line-height: 1.45; }
+
+@media print {
+  html, body { background: transparent; }
+  .page { box-shadow: none; margin: 0; }
+}
+  </style>
+</head>
+<body>
+
+    <section class="page cover-page" data-page="1" aria-label="Page 1: Cover">
+      <div class="cover-copy">
+        <img class="cover-logo" src="../../media/NeuraFlow/long_maroon_path_transparent_1024.png" alt="NeuraFlow">
+        <div class="cover-title">India Product<br>Opportunity<br>Radar</div>
+        <div class="cover-subtitle">Weekly opportunity brief</div>
+        <p class="cover-disclosure">Illustrative preview using sample data; not a live market-research report.</p>
+        <div class="cover-band">
+          <div class="week">Week of 9–15 August 2026</div>
+          <div class="client">Prepared for Illustrative Client<br>India · All-category preview</div>
+        </div>
+      </div>
+      <figure class="cover-visual">
+        <img src="../../media/client-preview/product-visuals/report/cover-product-research-still-life.jpg" alt="Illustrative still life of generic home, kitchen, pet and baby products">
+      </figure>
+      <div class="cover-folio">01</div>
+    </section>
+    
+    <section class="page " data-page="2" aria-label="Page 2: This Week at a Glance">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">02</div></div>
+        <header class="page-head">
+          <p class="kicker">Weekly decision summary</p>
+          <h1>This Week at a Glance</h1>
+          <p class="lede">Twelve products made the manufactured shortlist. The figures below describe evidence, not sales or profit.</p>
+        </header>
+        <main class="page-content">
+      <div class="metric-strip"><div class="metric"><div class="metric-value">12</div><div class="metric-label">opportunities</div></div><div class="metric"><div class="metric-value">4</div><div class="metric-label">Strong</div></div><div class="metric"><div class="metric-value">6</div><div class="metric-label">Promising</div></div><div class="metric"><div class="metric-value">2</div><div class="metric-label">Worth Watching</div></div><div class="metric"><div class="metric-value">5</div><div class="metric-label">compliance flags</div></div></div>
+      <div class="signal-total">
+        <div class="ratio">26/35</div>
+        <div class="explain">positive outcomes across available core-signal assessments. Missing coverage remains missing rather than becoming a zero.</div>
+      </div>
+      <div class="category-lines">
+        <div class="category-line">
+          <div class="category-name">Kitchen</div>
+          <div class="category-track"></div>
+          <div class="category-count">3</div>
+        </div>
+        
+        <div class="category-line">
+          <div class="category-name">Home Decor</div>
+          <div class="category-track"></div>
+          <div class="category-count">3</div>
+        </div>
+        
+        <div class="category-line">
+          <div class="category-name">Pet</div>
+          <div class="category-track"></div>
+          <div class="category-count">3</div>
+        </div>
+        
+        <div class="category-line">
+          <div class="category-name">Baby</div>
+          <div class="category-track"></div>
+          <div class="category-count">3</div>
+        </div>
+        </div>
+      <p class="lede" style="margin-top:7mm;max-width:155mm">A balanced shortlist where evidence allowed. Real reports never add weak products simply to fill a category or reach a target count.</p>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page " data-page="3" aria-label="Page 3: How to Read This Report">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">03</div></div>
+        <header class="page-head">
+          <p class="kicker">Evidence before interpretation</p>
+          <h1>How to Read This Report</h1>
+          <p class="lede">Three independent signal families create the market-signal label. Context, supplier leads and client compliance checks remain separate.</p>
+        </header>
+        <main class="page-content"><div class="signal-guide"><div class="guide-row"><div class="guide-label">Meta advertising</div><div class="guide-copy">Looks for sustained, relevant activity across several advertisers. A positive result requires both activity and age thresholds; a visible ad is not enough by itself.</div></div><div class="guide-row"><div class="guide-label">Marketplace</div><div class="guide-copy">Looks for an approved Amazon list signal or relevant cross-platform visibility with a top-ten position. Position is evidence of visibility, not a sales count.</div></div><div class="guide-row"><div class="guide-label">Google search</div><div class="guide-copy">Compares recent and prior four-week averages. A positive result requires both the growth ratio and the absolute increase to pass.</div></div></div><div class="concept-grid"><div class="concept"><h3>Signal label</h3><p>Strong means 3 positive core signals; Promising 2; Worth Watching 1; Weak 0.</p></div><div class="concept"><h3>Coverage</h3><p>Available tells you what could be assessed. Missing evidence is not a negative result.</p></div><div class="concept"><h3>Weekly status</h3><p>New, Returning, Strengthened and Weakened compare only with a comparable prior report.</p></div><div class="concept"><h3>Coverage Changed</h3><p>Source availability changed, so no upward or downward movement is claimed.</p></div><div class="concept"><h3>Quick commerce</h3><p>Nine platform-city checks provide availability and competition context only.</p></div><div class="concept"><h3>Supplier leads</h3><p>Possible starting points for investigation; not contacted, audited, recommended or verified.</p></div></div></main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page " data-page="4" aria-label="Page 4: Category Overview">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">04</div></div>
+        <header class="page-head">
+          <p class="kicker">Four practical product families</p>
+          <h1>Category Overview</h1>
+          <p class="lede">The sample demonstrates balanced coverage across Kitchen, Home Decor, Pet and Baby without changing the rank order created by evidence strength.</p>
+        </header>
+        <main class="page-content">
+      <div class="category-blocks">
+            <section class="category-block">
+              <div class="category-block-title">Kitchen</div>
+              <ul class="category-product-list"><li><strong>01</strong> · Oil Spray Bottle — Strong</li><li><strong>05</strong> · Manual Vegetable Chopper and Slicer — Promising</li><li><strong>11</strong> · Clip-On Sink Strainer Basket — Worth Watching</li></ul>
+              <div class="category-mix">1 Strong<br>1 Promising<br>1 Worth Watching</div>
+            </section>
+            
+            <section class="category-block">
+              <div class="category-block-title">Home Decor</div>
+              <ul class="category-product-list"><li><strong>02</strong> · Rechargeable Cordless Picture Light — Strong</li><li><strong>06</strong> · Pleated Mushroom Table Lamp — Promising</li><li><strong>07</strong> · Self-Watering Plant Spike Set — Promising</li></ul>
+              <div class="category-mix">1 Strong<br>2 Promising</div>
+            </section>
+            
+            <section class="category-block">
+              <div class="category-block-title">Pet</div>
+              <ul class="category-product-list"><li><strong>03</strong> · Motion-Activated Cat Ball — Strong</li><li><strong>08</strong> · Self-Cleaning Pet Grooming Brush — Promising</li><li><strong>12</strong> · Silicone Paw Cleaner Cup — Worth Watching</li></ul>
+              <div class="category-mix">1 Strong<br>1 Promising<br>1 Worth Watching</div>
+            </section>
+            
+            <section class="category-block">
+              <div class="category-block-title">Baby</div>
+              <ul class="category-product-list"><li><strong>04</strong> · Silicone Suction Feeding Set — Strong</li><li><strong>09</strong> · Stroller Organiser Bag — Promising</li><li><strong>10</strong> · Adjustable Baby-Proof Cabinet Lock Set — Promising</li></ul>
+              <div class="category-mix">1 Strong<br>2 Promising</div>
+            </section>
+            </div>
+      <div class="no-padding-note"><strong>Balance is modest, not forced.</strong> The manufactured sample contains three products in each category so the client can inspect the layout. In a live report, a category may contain fewer—or no—products when the evidence does not support them.</div>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page " data-page="5" aria-label="Page 5: Weekly Movement">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">05</div></div>
+        <header class="page-head">
+          <p class="kicker">Compared with the last comparable sample week</p>
+          <h1>Weekly Movement</h1>
+          <p class="lede">These statuses describe changes in report evidence. They are not sales trends, forecasts, or claims about market growth.</p>
+        </header>
+        <main class="page-content">
+      <div class="movement-list">
+            <div class="movement-row">
+              <div class="movement-count">5</div>
+              <div class="movement-status">New</div>
+              <div class="movement-products">Rechargeable Cordless Picture Light · Silicone Suction Feeding Set · Self-Cleaning Pet Grooming Brush · Stroller Organiser Bag · Clip-On Sink Strainer Basket<span class="movement-explain">Entered this week’s shortlist after passing the current evidence rules.</span></div>
+            </div>
+            
+            <div class="movement-row">
+              <div class="movement-count">3</div>
+              <div class="movement-status">Returning</div>
+              <div class="movement-products">Motion-Activated Cat Ball · Manual Vegetable Chopper and Slicer · Self-Watering Plant Spike Set<span class="movement-explain">Remained at the same signal strength with comparable source coverage.</span></div>
+            </div>
+            
+            <div class="movement-row">
+              <div class="movement-count">2</div>
+              <div class="movement-status">Strengthened</div>
+              <div class="movement-products">Oil Spray Bottle · Pleated Mushroom Table Lamp<span class="movement-explain">Moved to a stronger label with comparable source coverage.</span></div>
+            </div>
+            
+            <div class="movement-row">
+              <div class="movement-count">1</div>
+              <div class="movement-status">Weakened</div>
+              <div class="movement-products">Silicone Paw Cleaner Cup<span class="movement-explain">Moved to a weaker label with comparable source coverage.</span></div>
+            </div>
+            
+            <div class="movement-row">
+              <div class="movement-count">1</div>
+              <div class="movement-status">Coverage Changed</div>
+              <div class="movement-products">Adjustable Baby-Proof Cabinet Lock Set<span class="movement-explain">Source availability changed, so no directional movement is claimed.</span></div>
+            </div>
+            </div>
+      <div class="coverage-note">
+        <div class="mark">≠</div>
+        <div><h3>Coverage change is not direction</h3><p class="serif">Adjustable Baby-Proof Cabinet Lock Set has two positive signals out of two available this week because search evidence is unavailable. It is labelled Coverage Changed—not Strengthened or Returning.</p></div>
+      </div>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page product-page" data-page="6" data-product-id="DEMO-001" aria-label="Page 6: Oil Spray Bottle">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">06</div></div>
+        <main class="page-content">
+      <div class="product-hero">
+        <div>
+          <div class="product-rank">01</div>
+          <h1 class="product-name">Oil Spray Bottle</h1>
+          <div class="product-meta">Kitchen · Strengthened</div>
+          <div class="label-row">
+            <span class="label-chip label-strong">Strong</span>
+            <span class="signal-count">3/3</span>
+            <span class="available-count">positive / available core signals</span>
+          </div>
+          <div class="listing-band"><strong>Illustrative retail listing band:</strong> ₹199–₹499</div>
+        </div>
+        <figure class="product-image">
+          <img src="../../media/client-preview/product-visuals/report/01-oil-spray-bottle.jpg" alt="Illustrative product visual of Oil Spray Bottle">
+          <figcaption>Illustrative product visual</figcaption>
+        </figure>
+      </div>
+      <div class="ledger-title">Three-signal evidence ledger</div>
+      <div class="signal-ledger">
+    <div class="signal-row">
+      <div class="signal-name">Meta advertising</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">8 active relevant ads · 5 advertisers · oldest 31 days<span class="signal-links"><a href="https://example.com/evidence/meta/demo-001-a">Open sample ad evidence</a></span></div>
+      <div class="signal-meaning">Activity and age passed the sustained-advertising rule.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Marketplace</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Amazon Search match · position 4; Flipkart Relevant · position 7<span class="signal-links"><a href="https://example.com/evidence/amazon/demo-001">Amazon sample</a> <a href="https://example.com/evidence/flipkart/demo-001">Flipkart sample</a></span></div>
+      <div class="signal-meaning">At least one approved marketplace visibility rule was met.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Google search</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Recent avg 58 · prior 46 · 1.26× · +12</div>
+      <div class="signal-meaning">Both growth ratio and absolute increase passed.</div>
+    </div>
+    </div>
+      <div class="insight-grid">
+        <section class="insight">
+          <h3>Why it surfaced</h3>
+          <p>Sustained ad activity, top-ten marketplace visibility and rising India search interest all point in the same direction.</p>
+        </section>
+        <section class="insight">
+          <h3>Context</h3>
+          <div class="context-lines">
+            <div><strong>Quick commerce:</strong> present in 7 of 9 sampled platform-city checks; context only.</div>
+            <div><strong>Coverage:</strong> All three core signals available. Quick-commerce is context only.</div>
+          </div>
+          <div class="review-panel">
+            <div class="review-title">Standard client review</div>
+            <p class="review-copy">Widely available; differentiation may depend on spray consistency, bottle quality and stronger creative.</p>
+          </div>
+        </section>
+      </div>
+      <section class="supplier-strip">
+        <h3>Possible supplier leads · investigation only</h3>
+        <div class="supplier-grid">
+            <div class="supplier-mini">
+              <div class="supplier-name">Nivara Houseware Works</div>
+              <div class="supplier-meta">Rajkot, Gujarat · ₹54/unit · 100 pieces</div>
+              <div class="supplier-limit">Spray-pattern consistency and food-contact documentation not checked. <a href="https://example.com/suppliers/k01-a">Open sample supplier page</a></div>
+            </div>
+            
+            <div class="supplier-mini">
+              <div class="supplier-name">Copperlane Wholesale</div>
+              <div class="supplier-meta">Delhi · ₹62–₹68 · 50 pieces</div>
+              <div class="supplier-limit">Redirect target not independently reviewed; dropshipping support unknown. <a href="https://example.com/suppliers/k01-b">Open sample supplier page</a></div>
+            </div>
+            </div>
+        <div class="excel-pointer">See Excel → Evidence row 7 and Supplier Leads for all three manufactured records.</div>
+      </section>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page product-page" data-page="7" data-product-id="DEMO-002" aria-label="Page 7: Rechargeable Cordless Picture Light">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">07</div></div>
+        <main class="page-content">
+      <div class="product-hero">
+        <div>
+          <div class="product-rank">02</div>
+          <h1 class="product-name">Rechargeable Cordless Picture Light</h1>
+          <div class="product-meta">Home Decor · New</div>
+          <div class="label-row">
+            <span class="label-chip label-strong">Strong</span>
+            <span class="signal-count">3/3</span>
+            <span class="available-count">positive / available core signals</span>
+          </div>
+          <div class="listing-band"><strong>Illustrative retail listing band:</strong> ₹799–₹1,799</div>
+        </div>
+        <figure class="product-image">
+          <img src="../../media/client-preview/product-visuals/report/02-rechargeable-cordless-picture-light.jpg" alt="Illustrative product visual of Rechargeable Cordless Picture Light">
+          <figcaption>Illustrative product visual</figcaption>
+        </figure>
+      </div>
+      <div class="ledger-title">Three-signal evidence ledger</div>
+      <div class="signal-ledger">
+    <div class="signal-row">
+      <div class="signal-name">Meta advertising</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">6 active relevant ads · 4 advertisers · oldest 23 days<span class="signal-links"><a href="https://example.com/evidence/meta/demo-002-a">Open sample ad evidence</a></span></div>
+      <div class="signal-meaning">Activity and age passed the sustained-advertising rule.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Marketplace</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Amazon Movers &amp; Shakers · position 18; Flipkart Partial · position 24<span class="signal-links"><a href="https://example.com/evidence/amazon/demo-002">Amazon sample</a> <a href="https://example.com/evidence/flipkart/demo-002">Flipkart sample</a></span></div>
+      <div class="signal-meaning">At least one approved marketplace visibility rule was met.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Google search</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Recent avg 44 · prior 34 · 1.29× · +10</div>
+      <div class="signal-meaning">Both growth ratio and absolute increase passed.</div>
+    </div>
+    </div>
+      <div class="insight-grid">
+        <section class="insight">
+          <h3>Why it surfaced</h3>
+          <p>Persistent advertiser activity, an Amazon movers placement and a clear search increase support a strong first-week entry.</p>
+        </section>
+        <section class="insight">
+          <h3>Context</h3>
+          <div class="context-lines">
+            <div><strong>Quick commerce:</strong> present in 1 of 9 sampled platform-city checks; context only.</div>
+            <div><strong>Coverage:</strong> All core signals available; quick-commerce presence is sparse and contextual.</div>
+          </div>
+          <div class="review-panel flagged">
+            <div class="review-title">Client Compliance Check Required</div>
+            <p class="review-copy">Battery, charging, heat, mounting strength and electrical claims require client-side review.</p>
+          </div>
+        </section>
+      </div>
+      <section class="supplier-strip">
+        <h3>Possible supplier leads · investigation only</h3>
+        <div class="supplier-grid">
+            <div class="supplier-mini">
+              <div class="supplier-name">LumaNest Fixtures</div>
+              <div class="supplier-meta">Morbi, Gujarat · ₹385 · 50 units</div>
+              <div class="supplier-limit">Battery certification, charging performance and mounting hardware not checked. <a href="https://example.com/suppliers/h04-a">Open sample supplier page</a></div>
+            </div>
+            
+            <div class="supplier-mini">
+              <div class="supplier-name">GalleryGlow Traders</div>
+              <div class="supplier-meta">Mumbai, Maharashtra · ₹440 each · 25 units</div>
+              <div class="supplier-limit">Visible price may exclude remote, charger, tax and freight. <a href="https://example.com/suppliers/h04-b">Open sample supplier page</a></div>
+            </div>
+            </div>
+        <div class="excel-pointer">See Excel → Evidence row 8 and Supplier Leads for all three manufactured records.</div>
+      </section>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page product-page" data-page="8" data-product-id="DEMO-003" aria-label="Page 8: Motion-Activated Cat Ball">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">08</div></div>
+        <main class="page-content">
+      <div class="product-hero">
+        <div>
+          <div class="product-rank">03</div>
+          <h1 class="product-name">Motion-Activated Cat Ball</h1>
+          <div class="product-meta">Pet · Returning</div>
+          <div class="label-row">
+            <span class="label-chip label-strong">Strong</span>
+            <span class="signal-count">3/3</span>
+            <span class="available-count">positive / available core signals</span>
+          </div>
+          <div class="listing-band"><strong>Illustrative retail listing band:</strong> ₹499–₹1,299</div>
+        </div>
+        <figure class="product-image">
+          <img src="../../media/client-preview/product-visuals/report/03-motion-activated-cat-ball.jpg" alt="Illustrative product visual of Motion-Activated Cat Ball">
+          <figcaption>Illustrative product visual</figcaption>
+        </figure>
+      </div>
+      <div class="ledger-title">Three-signal evidence ledger</div>
+      <div class="signal-ledger">
+    <div class="signal-row">
+      <div class="signal-name">Meta advertising</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">9 active relevant ads · 6 advertisers · oldest 37 days<span class="signal-links"><a href="https://example.com/evidence/meta/demo-003-a">Open sample ad evidence</a></span></div>
+      <div class="signal-meaning">Activity and age passed the sustained-advertising rule.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Marketplace</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Amazon Bestseller · position 6; Flipkart Relevant · position 12<span class="signal-links"><a href="https://example.com/evidence/amazon/demo-003">Amazon sample</a> <a href="https://example.com/evidence/flipkart/demo-003">Flipkart sample</a></span></div>
+      <div class="signal-meaning">At least one approved marketplace visibility rule was met.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Google search</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Recent avg 63 · prior 50 · 1.26× · +13</div>
+      <div class="signal-meaning">Both growth ratio and absolute increase passed.</div>
+    </div>
+    </div>
+      <div class="insight-grid">
+        <section class="insight">
+          <h3>Why it surfaced</h3>
+          <p>Long-running multi-advertiser activity, bestseller evidence and rising search interest make this the strongest returning pet item.</p>
+        </section>
+        <section class="insight">
+          <h3>Context</h3>
+          <div class="context-lines">
+            <div><strong>Quick commerce:</strong> present in 3 of 9 sampled platform-city checks; context only.</div>
+            <div><strong>Coverage:</strong> Complete core coverage. Three quick-commerce matches were sampled.</div>
+          </div>
+          <div class="review-panel flagged">
+            <div class="review-title">Client Compliance Check Required</div>
+            <p class="review-copy">Battery life, charging, noise, durability and unattended-use claims require review.</p>
+          </div>
+        </section>
+      </div>
+      <section class="supplier-strip">
+        <h3>Possible supplier leads · investigation only</h3>
+        <div class="supplier-grid">
+            <div class="supplier-mini">
+              <div class="supplier-name">PlayPurr Imports</div>
+              <div class="supplier-meta">Delhi · ₹245 · 100 units</div>
+              <div class="supplier-limit">Noise level, battery life, charging cable and durability not checked. <a href="https://example.com/suppliers/p08-a">Open sample supplier page</a></div>
+            </div>
+            
+            <div class="supplier-mini">
+              <div class="supplier-name">WhiskerMotion Wholesale</div>
+              <div class="supplier-meta">Delhi NCR · ₹310/unit · 30 units</div>
+              <div class="supplier-limit">No evidence of warranty, replacement policy or single-unit fulfilment. <a href="https://example.com/suppliers/p08-b">Open sample supplier page</a></div>
+            </div>
+            </div>
+        <div class="excel-pointer">See Excel → Evidence row 9 and Supplier Leads for all three manufactured records.</div>
+      </section>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page product-page" data-page="9" data-product-id="DEMO-004" aria-label="Page 9: Silicone Suction Feeding Set">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">09</div></div>
+        <main class="page-content">
+      <div class="product-hero">
+        <div>
+          <div class="product-rank">04</div>
+          <h1 class="product-name">Silicone Suction Feeding Set</h1>
+          <div class="product-meta">Baby · New</div>
+          <div class="label-row">
+            <span class="label-chip label-strong">Strong</span>
+            <span class="signal-count">3/3</span>
+            <span class="available-count">positive / available core signals</span>
+          </div>
+          <div class="listing-band"><strong>Illustrative retail listing band:</strong> ₹599–₹1,499</div>
+        </div>
+        <figure class="product-image">
+          <img src="../../media/client-preview/product-visuals/report/04-silicone-suction-feeding-set.jpg" alt="Illustrative product visual of Silicone Suction Feeding Set">
+          <figcaption>Illustrative product visual</figcaption>
+        </figure>
+      </div>
+      <div class="ledger-title">Three-signal evidence ledger</div>
+      <div class="signal-ledger">
+    <div class="signal-row">
+      <div class="signal-name">Meta advertising</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">7 active relevant ads · 4 advertisers · oldest 29 days<span class="signal-links"><a href="https://example.com/evidence/meta/demo-004-a">Open sample ad evidence</a></span></div>
+      <div class="signal-meaning">Activity and age passed the sustained-advertising rule.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Marketplace</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Amazon Bestseller · position 11; Flipkart Relevant · position 16<span class="signal-links"><a href="https://example.com/evidence/amazon/demo-004">Amazon sample</a> <a href="https://example.com/evidence/flipkart/demo-004">Flipkart sample</a></span></div>
+      <div class="signal-meaning">At least one approved marketplace visibility rule was met.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Google search</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Recent avg 57 · prior 44 · 1.30× · +13</div>
+      <div class="signal-meaning">Both growth ratio and absolute increase passed.</div>
+    </div>
+    </div>
+      <div class="insight-grid">
+        <section class="insight">
+          <h3>Why it surfaced</h3>
+          <p>Multi-advertiser persistence, bestseller evidence and a clear search lift support a strong new baby-category opportunity.</p>
+        </section>
+        <section class="insight">
+          <h3>Context</h3>
+          <div class="context-lines">
+            <div><strong>Quick commerce:</strong> present in 6 of 9 sampled platform-city checks; context only.</div>
+            <div><strong>Coverage:</strong> All core evidence available; quick-commerce presence is relatively broad.</div>
+          </div>
+          <div class="review-panel flagged">
+            <div class="review-title">Client Compliance Check Required</div>
+            <p class="review-copy">Material, food-contact, age, cleaning, choking and safety claims require client-side compliance review.</p>
+          </div>
+        </section>
+      </div>
+      <section class="supplier-strip">
+        <h3>Possible supplier leads · investigation only</h3>
+        <div class="supplier-grid">
+            <div class="supplier-mini">
+              <div class="supplier-name">LittleSpoon Silicone Works</div>
+              <div class="supplier-meta">Mumbai, Maharashtra · ₹285/set · 50 sets</div>
+              <div class="supplier-limit">Food-contact, material and age-suitability documentation require client verification. <a href="https://example.com/suppliers/b11-a">Open sample supplier page</a></div>
+            </div>
+            
+            <div class="supplier-mini">
+              <div class="supplier-name">TinyTable Baby Supply</div>
+              <div class="supplier-meta">Delhi · ₹340 · 2 cartons × 12</div>
+              <div class="supplier-limit">Redirect target and exact set composition require confirmation. <a href="https://example.com/suppliers/b11-b">Open sample supplier page</a></div>
+            </div>
+            </div>
+        <div class="excel-pointer">See Excel → Evidence row 10 and Supplier Leads for all three manufactured records.</div>
+      </section>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page product-page" data-page="10" data-product-id="DEMO-005" aria-label="Page 10: Manual Vegetable Chopper and Slicer">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">10</div></div>
+        <main class="page-content">
+      <div class="product-hero">
+        <div>
+          <div class="product-rank">05</div>
+          <h1 class="product-name">Manual Vegetable Chopper and Slicer</h1>
+          <div class="product-meta">Kitchen · Returning</div>
+          <div class="label-row">
+            <span class="label-chip label-promising">Promising</span>
+            <span class="signal-count">2/3</span>
+            <span class="available-count">positive / available core signals</span>
+          </div>
+          <div class="listing-band"><strong>Illustrative retail listing band:</strong> ₹299–₹899</div>
+        </div>
+        <figure class="product-image">
+          <img src="../../media/client-preview/product-visuals/report/05-manual-vegetable-chopper-and-slicer.jpg" alt="Illustrative product visual of Manual Vegetable Chopper and Slicer">
+          <figcaption>Illustrative product visual</figcaption>
+        </figure>
+      </div>
+      <div class="ledger-title">Three-signal evidence ledger</div>
+      <div class="signal-ledger">
+    <div class="signal-row">
+      <div class="signal-name">Meta advertising</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">7 active relevant ads · 4 advertisers · oldest 26 days<span class="signal-links"><a href="https://example.com/evidence/meta/demo-005-a">Open sample ad evidence</a></span></div>
+      <div class="signal-meaning">Activity and age passed the sustained-advertising rule.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Marketplace</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Amazon Search match · position 6; Flipkart Relevant · position 9<span class="signal-links"><a href="https://example.com/evidence/amazon/demo-005">Amazon sample</a> <a href="https://example.com/evidence/flipkart/demo-005">Flipkart sample</a></span></div>
+      <div class="signal-meaning">At least one approved marketplace visibility rule was met.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Google search</div>
+      <div class="outcome outcome-not-positive">Not positive</div>
+      <div class="signal-evidence">Recent avg 49 · prior 47 · 1.04× · +2</div>
+      <div class="signal-meaning">Available search data did not pass both thresholds.</div>
+    </div>
+    </div>
+      <div class="insight-grid">
+        <section class="insight">
+          <h3>Why it surfaced</h3>
+          <p>Advertising and marketplace evidence remain persistent, although search interest is currently stable rather than rising.</p>
+        </section>
+        <section class="insight">
+          <h3>Context</h3>
+          <div class="context-lines">
+            <div><strong>Quick commerce:</strong> present in 6 of 9 sampled platform-city checks; context only.</div>
+            <div><strong>Coverage:</strong> All core sources available. Search did not pass the growth rule.</div>
+          </div>
+          <div class="review-panel">
+            <div class="review-title">Standard client review</div>
+            <p class="review-copy">Commodity competition is high; blade quality, safety instructions and replacement expectations need sampling.</p>
+          </div>
+        </section>
+      </div>
+      <section class="supplier-strip">
+        <h3>Possible supplier leads · investigation only</h3>
+        <div class="supplier-grid">
+            <div class="supplier-mini">
+              <div class="supplier-name">ChopCraft Appliance Works</div>
+              <div class="supplier-meta">Ahmedabad, Gujarat · ₹145 · 100 pieces</div>
+              <div class="supplier-limit">Blade grade, locking safety and replacement parts not checked. <a href="https://example.com/suppliers/k02-a">Open sample supplier page</a></div>
+            </div>
+            
+            <div class="supplier-mini">
+              <div class="supplier-name">Capital Kitchen Mart</div>
+              <div class="supplier-meta">Delhi · ₹172 · 4 cartons × 12</div>
+              <div class="supplier-limit">Capacity and blade configuration must be matched to the researched variant. <a href="https://example.com/suppliers/k02-b">Open sample supplier page</a></div>
+            </div>
+            </div>
+        <div class="excel-pointer">See Excel → Evidence row 11 and Supplier Leads for all three manufactured records.</div>
+      </section>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page product-page" data-page="11" data-product-id="DEMO-006" aria-label="Page 11: Pleated Mushroom Table Lamp">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">11</div></div>
+        <main class="page-content">
+      <div class="product-hero">
+        <div>
+          <div class="product-rank">06</div>
+          <h1 class="product-name">Pleated Mushroom Table Lamp</h1>
+          <div class="product-meta">Home Decor · Strengthened</div>
+          <div class="label-row">
+            <span class="label-chip label-promising">Promising</span>
+            <span class="signal-count">2/3</span>
+            <span class="available-count">positive / available core signals</span>
+          </div>
+          <div class="listing-band"><strong>Illustrative retail listing band:</strong> ₹899–₹2,299</div>
+        </div>
+        <figure class="product-image">
+          <img src="../../media/client-preview/product-visuals/report/06-pleated-mushroom-table-lamp.jpg" alt="Illustrative product visual of Pleated Mushroom Table Lamp">
+          <figcaption>Illustrative product visual</figcaption>
+        </figure>
+      </div>
+      <div class="ledger-title">Three-signal evidence ledger</div>
+      <div class="signal-ledger">
+    <div class="signal-row">
+      <div class="signal-name">Meta advertising</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">5 active relevant ads · 3 advertisers · oldest 18 days<span class="signal-links"><a href="https://example.com/evidence/meta/demo-006-a">Open sample ad evidence</a></span></div>
+      <div class="signal-meaning">Activity and age passed the sustained-advertising rule.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Marketplace</div>
+      <div class="outcome outcome-not-positive">Not positive</div>
+      <div class="signal-evidence">Amazon Search match · position 12; Flipkart No relevant match · position not shown<span class="signal-links"><a href="https://example.com/evidence/amazon/demo-006">Amazon sample</a> <a href="https://example.com/evidence/flipkart/demo-006-search">Flipkart sample</a></span></div>
+      <div class="signal-meaning">Available marketplace evidence did not pass an approved rule.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Google search</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Recent avg 52 · prior 41 · 1.27× · +11</div>
+      <div class="signal-meaning">Both growth ratio and absolute increase passed.</div>
+    </div>
+    </div>
+      <div class="insight-grid">
+        <section class="insight">
+          <h3>Why it surfaced</h3>
+          <p>Advertising persistence and rising search interest strengthened while marketplace evidence remained too narrow to pass.</p>
+        </section>
+        <section class="insight">
+          <h3>Context</h3>
+          <div class="context-lines">
+            <div><strong>Quick commerce:</strong> present in 2 of 9 sampled platform-city checks; context only.</div>
+            <div><strong>Coverage:</strong> All core sources available; marketplace evidence did not pass.</div>
+          </div>
+          <div class="review-panel flagged">
+            <div class="review-title">Client Compliance Check Required</div>
+            <p class="review-copy">Fragility, plug type, bulb specification, heat and transit breakage require client review.</p>
+          </div>
+        </section>
+      </div>
+      <section class="supplier-strip">
+        <h3>Possible supplier leads · investigation only</h3>
+        <div class="supplier-grid">
+            <div class="supplier-mini">
+              <div class="supplier-name">HearthMuse Lighting</div>
+              <div class="supplier-meta">Moradabad, Uttar Pradesh · ₹510/unit · 40 units</div>
+              <div class="supplier-limit">Electrical documentation, packaging strength and transit-breakage rate not checked. <a href="https://example.com/suppliers/h05-a">Open sample supplier page</a></div>
+            </div>
+            
+            <div class="supplier-mini">
+              <div class="supplier-name">AmberPleat Decor</div>
+              <div class="supplier-meta">Delhi · ₹575 · 20 units</div>
+              <div class="supplier-limit">Bulb inclusion and plug specification are not clear from the listing. <a href="https://example.com/suppliers/h05-b">Open sample supplier page</a></div>
+            </div>
+            </div>
+        <div class="excel-pointer">See Excel → Evidence row 12 and Supplier Leads for all three manufactured records.</div>
+      </section>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page product-page" data-page="12" data-product-id="DEMO-007" aria-label="Page 12: Self-Watering Plant Spike Set">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">12</div></div>
+        <main class="page-content">
+      <div class="product-hero">
+        <div>
+          <div class="product-rank">07</div>
+          <h1 class="product-name">Self-Watering Plant Spike Set</h1>
+          <div class="product-meta">Home Decor · Returning</div>
+          <div class="label-row">
+            <span class="label-chip label-promising">Promising</span>
+            <span class="signal-count">2/3</span>
+            <span class="available-count">positive / available core signals</span>
+          </div>
+          <div class="listing-band"><strong>Illustrative retail listing band:</strong> ₹199–₹499</div>
+        </div>
+        <figure class="product-image">
+          <img src="../../media/client-preview/product-visuals/report/07-self-watering-plant-spike-set.jpg" alt="Illustrative product visual of Self-Watering Plant Spike Set">
+          <figcaption>Illustrative product visual</figcaption>
+        </figure>
+      </div>
+      <div class="ledger-title">Three-signal evidence ledger</div>
+      <div class="signal-ledger">
+    <div class="signal-row">
+      <div class="signal-name">Meta advertising</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">6 active relevant ads · 4 advertisers · oldest 21 days<span class="signal-links"><a href="https://example.com/evidence/meta/demo-007-a">Open sample ad evidence</a></span></div>
+      <div class="signal-meaning">Activity and age passed the sustained-advertising rule.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Marketplace</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Amazon Search match · position 7; Flipkart Relevant · position 12<span class="signal-links"><a href="https://example.com/evidence/amazon/demo-007">Amazon sample</a> <a href="https://example.com/evidence/flipkart/demo-007">Flipkart sample</a></span></div>
+      <div class="signal-meaning">At least one approved marketplace visibility rule was met.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Google search</div>
+      <div class="outcome outcome-not-positive">Not positive</div>
+      <div class="signal-evidence">Recent avg 38 · prior 36 · 1.06× · +2</div>
+      <div class="signal-meaning">Available search data did not pass both thresholds.</div>
+    </div>
+    </div>
+      <div class="insight-grid">
+        <section class="insight">
+          <h3>Why it surfaced</h3>
+          <p>Advertising and marketplace evidence persist across a second week, while search interest remains broadly stable.</p>
+        </section>
+        <section class="insight">
+          <h3>Context</h3>
+          <div class="context-lines">
+            <div><strong>Quick commerce:</strong> present in 4 of 9 sampled platform-city checks; context only.</div>
+            <div><strong>Coverage:</strong> Complete core coverage. Search movement did not pass.</div>
+          </div>
+          <div class="review-panel">
+            <div class="review-title">Standard client review</div>
+            <p class="review-copy">Flow rate varies by bottle, soil and setup; avoid universal watering-duration claims.</p>
+          </div>
+        </section>
+      </div>
+      <section class="supplier-strip">
+        <h3>Possible supplier leads · investigation only</h3>
+        <div class="supplier-grid">
+            <div class="supplier-mini">
+              <div class="supplier-name">TerraDrip Plastics</div>
+              <div class="supplier-meta">Rajkot, Gujarat · ₹46/set · 200 sets</div>
+              <div class="supplier-limit">Flow-rate consistency and bottle compatibility require product testing. <a href="https://example.com/suppliers/h06-a">Open sample supplier page</a></div>
+            </div>
+            
+            <div class="supplier-mini">
+              <div class="supplier-name">PlantEase Wholesale</div>
+              <div class="supplier-meta">Delhi · ₹62 · 100 sets</div>
+              <div class="supplier-limit">Redirected page may represent a mixed gardening catalogue rather than live stock. <a href="https://example.com/suppliers/h06-b">Open sample supplier page</a></div>
+            </div>
+            </div>
+        <div class="excel-pointer">See Excel → Evidence row 13 and Supplier Leads for all three manufactured records.</div>
+      </section>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page product-page" data-page="13" data-product-id="DEMO-008" aria-label="Page 13: Self-Cleaning Pet Grooming Brush">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">13</div></div>
+        <main class="page-content">
+      <div class="product-hero">
+        <div>
+          <div class="product-rank">08</div>
+          <h1 class="product-name">Self-Cleaning Pet Grooming Brush</h1>
+          <div class="product-meta">Pet · New</div>
+          <div class="label-row">
+            <span class="label-chip label-promising">Promising</span>
+            <span class="signal-count">2/3</span>
+            <span class="available-count">positive / available core signals</span>
+          </div>
+          <div class="listing-band"><strong>Illustrative retail listing band:</strong> ₹199–₹499</div>
+        </div>
+        <figure class="product-image">
+          <img src="../../media/client-preview/product-visuals/report/08-self-cleaning-pet-grooming-brush.jpg" alt="Illustrative product visual of Self-Cleaning Pet Grooming Brush">
+          <figcaption>Illustrative product visual</figcaption>
+        </figure>
+      </div>
+      <div class="ledger-title">Three-signal evidence ledger</div>
+      <div class="signal-ledger">
+    <div class="signal-row">
+      <div class="signal-name">Meta advertising</div>
+      <div class="outcome outcome-not-positive">Not positive</div>
+      <div class="signal-evidence">2 active relevant ads · 2 advertisers · oldest 20 days<span class="signal-links"><a href="https://example.com/evidence/meta/demo-008-a">Open sample ad evidence</a></span></div>
+      <div class="signal-meaning">Visible activity did not pass both required thresholds.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Marketplace</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Amazon Search match · position 5; Flipkart Relevant · position 10<span class="signal-links"><a href="https://example.com/evidence/amazon/demo-008">Amazon sample</a> <a href="https://example.com/evidence/flipkart/demo-008">Flipkart sample</a></span></div>
+      <div class="signal-meaning">At least one approved marketplace visibility rule was met.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Google search</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Recent avg 51 · prior 43 · 1.19× · +8</div>
+      <div class="signal-meaning">Both growth ratio and absolute increase passed.</div>
+    </div>
+    </div>
+      <div class="insight-grid">
+        <section class="insight">
+          <h3>Why it surfaced</h3>
+          <p>Marketplace visibility and improving search interest offset advertising evidence that has not yet crossed the persistence threshold.</p>
+        </section>
+        <section class="insight">
+          <h3>Context</h3>
+          <div class="context-lines">
+            <div><strong>Quick commerce:</strong> present in 5 of 9 sampled platform-city checks; context only.</div>
+            <div><strong>Coverage:</strong> All sources available. Meta evidence was relevant but below threshold.</div>
+          </div>
+          <div class="review-panel">
+            <div class="review-title">Standard client review</div>
+            <p class="review-copy">Pin finish, cleaning mechanism, pet comfort and truthful coat-type claims need product sampling.</p>
+          </div>
+        </section>
+      </div>
+      <section class="supplier-strip">
+        <h3>Possible supplier leads · investigation only</h3>
+        <div class="supplier-grid">
+            <div class="supplier-mini">
+              <div class="supplier-name">PawPolish Tools</div>
+              <div class="supplier-meta">Delhi · ₹58 · 100 pieces</div>
+              <div class="supplier-limit">Pin-tip finish, handle durability and coat suitability require sampling. <a href="https://example.com/suppliers/p07-a">Open sample supplier page</a></div>
+            </div>
+            
+            <div class="supplier-mini">
+              <div class="supplier-name">FurEase Traders</div>
+              <div class="supplier-meta">Mumbai, Maharashtra · ₹72 each · 50 pieces</div>
+              <div class="supplier-limit">Packaging and actual pin construction are not documented. <a href="https://example.com/suppliers/p07-b">Open sample supplier page</a></div>
+            </div>
+            </div>
+        <div class="excel-pointer">See Excel → Evidence row 14 and Supplier Leads for all three manufactured records.</div>
+      </section>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page product-page" data-page="14" data-product-id="DEMO-009" aria-label="Page 14: Stroller Organiser Bag">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">14</div></div>
+        <main class="page-content">
+      <div class="product-hero">
+        <div>
+          <div class="product-rank">09</div>
+          <h1 class="product-name">Stroller Organiser Bag</h1>
+          <div class="product-meta">Baby · New</div>
+          <div class="label-row">
+            <span class="label-chip label-promising">Promising</span>
+            <span class="signal-count">2/3</span>
+            <span class="available-count">positive / available core signals</span>
+          </div>
+          <div class="listing-band"><strong>Illustrative retail listing band:</strong> ₹499–₹1,299</div>
+        </div>
+        <figure class="product-image">
+          <img src="../../media/client-preview/product-visuals/report/09-stroller-organiser-bag.jpg" alt="Illustrative product visual of Stroller Organiser Bag">
+          <figcaption>Illustrative product visual</figcaption>
+        </figure>
+      </div>
+      <div class="ledger-title">Three-signal evidence ledger</div>
+      <div class="signal-ledger">
+    <div class="signal-row">
+      <div class="signal-name">Meta advertising</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">5 active relevant ads · 3 advertisers · oldest 16 days<span class="signal-links"><a href="https://example.com/evidence/meta/demo-009-a">Open sample ad evidence</a></span></div>
+      <div class="signal-meaning">Activity and age passed the sustained-advertising rule.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Marketplace</div>
+      <div class="outcome outcome-not-positive">Not positive</div>
+      <div class="signal-evidence">Amazon Search match · position 16; Flipkart No relevant match · position not shown<span class="signal-links"><a href="https://example.com/evidence/amazon/demo-009">Amazon sample</a> <a href="https://example.com/evidence/flipkart/demo-009-search">Flipkart sample</a></span></div>
+      <div class="signal-meaning">Available marketplace evidence did not pass an approved rule.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Google search</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Recent avg 47 · prior 40 · 1.18× · +7</div>
+      <div class="signal-meaning">Both growth ratio and absolute increase passed.</div>
+    </div>
+    </div>
+      <div class="insight-grid">
+        <section class="insight">
+          <h3>Why it surfaced</h3>
+          <p>Persistent advertising and rising search interest support the practical storage proposition despite weak marketplace confirmation.</p>
+        </section>
+        <section class="insight">
+          <h3>Context</h3>
+          <div class="context-lines">
+            <div><strong>Quick commerce:</strong> present in 4 of 9 sampled platform-city checks; context only.</div>
+            <div><strong>Coverage:</strong> Complete core coverage; marketplace cross-platform rule did not pass.</div>
+          </div>
+          <div class="review-panel">
+            <div class="review-title">Standard client review</div>
+            <p class="review-copy">Attachment fit, weight limits, material quality and compatibility claims require ordinary client review.</p>
+          </div>
+        </section>
+      </div>
+      <section class="supplier-strip">
+        <h3>Possible supplier leads · investigation only</h3>
+        <div class="supplier-grid">
+            <div class="supplier-mini">
+              <div class="supplier-name">CarryKind Textiles</div>
+              <div class="supplier-meta">Delhi · ₹190 · 50 pieces</div>
+              <div class="supplier-limit">Stroller fit, load limit and strap strength require physical testing. <a href="https://example.com/suppliers/b10-a">Open sample supplier page</a></div>
+            </div>
+            
+            <div class="supplier-mini">
+              <div class="supplier-name">PramPocket Wholesale</div>
+              <div class="supplier-meta">Mumbai, Maharashtra · ₹235 · 25 pieces</div>
+              <div class="supplier-limit">Compatibility wording is broad and should not be repeated without testing. <a href="https://example.com/suppliers/b10-b">Open sample supplier page</a></div>
+            </div>
+            </div>
+        <div class="excel-pointer">See Excel → Evidence row 15 and Supplier Leads for all three manufactured records.</div>
+      </section>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page product-page" data-page="15" data-product-id="DEMO-010" aria-label="Page 15: Adjustable Baby-Proof Cabinet Lock Set">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">15</div></div>
+        <main class="page-content">
+      <div class="product-hero">
+        <div>
+          <div class="product-rank">10</div>
+          <h1 class="product-name">Adjustable Baby-Proof Cabinet Lock Set</h1>
+          <div class="product-meta">Baby · Coverage Changed</div>
+          <div class="label-row">
+            <span class="label-chip label-promising">Promising</span>
+            <span class="signal-count">2/2</span>
+            <span class="available-count">positive / available core signals</span>
+          </div>
+          <div class="listing-band"><strong>Illustrative retail listing band:</strong> ₹199–₹599</div>
+        </div>
+        <figure class="product-image">
+          <img src="../../media/client-preview/product-visuals/report/10-adjustable-baby-proof-cabinet-lock-set.jpg" alt="Illustrative product visual of Adjustable Baby-Proof Cabinet Lock Set">
+          <figcaption>Illustrative product visual</figcaption>
+        </figure>
+      </div>
+      <div class="ledger-title">Three-signal evidence ledger</div>
+      <div class="signal-ledger">
+    <div class="signal-row">
+      <div class="signal-name">Meta advertising</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">6 active relevant ads · 4 advertisers · oldest 25 days<span class="signal-links"><a href="https://example.com/evidence/meta/demo-010-a">Open sample ad evidence</a></span></div>
+      <div class="signal-meaning">Activity and age passed the sustained-advertising rule.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Marketplace</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Amazon Search match · position 8; Flipkart Relevant · position 13<span class="signal-links"><a href="https://example.com/evidence/amazon/demo-010">Amazon sample</a> <a href="https://example.com/evidence/flipkart/demo-010">Flipkart sample</a></span></div>
+      <div class="signal-meaning">At least one approved marketplace visibility rule was met.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Google search</div>
+      <div class="outcome outcome-missing">Missing</div>
+      <div class="signal-evidence">Search source unavailable for this sample run.</div>
+      <div class="signal-meaning">Missing coverage was not treated as zero or negative.</div>
+    </div>
+    </div>
+      <div class="insight-grid">
+        <section class="insight">
+          <h3>Why it surfaced</h3>
+          <p>Advertising and marketplace evidence remain positive, but unavailable search data prevents a directional week-over-week comparison.</p>
+        </section>
+        <section class="insight">
+          <h3>Context</h3>
+          <div class="context-lines">
+            <div><strong>Quick commerce:</strong> present in 5 of 9 sampled platform-city checks; context only.</div>
+            <div><strong>Coverage:</strong> Search evidence unavailable this week; two of two available core signals are positive.</div>
+          </div>
+          <div class="review-panel flagged">
+            <div class="review-title">Client Compliance Check Required</div>
+            <p class="review-copy">Adhesive strength, installation, age guidance, warnings and child-safety claims require client-side compliance review.</p>
+          </div>
+        </section>
+      </div>
+      <section class="supplier-strip">
+        <h3>Possible supplier leads · investigation only</h3>
+        <div class="supplier-grid">
+            <div class="supplier-mini">
+              <div class="supplier-name">SafeLatch Plastics</div>
+              <div class="supplier-meta">Rajkot, Gujarat · ₹38/lock · 250 pieces</div>
+              <div class="supplier-limit">Adhesive performance, installation guidance and child-safety claims require verification. <a href="https://example.com/suppliers/b12-a">Open sample supplier page</a></div>
+            </div>
+            
+            <div class="supplier-mini">
+              <div class="supplier-name">CareLock Traders</div>
+              <div class="supplier-meta">Delhi · ₹52 · 100 pieces</div>
+              <div class="supplier-limit">No visible testing documentation or age guidance. <a href="https://example.com/suppliers/b12-b">Open sample supplier page</a></div>
+            </div>
+            </div>
+        <div class="excel-pointer">See Excel → Evidence row 16 and Supplier Leads for all three manufactured records.</div>
+      </section>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page product-page" data-page="16" data-product-id="DEMO-011" aria-label="Page 16: Clip-On Sink Strainer Basket">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">16</div></div>
+        <main class="page-content">
+      <div class="product-hero">
+        <div>
+          <div class="product-rank">11</div>
+          <h1 class="product-name">Clip-On Sink Strainer Basket</h1>
+          <div class="product-meta">Kitchen · New</div>
+          <div class="label-row">
+            <span class="label-chip label-worth-watching">Worth Watching</span>
+            <span class="signal-count">1/3</span>
+            <span class="available-count">positive / available core signals</span>
+          </div>
+          <div class="listing-band"><strong>Illustrative retail listing band:</strong> ₹149–₹349</div>
+        </div>
+        <figure class="product-image">
+          <img src="../../media/client-preview/product-visuals/report/11-clip-on-sink-strainer-basket.jpg" alt="Illustrative product visual of Clip-On Sink Strainer Basket">
+          <figcaption>Illustrative product visual</figcaption>
+        </figure>
+      </div>
+      <div class="ledger-title">Three-signal evidence ledger</div>
+      <div class="signal-ledger">
+    <div class="signal-row">
+      <div class="signal-name">Meta advertising</div>
+      <div class="outcome outcome-not-positive">Not positive</div>
+      <div class="signal-evidence">2 active relevant ads · 2 advertisers · oldest 9 days<span class="signal-links"><a href="https://example.com/evidence/meta/demo-011-a">Open sample ad evidence</a></span></div>
+      <div class="signal-meaning">Visible activity did not pass both required thresholds.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Marketplace</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Amazon Search match · position 8; Flipkart Relevant · position 17<span class="signal-links"><a href="https://example.com/evidence/amazon/demo-011">Amazon sample</a> <a href="https://example.com/evidence/flipkart/demo-011">Flipkart sample</a></span></div>
+      <div class="signal-meaning">At least one approved marketplace visibility rule was met.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Google search</div>
+      <div class="outcome outcome-not-positive">Not positive</div>
+      <div class="signal-evidence">Recent avg 34 · prior 33 · 1.03× · +1</div>
+      <div class="signal-meaning">Available search data did not pass both thresholds.</div>
+    </div>
+    </div>
+      <div class="insight-grid">
+        <section class="insight">
+          <h3>Why it surfaced</h3>
+          <p>Top-ten marketplace visibility supports a watch-list entry, but advertising persistence and search movement remain insufficient.</p>
+        </section>
+        <section class="insight">
+          <h3>Context</h3>
+          <div class="context-lines">
+            <div><strong>Quick commerce:</strong> present in 3 of 9 sampled platform-city checks; context only.</div>
+            <div><strong>Coverage:</strong> All core sources available; only marketplace evidence passed.</div>
+          </div>
+          <div class="review-panel">
+            <div class="review-title">Standard client review</div>
+            <p class="review-copy">Evidence is narrow. Treat this as a low-commitment creative test candidate, not a scaling recommendation.</p>
+          </div>
+        </section>
+      </div>
+      <section class="supplier-strip">
+        <h3>Possible supplier leads · investigation only</h3>
+        <div class="supplier-grid">
+            <div class="supplier-mini">
+              <div class="supplier-name">SinkMate Plastics</div>
+              <div class="supplier-meta">Surat, Gujarat · ₹42 · 200 pieces</div>
+              <div class="supplier-limit">Sink-edge compatibility and clip durability require sampling. <a href="https://example.com/suppliers/k03-a">Open sample supplier page</a></div>
+            </div>
+            
+            <div class="supplier-mini">
+              <div class="supplier-name">DrainEase Wholesale</div>
+              <div class="supplier-meta">Delhi · ₹55 · 100 pieces</div>
+              <div class="supplier-limit">Confirm whether the quoted product includes the clip or only the basket. <a href="https://example.com/suppliers/k03-b">Open sample supplier page</a></div>
+            </div>
+            </div>
+        <div class="excel-pointer">See Excel → Evidence row 17 and Supplier Leads for all three manufactured records.</div>
+      </section>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page product-page" data-page="17" data-product-id="DEMO-012" aria-label="Page 17: Silicone Paw Cleaner Cup">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">17</div></div>
+        <main class="page-content">
+      <div class="product-hero">
+        <div>
+          <div class="product-rank">12</div>
+          <h1 class="product-name">Silicone Paw Cleaner Cup</h1>
+          <div class="product-meta">Pet · Weakened</div>
+          <div class="label-row">
+            <span class="label-chip label-worth-watching">Worth Watching</span>
+            <span class="signal-count">1/3</span>
+            <span class="available-count">positive / available core signals</span>
+          </div>
+          <div class="listing-band"><strong>Illustrative retail listing band:</strong> ₹299–₹699</div>
+        </div>
+        <figure class="product-image">
+          <img src="../../media/client-preview/product-visuals/report/12-silicone-paw-cleaner-cup.jpg" alt="Illustrative product visual of Silicone Paw Cleaner Cup">
+          <figcaption>Illustrative product visual</figcaption>
+        </figure>
+      </div>
+      <div class="ledger-title">Three-signal evidence ledger</div>
+      <div class="signal-ledger">
+    <div class="signal-row">
+      <div class="signal-name">Meta advertising</div>
+      <div class="outcome outcome-not-positive">Not positive</div>
+      <div class="signal-evidence">2 active relevant ads · 2 advertisers · oldest 8 days<span class="signal-links"><a href="https://example.com/evidence/meta/demo-012-a">Open sample ad evidence</a></span></div>
+      <div class="signal-meaning">Visible activity did not pass both required thresholds.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Marketplace</div>
+      <div class="outcome outcome-positive">Positive</div>
+      <div class="signal-evidence">Amazon Search match · position 6; Flipkart Relevant · position 15<span class="signal-links"><a href="https://example.com/evidence/amazon/demo-012">Amazon sample</a> <a href="https://example.com/evidence/flipkart/demo-012">Flipkart sample</a></span></div>
+      <div class="signal-meaning">At least one approved marketplace visibility rule was met.</div>
+    </div>
+    
+    <div class="signal-row">
+      <div class="signal-name">Google search</div>
+      <div class="outcome outcome-not-positive">Not positive</div>
+      <div class="signal-evidence">Recent avg 42 · prior 40 · 1.05× · +2</div>
+      <div class="signal-meaning">Available search data did not pass both thresholds.</div>
+    </div>
+    </div>
+      <div class="insight-grid">
+        <section class="insight">
+          <h3>Why it surfaced</h3>
+          <p>Marketplace evidence remains useful, but advertising activity has fallen below threshold and search interest is stable.</p>
+        </section>
+        <section class="insight">
+          <h3>Context</h3>
+          <div class="context-lines">
+            <div><strong>Quick commerce:</strong> present in 4 of 9 sampled platform-city checks; context only.</div>
+            <div><strong>Coverage:</strong> All core sources available. Meta no longer passes compared with the prior week.</div>
+          </div>
+          <div class="review-panel">
+            <div class="review-title">Standard client review</div>
+            <p class="review-copy">The sample signal weakened. Keep under observation rather than increasing commitment.</p>
+          </div>
+        </section>
+      </div>
+      <section class="supplier-strip">
+        <h3>Possible supplier leads · investigation only</h3>
+        <div class="supplier-grid">
+            <div class="supplier-mini">
+              <div class="supplier-name">PawRinse Moulding</div>
+              <div class="supplier-meta">Rajkot, Gujarat · ₹96 · 100 pieces</div>
+              <div class="supplier-limit">Material softness, insert durability and size guidance require sampling. <a href="https://example.com/suppliers/p09-a">Open sample supplier page</a></div>
+            </div>
+            
+            <div class="supplier-mini">
+              <div class="supplier-name">MudAway Pet Supply</div>
+              <div class="supplier-meta">Delhi · ₹120 · 50 pieces</div>
+              <div class="supplier-limit">MOQ is visible only in a downloadable price list and may be stale. <a href="https://example.com/suppliers/p09-b">Open sample supplier page</a></div>
+            </div>
+            </div>
+        <div class="excel-pointer">See Excel → Evidence row 18 and Supplier Leads for all three manufactured records.</div>
+      </section>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page supplier-digest-page" data-page="18" aria-label="Page 18: Supplier Lead Digest">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">18</div></div>
+        <header class="page-head">
+          <p class="kicker">One representative manufactured record per product</p>
+          <h1>Supplier Lead Digest</h1>
+          
+        </header>
+        <main class="page-content">
+      <div class="supplier-digest-note"><strong>Supplier leads are starting points for client investigation.</strong> They have not been contacted, audited, or verified. Visible price is not landed cost. The Excel workbook contains all 36 manufactured records.</div>
+      <div class="digest-groups"><section class="digest-category"><h2 class="digest-category-title">Kitchen</h2>
+                <div class="digest-row">
+                  <div class="digest-product">01 · Oil Spray Bottle</div>
+                  <div class="digest-supplier"><a href="https://example.com/suppliers/k01-a">Nivara Houseware Works</a><span class="digest-meta">Rajkot, Gujarat · ₹54/unit · 100 pieces</span></div>
+                  <div class="digest-limit">Spray-pattern consistency and food-contact documentation not checked.</div>
+                </div>
+                
+                <div class="digest-row">
+                  <div class="digest-product">05 · Manual Vegetable Chopper and Slicer</div>
+                  <div class="digest-supplier"><a href="https://example.com/suppliers/k02-a">ChopCraft Appliance Works</a><span class="digest-meta">Ahmedabad, Gujarat · ₹145 · 100 pieces</span></div>
+                  <div class="digest-limit">Blade grade, locking safety and replacement parts not checked.</div>
+                </div>
+                
+                <div class="digest-row">
+                  <div class="digest-product">11 · Clip-On Sink Strainer Basket</div>
+                  <div class="digest-supplier"><a href="https://example.com/suppliers/k03-a">SinkMate Plastics</a><span class="digest-meta">Surat, Gujarat · ₹42 · 200 pieces</span></div>
+                  <div class="digest-limit">Sink-edge compatibility and clip durability require sampling.</div>
+                </div>
+                </section><section class="digest-category"><h2 class="digest-category-title">Home Decor</h2>
+                <div class="digest-row">
+                  <div class="digest-product">02 · Rechargeable Cordless Picture Light</div>
+                  <div class="digest-supplier"><a href="https://example.com/suppliers/h04-a">LumaNest Fixtures</a><span class="digest-meta">Morbi, Gujarat · ₹385 · 50 units</span></div>
+                  <div class="digest-limit">Battery certification, charging performance and mounting hardware not checked.</div>
+                </div>
+                
+                <div class="digest-row">
+                  <div class="digest-product">06 · Pleated Mushroom Table Lamp</div>
+                  <div class="digest-supplier"><a href="https://example.com/suppliers/h05-a">HearthMuse Lighting</a><span class="digest-meta">Moradabad, Uttar Pradesh · ₹510/unit · 40 units</span></div>
+                  <div class="digest-limit">Electrical documentation, packaging strength and transit-breakage rate not checked.</div>
+                </div>
+                
+                <div class="digest-row">
+                  <div class="digest-product">07 · Self-Watering Plant Spike Set</div>
+                  <div class="digest-supplier"><a href="https://example.com/suppliers/h06-a">TerraDrip Plastics</a><span class="digest-meta">Rajkot, Gujarat · ₹46/set · 200 sets</span></div>
+                  <div class="digest-limit">Flow-rate consistency and bottle compatibility require product testing.</div>
+                </div>
+                </section><section class="digest-category"><h2 class="digest-category-title">Pet</h2>
+                <div class="digest-row">
+                  <div class="digest-product">03 · Motion-Activated Cat Ball</div>
+                  <div class="digest-supplier"><a href="https://example.com/suppliers/p08-a">PlayPurr Imports</a><span class="digest-meta">Delhi · ₹245 · 100 units</span></div>
+                  <div class="digest-limit">Noise level, battery life, charging cable and durability not checked.</div>
+                </div>
+                
+                <div class="digest-row">
+                  <div class="digest-product">08 · Self-Cleaning Pet Grooming Brush</div>
+                  <div class="digest-supplier"><a href="https://example.com/suppliers/p07-a">PawPolish Tools</a><span class="digest-meta">Delhi · ₹58 · 100 pieces</span></div>
+                  <div class="digest-limit">Pin-tip finish, handle durability and coat suitability require sampling.</div>
+                </div>
+                
+                <div class="digest-row">
+                  <div class="digest-product">12 · Silicone Paw Cleaner Cup</div>
+                  <div class="digest-supplier"><a href="https://example.com/suppliers/p09-a">PawRinse Moulding</a><span class="digest-meta">Rajkot, Gujarat · ₹96 · 100 pieces</span></div>
+                  <div class="digest-limit">Material softness, insert durability and size guidance require sampling.</div>
+                </div>
+                </section><section class="digest-category"><h2 class="digest-category-title">Baby</h2>
+                <div class="digest-row">
+                  <div class="digest-product">04 · Silicone Suction Feeding Set</div>
+                  <div class="digest-supplier"><a href="https://example.com/suppliers/b11-a">LittleSpoon Silicone Works</a><span class="digest-meta">Mumbai, Maharashtra · ₹285/set · 50 sets</span></div>
+                  <div class="digest-limit">Food-contact, material and age-suitability documentation require client verification.</div>
+                </div>
+                
+                <div class="digest-row">
+                  <div class="digest-product">09 · Stroller Organiser Bag</div>
+                  <div class="digest-supplier"><a href="https://example.com/suppliers/b10-a">CarryKind Textiles</a><span class="digest-meta">Delhi · ₹190 · 50 pieces</span></div>
+                  <div class="digest-limit">Stroller fit, load limit and strap strength require physical testing.</div>
+                </div>
+                
+                <div class="digest-row">
+                  <div class="digest-product">10 · Adjustable Baby-Proof Cabinet Lock Set</div>
+                  <div class="digest-supplier"><a href="https://example.com/suppliers/b12-a">SafeLatch Plastics</a><span class="digest-meta">Rajkot, Gujarat · ₹38/lock · 250 pieces</span></div>
+                  <div class="digest-limit">Adhesive performance, installation guidance and child-safety claims require verification.</div>
+                </div>
+                </section></div>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page " data-page="19" aria-label="Page 19: Coverage and Limitations">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">19</div></div>
+        <header class="page-head">
+          <p class="kicker">What this report can and cannot say</p>
+          <h1>Coverage and Limitations</h1>
+          <p class="lede">Partial coverage is shown plainly. A useful weekly report can continue with honest gaps, but it cannot turn those gaps into confidence.</p>
+        </header>
+        <main class="page-content"><div class="coverage-stats"><div class="coverage-stat"><div class="coverage-value">12/12</div><div class="coverage-label">Meta assessments available</div></div><div class="coverage-stat"><div class="coverage-value">12/12</div><div class="coverage-label">Marketplace assessments available</div></div><div class="coverage-stat"><div class="coverage-value">11/12</div><div class="coverage-label">Search assessments available</div></div><div class="coverage-stat"><div class="coverage-value">50/108</div><div class="coverage-label">Quick-commerce presences sampled</div></div></div><ul class="limitation-list"><li><div class="limitation-label">Search gap</div><div class="limitation-copy">Rank 10 has no search assessment this week. Its two available signals are positive, but the missing family prevents a directional week-over-week claim.</div></li><li><div class="limitation-label">Quick commerce</div><div class="limitation-copy">The 108 checks sample Blinkit, Zepto and Swiggy Instamart across Mumbai, Delhi and Bengaluru. They describe availability and competition context only.</div></li><li><div class="limitation-label">Supplier evidence</div><div class="limitation-copy">Supplier pages may be stale, redirected, blocked, incomplete or commercially unsuitable. Leads require direct client investigation before use.</div></li><li><div class="limitation-label">No forecast</div><div class="limitation-copy">The report does not estimate demand, sales, margin, conversion, return rate, landed cost, or profitability. Market signals identify products worth human investigation.</div></li><li><div class="limitation-label">Missing ≠ zero</div><div class="limitation-copy">Unavailable evidence remains Missing. It is never converted into a negative result, a zero, or evidence that a product is weak.</div></li></ul></main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+    <section class="page " data-page="20" aria-label="Page 20: Method and Client Responsibility">
+      <div class="page-inner">
+        <div class="page-top"><div class="folio">20</div></div>
+        <header class="page-head">
+          <p class="kicker">Operator-reviewed decision support</p>
+          <h1>Method and Client Responsibility</h1>
+          <p class="lede">The service reduces research effort and makes evidence inspectable. Final commercial, supplier, safety and compliance decisions remain with the client.</p>
+        </header>
+        <main class="page-content">
+      <div class="method-layout">
+        <section>
+          <h3>Five-step method</h3>
+          <ol class="method-list"><li>Discover and normalise candidate product concepts across the approved India categories.</li><li>Check Meta advertising, marketplace visibility and Google search as three separate core signal families.</li><li>Apply deterministic thresholds, preserve missing coverage, and rank eligible opportunities without weak filler.</li><li>Add quick-commerce context, lightweight client-review flags, and possible supplier leads after selection.</li><li>Review the checked data and regenerate both the PDF and Excel from the same source before delivery.</li></ol>
+        </section>
+        <section>
+          <div class="responsibility-box">
+            <h3>Client responsibility</h3>
+            <p class="serif small">The client—not NeuraFlow—must:</p>
+            <ul><li>decide which products, if any, deserve further testing;</li><li>verify product compliance, warnings, age guidance and claims;</li><li>contact and assess supplier identity, stock, terms and suitability;</li><li>sample product quality, packaging, delivery and returns;</li><li>calculate landed cost, pricing, margin and commercial risk independently.</li></ul>
+          </div>
+          <div class="final-boundary"><strong>Supplier boundary.</strong> Possible supplier leads have not been contacted, audited, recommended or verified. They are starting points for independent investigation.</div>
+          <div class="final-boundary"><strong>Report-use boundary.</strong> This briefing is decision support. It is not a guarantee of demand, sales, compliance, supplier suitability, product performance or profitability.</div>
+          <div class="contact-block">
+            <img src="../../media/NeuraFlow/long_maroon_path_transparent_1024.png" alt="NeuraFlow">
+            <div class="contact-copy"><strong>Prepared by NeuraFlow</strong><br>Contact details to be inserted before client presentation.<br>Detailed evidence remains in the companion Excel workbook.</div>
+          </div>
+        </section>
+      </div>
+    </main>
+      </div>
+      <footer class="page-footer"><span>NeuraFlow · Product Opportunity Radar</span><span>9–15 August 2026</span></footer>
+    </section>
+    
+</body>
+</html>

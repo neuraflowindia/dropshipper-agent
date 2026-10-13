@@ -1,0 +1,4 @@
+
+Cream: #F9F3EC
+
+Maroon: #6B1F2B

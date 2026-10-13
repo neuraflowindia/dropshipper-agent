@@ -1,0 +1,143 @@
+{
+  "schema_version": "1.1",
+  "package_id": "NEURAFLOW-PREVIEW-2026-08-15",
+  "status": "rendered",
+  "page_contract": {
+    "brochure": 5,
+    "offer_summary": 1
+  },
+  "renderer": "Google Chrome headless print-to-PDF",
+  "commercial_config_sha256": "e897539626cb88274e09f34e8bd90cbe32a20304c555cf9e2423d4dfbd8e8f72",
+  "sample_data_sha256": "400c648e35fda0bacf1838c9e429f7427c393a217dc17000df098e11359b766b",
+  "disclosure": "Illustrative preview using sample data; not a live market-research report.",
+  "disclosure_artifact": "NeuraFlow_Product_Opportunity_Radar_Service_Overview_2026-08-15.pdf",
+  "disclosure_page": 4,
+  "source_artifacts": {
+    "commercial_config": {
+      "path": "preview/brochure/commercial-config.json",
+      "sha256": "e897539626cb88274e09f34e8bd90cbe32a20304c555cf9e2423d4dfbd8e8f72",
+      "bytes": 2146
+    },
+    "sample_dataset": {
+      "path": "preview/sample-data/client_preview_dataset.json",
+      "sha256": "400c648e35fda0bacf1838c9e429f7427c393a217dc17000df098e11359b766b",
+      "bytes": 60354
+    },
+    "logo": {
+      "path": "media/NeuraFlow/long_maroon_path_transparent_1024.png",
+      "sha256": "b60f67ff9a51fe02abf7701563f7d8821666d11b356f548ed2d223ba9b16fff6",
+      "bytes": 28875
+    },
+    "p5_report": {
+      "path": "outputs/client-preview/NeuraFlow_Product_Opportunity_Brief_Illustrative_2026-08-15.pdf",
+      "sha256": "4cdd5081b53007a6f5e2ec4ebbd470046e93ee0e2d743d1f332ad328a601a66b",
+      "bytes": 2044549
+    },
+    "p4_workbook": {
+      "path": "outputs/client-preview/NeuraFlow_Product_Opportunity_Evidence_Illustrative_2026-08-15.xlsx",
+      "sha256": "a0cea05454565986db3b6e8421c29c66dbcc76455e57d6f8bfc9dc136a609066",
+      "bytes": 110425
+    },
+    "p5_page_02": {
+      "path": "media/client-preview/pdf-review/pages/page-02.png",
+      "sha256": "3c43d714392b7a592afef73bad6c7a63827df035374b33e6657f47592ca64d0c",
+      "bytes": 74827
+    },
+    "p5_page_06": {
+      "path": "media/client-preview/pdf-review/pages/page-06.png",
+      "sha256": "f5a70fa8f83afd594621f1543a182e6b2dd80a441b8720da3de0d4ae71f5836b",
+      "bytes": 284522
+    },
+    "excel_shortlist_review": {
+      "path": "media/client-preview/excel-review/01-shortlist-full.png",
+      "sha256": "2528376e1c5f5efe8f360c1437be00cbc14420d4e97722b515877dd2dbdd42a4",
+      "bytes": 215055
+    },
+    "excel_evidence_review": {
+      "path": "media/client-preview/excel-review/03-evidence-market-search.png",
+      "sha256": "e98bcfb7ef66dac7634d50b4535ef7cd452fdafb6288d470f5d222393e964357",
+      "bytes": 145808
+    },
+    "cover_visual": {
+      "path": "media/client-preview/product-visuals/report/cover-product-research-still-life.jpg",
+      "sha256": "75e59521e18c131bb52f13b993d633dfc62505c799eff9e5053463457dfa0b7a",
+      "bytes": 114265
+    }
+  },
+  "generated_sources": {
+    "preview/brochure/brochure.html": {
+      "sha256": "a9a8f206a9f757b2538e8b79ff979a113c3582fb800020f446fbb220315b0fd3",
+      "bytes": 9263
+    },
+    "preview/brochure/brochure.css": {
+      "sha256": "3722f0b54a792eb51ceb35281284f9b9b44a5e424e36b76d45a74a44e74cff4a",
+      "bytes": 12715
+    },
+    "preview/brochure/offer-summary.html": {
+      "sha256": "d249e765a54b9d60a2fd622c0e055bf9726dbe065c47c746b71ba5c2a3eddb18",
+      "bytes": 2634
+    },
+    "docs/client-preview/guides/NeuraFlow_Client_Demo_Walkthrough_2026-08-15.md": {
+      "sha256": "907e85c3fff9e8b82681e5ffebb6d2e0a10a12fa4a262883c9eb5037ecdd5789",
+      "bytes": 4781
+    },
+    "docs/client-preview/guides/NeuraFlow_Client_Preview_Package_Guide_2026-08-15.md": {
+      "sha256": "d7d4df35fb29034817cf4369671ac9a9cc4e5b805fdee1e8a0bd6673b58c3d28",
+      "bytes": 1572
+    }
+  },
+  "artifacts": [
+    {
+      "path": "outputs/client-preview/NeuraFlow_Product_Opportunity_Radar_Service_Overview_2026-08-15.pdf",
+      "filename": "NeuraFlow_Product_Opportunity_Radar_Service_Overview_2026-08-15.pdf",
+      "role": "client brochure",
+      "client_shareable": true,
+      "bytes": 1037771,
+      "sha256": "1d0a31a378369118d92938fb386902de1e023a6391dfdbfd62276fd7b0f0bf0d",
+      "page_count": 5
+    },
+    {
+      "path": "outputs/client-preview/NeuraFlow_Product_Opportunity_Brief_Illustrative_2026-08-15.pdf",
+      "filename": "NeuraFlow_Product_Opportunity_Brief_Illustrative_2026-08-15.pdf",
+      "role": "illustrative weekly report",
+      "client_shareable": true,
+      "bytes": 2044549,
+      "sha256": "4cdd5081b53007a6f5e2ec4ebbd470046e93ee0e2d743d1f332ad328a601a66b",
+      "page_count": 20
+    },
+    {
+      "path": "outputs/client-preview/NeuraFlow_Product_Opportunity_Evidence_Illustrative_2026-08-15.xlsx",
+      "filename": "NeuraFlow_Product_Opportunity_Evidence_Illustrative_2026-08-15.xlsx",
+      "role": "illustrative evidence workbook",
+      "client_shareable": true,
+      "bytes": 110425,
+      "sha256": "a0cea05454565986db3b6e8421c29c66dbcc76455e57d6f8bfc9dc136a609066"
+    },
+    {
+      "path": "outputs/client-preview/NeuraFlow_Monthly_Service_Offer_2026-08-15.pdf",
+      "filename": "NeuraFlow_Monthly_Service_Offer_2026-08-15.pdf",
+      "role": "monthly service offer",
+      "client_shareable": true,
+      "bytes": 128101,
+      "sha256": "ae60af73a3158c5fc73b659b1dfe9823c48333dadb7a1425eb08f4f6bafd974b",
+      "page_count": 1
+    },
+    {
+      "path": "docs/client-preview/guides/NeuraFlow_Client_Demo_Walkthrough_2026-08-15.md",
+      "filename": "NeuraFlow_Client_Demo_Walkthrough_2026-08-15.md",
+      "role": "operator demo walkthrough",
+      "client_shareable": false,
+      "bytes": 4781,
+      "sha256": "907e85c3fff9e8b82681e5ffebb6d2e0a10a12fa4a262883c9eb5037ecdd5789"
+    },
+    {
+      "path": "docs/client-preview/guides/NeuraFlow_Client_Preview_Package_Guide_2026-08-15.md",
+      "filename": "NeuraFlow_Client_Preview_Package_Guide_2026-08-15.md",
+      "role": "operator package guide",
+      "client_shareable": false,
+      "bytes": 1572,
+      "sha256": "d7d4df35fb29034817cf4369671ac9a9cc4e5b805fdee1e8a0bd6673b58c3d28"
+    }
+  ],
+  "finalized_on": "2026-08-16"
+}

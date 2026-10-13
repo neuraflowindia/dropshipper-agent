@@ -1,0 +1,8 @@
+{
+  "model": "gpt-6-luna",
+  "executable": "/home/anan/.nvm/versions/node/v22.23.3/bin/codex",
+  "reasoning_effort": "high",
+  "authentication": "chatgpt",
+  "probe_timeout_seconds": 90,
+  "paid_fallback": false
+}

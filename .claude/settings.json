@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git merge-base *)",
+      "Bash(git grep *)",
+      "Bash(git check-ignore *)",
+      "Bash(docker info)",
+      "Bash(docker info *)",
+      "Bash(npm view *)",
+      "Bash(dig *)"
+    ]
+  }
+}

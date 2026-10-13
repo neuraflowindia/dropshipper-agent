@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "selector": {
+    "baseline_id": "historical-156-known-collection-20261008",
+    "fingerprint": "280ec98b1038257b9bfab8f13fb806702c18560691f1833892ab730607ac894a"
+  },
+  "baseline": {
+    "schema_version": 1,
+    "version": "historical-collection-baseline-v1",
+    "baseline_id": "historical-156-known-collection-20261008",
+    "observed_at": "2026-10-08T17:45:07+00:00",
+    "baseline_collection_usd": "0.50040006",
+    "baseline_candidates": 156,
+    "reference": "docs/operations/benchmarks/2026-10-03/benchmark_record.md#frozen-legacy-costyield-baseline",
+    "source_mix": [
+      "meta",
+      "amazon",
+      "trends"
+    ],
+    "fit_policy_id": "fit-13-v1"
+  }
+}

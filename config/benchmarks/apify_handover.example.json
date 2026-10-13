@@ -1,0 +1,17 @@
+{
+  "schema_version": 2,
+  "account_key": "",
+  "period": "",
+  "period_ends_at": "",
+  "plan": "Free",
+  "available_usd": "",
+  "balance_checked_at": "",
+  "independently_funded": false,
+  "owner_account_confirmed": false,
+  "owner_credential_confirmed": false,
+  "confirmed_at": "",
+  "provider_user_id": null,
+  "output_route_reviewed": false,
+  "production_provision_usd": "",
+  "emergency_usd": ""
+}

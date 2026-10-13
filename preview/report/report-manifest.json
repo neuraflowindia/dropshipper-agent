@@ -1,0 +1,297 @@
+{
+  "schema_version": "1.0",
+  "report_id": "DEMO-IND-2026-08-15",
+  "report_period": "9–15 August 2026",
+  "renderer": "Google Chrome headless print-to-PDF",
+  "page_size": "A4 portrait",
+  "page_count": 20,
+  "disclosure": "Illustrative preview using sample data; not a live market-research report.",
+  "disclosure_page": 1,
+  "data_file": "preview/sample-data/client_preview_dataset.json",
+  "data_sha256": "400c648e35fda0bacf1838c9e429f7427c393a217dc17000df098e11359b766b",
+  "image_manifest_file": "media/client-preview/product-visuals/manifest.json",
+  "image_manifest_sha256": "a8fb240d6c1fb279e1866cc34b9f51eef7f5bb8b4285e37a803be4482a89e161",
+  "summary": {
+    "opportunities": 12,
+    "label_counts": {
+      "Strong": 4,
+      "Promising": 6,
+      "Worth Watching": 2
+    },
+    "status_counts": {
+      "Strengthened": 2,
+      "New": 5,
+      "Returning": 3,
+      "Coverage Changed": 1,
+      "Weakened": 1
+    },
+    "positive_signal_outcomes": 26,
+    "available_signal_assessments": 35,
+    "compliance_flags": 5,
+    "quick_commerce_presence": 50,
+    "quick_commerce_checks": 108,
+    "supplier_leads_in_excel": 36
+  },
+  "pages": [
+    {
+      "page": 1,
+      "type": "cover",
+      "title": "India Product Opportunity Radar"
+    },
+    {
+      "page": 2,
+      "type": "overview",
+      "title": "This Week at a Glance"
+    },
+    {
+      "page": 3,
+      "type": "guide",
+      "title": "How to Read This Report"
+    },
+    {
+      "page": 4,
+      "type": "category",
+      "title": "Category Overview"
+    },
+    {
+      "page": 5,
+      "type": "movement",
+      "title": "Weekly Movement"
+    },
+    {
+      "page": 6,
+      "type": "opportunity",
+      "title": "Oil Spray Bottle",
+      "product_id": "DEMO-001",
+      "rank": 1,
+      "market_signal": "Strong",
+      "weekly_status": "Strengthened",
+      "positive_core_signals": 3,
+      "available_core_signals": 3,
+      "quick_commerce_presence": 7,
+      "supplier_lead_ids": [
+        "K01-A",
+        "K01-B"
+      ],
+      "image_file": "01-oil-spray-bottle.jpg"
+    },
+    {
+      "page": 7,
+      "type": "opportunity",
+      "title": "Rechargeable Cordless Picture Light",
+      "product_id": "DEMO-002",
+      "rank": 2,
+      "market_signal": "Strong",
+      "weekly_status": "New",
+      "positive_core_signals": 3,
+      "available_core_signals": 3,
+      "quick_commerce_presence": 1,
+      "supplier_lead_ids": [
+        "H04-A",
+        "H04-B"
+      ],
+      "image_file": "02-rechargeable-cordless-picture-light.jpg"
+    },
+    {
+      "page": 8,
+      "type": "opportunity",
+      "title": "Motion-Activated Cat Ball",
+      "product_id": "DEMO-003",
+      "rank": 3,
+      "market_signal": "Strong",
+      "weekly_status": "Returning",
+      "positive_core_signals": 3,
+      "available_core_signals": 3,
+      "quick_commerce_presence": 3,
+      "supplier_lead_ids": [
+        "P08-A",
+        "P08-B"
+      ],
+      "image_file": "03-motion-activated-cat-ball.jpg"
+    },
+    {
+      "page": 9,
+      "type": "opportunity",
+      "title": "Silicone Suction Feeding Set",
+      "product_id": "DEMO-004",
+      "rank": 4,
+      "market_signal": "Strong",
+      "weekly_status": "New",
+      "positive_core_signals": 3,
+      "available_core_signals": 3,
+      "quick_commerce_presence": 6,
+      "supplier_lead_ids": [
+        "B11-A",
+        "B11-B"
+      ],
+      "image_file": "04-silicone-suction-feeding-set.jpg"
+    },
+    {
+      "page": 10,
+      "type": "opportunity",
+      "title": "Manual Vegetable Chopper and Slicer",
+      "product_id": "DEMO-005",
+      "rank": 5,
+      "market_signal": "Promising",
+      "weekly_status": "Returning",
+      "positive_core_signals": 2,
+      "available_core_signals": 3,
+      "quick_commerce_presence": 6,
+      "supplier_lead_ids": [
+        "K02-A",
+        "K02-B"
+      ],
+      "image_file": "05-manual-vegetable-chopper-and-slicer.jpg"
+    },
+    {
+      "page": 11,
+      "type": "opportunity",
+      "title": "Pleated Mushroom Table Lamp",
+      "product_id": "DEMO-006",
+      "rank": 6,
+      "market_signal": "Promising",
+      "weekly_status": "Strengthened",
+      "positive_core_signals": 2,
+      "available_core_signals": 3,
+      "quick_commerce_presence": 2,
+      "supplier_lead_ids": [
+        "H05-A",
+        "H05-B"
+      ],
+      "image_file": "06-pleated-mushroom-table-lamp.jpg"
+    },
+    {
+      "page": 12,
+      "type": "opportunity",
+      "title": "Self-Watering Plant Spike Set",
+      "product_id": "DEMO-007",
+      "rank": 7,
+      "market_signal": "Promising",
+      "weekly_status": "Returning",
+      "positive_core_signals": 2,
+      "available_core_signals": 3,
+      "quick_commerce_presence": 4,
+      "supplier_lead_ids": [
+        "H06-A",
+        "H06-B"
+      ],
+      "image_file": "07-self-watering-plant-spike-set.jpg"
+    },
+    {
+      "page": 13,
+      "type": "opportunity",
+      "title": "Self-Cleaning Pet Grooming Brush",
+      "product_id": "DEMO-008",
+      "rank": 8,
+      "market_signal": "Promising",
+      "weekly_status": "New",
+      "positive_core_signals": 2,
+      "available_core_signals": 3,
+      "quick_commerce_presence": 5,
+      "supplier_lead_ids": [
+        "P07-A",
+        "P07-B"
+      ],
+      "image_file": "08-self-cleaning-pet-grooming-brush.jpg"
+    },
+    {
+      "page": 14,
+      "type": "opportunity",
+      "title": "Stroller Organiser Bag",
+      "product_id": "DEMO-009",
+      "rank": 9,
+      "market_signal": "Promising",
+      "weekly_status": "New",
+      "positive_core_signals": 2,
+      "available_core_signals": 3,
+      "quick_commerce_presence": 4,
+      "supplier_lead_ids": [
+        "B10-A",
+        "B10-B"
+      ],
+      "image_file": "09-stroller-organiser-bag.jpg"
+    },
+    {
+      "page": 15,
+      "type": "opportunity",
+      "title": "Adjustable Baby-Proof Cabinet Lock Set",
+      "product_id": "DEMO-010",
+      "rank": 10,
+      "market_signal": "Promising",
+      "weekly_status": "Coverage Changed",
+      "positive_core_signals": 2,
+      "available_core_signals": 2,
+      "quick_commerce_presence": 5,
+      "supplier_lead_ids": [
+        "B12-A",
+        "B12-B"
+      ],
+      "image_file": "10-adjustable-baby-proof-cabinet-lock-set.jpg"
+    },
+    {
+      "page": 16,
+      "type": "opportunity",
+      "title": "Clip-On Sink Strainer Basket",
+      "product_id": "DEMO-011",
+      "rank": 11,
+      "market_signal": "Worth Watching",
+      "weekly_status": "New",
+      "positive_core_signals": 1,
+      "available_core_signals": 3,
+      "quick_commerce_presence": 3,
+      "supplier_lead_ids": [
+        "K03-A",
+        "K03-B"
+      ],
+      "image_file": "11-clip-on-sink-strainer-basket.jpg"
+    },
+    {
+      "page": 17,
+      "type": "opportunity",
+      "title": "Silicone Paw Cleaner Cup",
+      "product_id": "DEMO-012",
+      "rank": 12,
+      "market_signal": "Worth Watching",
+      "weekly_status": "Weakened",
+      "positive_core_signals": 1,
+      "available_core_signals": 3,
+      "quick_commerce_presence": 4,
+      "supplier_lead_ids": [
+        "P09-A",
+        "P09-B"
+      ],
+      "image_file": "12-silicone-paw-cleaner-cup.jpg"
+    },
+    {
+      "page": 18,
+      "type": "supplier_digest",
+      "title": "Supplier Lead Digest",
+      "representative_lead_ids": [
+        "K01-A",
+        "K02-A",
+        "K03-A",
+        "H04-A",
+        "H05-A",
+        "H06-A",
+        "P08-A",
+        "P07-A",
+        "P09-A",
+        "B11-A",
+        "B10-A",
+        "B12-A"
+      ]
+    },
+    {
+      "page": 19,
+      "type": "coverage",
+      "title": "Coverage and Limitations"
+    },
+    {
+      "page": 20,
+      "type": "method",
+      "title": "Method and Client Responsibility"
+    }
+  ],
+  "html_file": "preview/report/report.html",
+  "css_file": "preview/report/report.css"
+}

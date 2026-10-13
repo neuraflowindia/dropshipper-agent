@@ -1,0 +1,22 @@
+// OFFLINE TEMPLATE ONLY. Do not deploy until the owner supplies the real account,
+// approved domain, client email allowlist and Worker-level Access application AUD.
+// Protect ALL traffic on this direct Worker. Do not add an assets/framework router.
+// Keep the R2 bucket private: no public bucket domain and no r2.dev access.
+{
+  "name": "neuraflow-product-reports",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-06",
+  "account_id": "REPLACE_WITH_APPROVED_ACCOUNT_ID",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "REPLACE_WITH_APPROVED_NEURAFLOW_SUBDOMAIN", "custom_domain": true }],
+  "r2_buckets": [{ "binding": "REPORTS", "bucket_name": "neuraflow-dropshipping-mr-mu-ad-product-reports" }],
+  "vars": {
+    "CLIENT_ID": "REPLACE_WITH_CLIENT_ID",
+    "ACCESS_AUD": "REPLACE_WITH_WORKER_ACCESS_APPLICATION_AUD",
+    "ALLOWED_EMAILS": "[\"REPLACE_WITH_APPROVED_CLIENT_EMAIL\"]",
+    "OPERATOR_EMAILS": "[\"REPLACE_WITH_APPROVED_OPERATOR_EMAIL\"]",
+    "PUBLICATION_TIME": "09:00",
+    "ONGOING_LANGUAGE": "REPLACE_AFTER_CLIENT_CHOICE_EN_OR_HI_LATN"
+  }
+}

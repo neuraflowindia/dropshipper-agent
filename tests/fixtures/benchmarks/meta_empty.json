@@ -1,0 +1,14 @@
+{
+  "evidence_type": "synthetic",
+  "purpose": "discovery",
+  "rows": [],
+  "expected": {
+    "schema_version": 1,
+    "schema_status": "provisional_pending_live_inspection",
+    "purpose": "discovery",
+    "records": [],
+    "rejected": [],
+    "status": "usable",
+    "empty_scope_observation": true
+  }
+}

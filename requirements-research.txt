@@ -1,0 +1,3 @@
+# Optional browser acquisition and public-photo inspection for local research.
+playwright==1.58.0
+pillow==11.3.0

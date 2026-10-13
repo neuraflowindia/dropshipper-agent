@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "stage": "T1-meta",
+  "purpose": "discovery",
+  "term": "kitchen organiser",
+  "actor": "curious_coder~facebook-ads-library-scraper",
+  "build": "2.7.26",
+  "expected_build_id": "wYDFs3xTPOVCo9Wag",
+  "reserved_usd": "0.03",
+  "stage_cap_usd": "0.20",
+  "trial_cap_usd": "0.75",
+  "reviewed_at": "2026-10-03T12:03:03+00:00",
+  "metadata": {
+    "evidence_type": "public_metadata_observed_not_account_execution",
+    "actor_id": "XtaWFhbtfxyzqrFmd",
+    "build_status": "SUCCEEDED",
+    "pricing_model": "PAY_PER_EVENT",
+    "ad_event_usd": "0.00075",
+    "start_event_usd": "0.00005",
+    "minimum_charge_cap_usd": "0.00075",
+    "permission_level": "LIMITED_PERMISSIONS",
+    "url_item_shape": "object_with_url",
+    "record_target": 5,
+    "documented_overshoot": 30,
+    "source": "https://api.apify.com/v2/actor-builds/wYDFs3xTPOVCo9Wag",
+    "pricing_source": "https://api.apify.com/v2/acts/curious_coder~facebook-ads-library-scraper"
+  }
+}

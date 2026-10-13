@@ -1,0 +1,109 @@
+{
+  "evidence_type": "public_metadata_snapshot_not_live_output",
+  "observed_at": "2026-10-04T21:59:41+00:00",
+  "actor": {
+    "data": {
+      "id": "VeOVRxH4dtBxv1td1",
+      "actorPermissionLevel": "LIMITED_PERMISSIONS",
+      "isPPEPlatformUsagePaidByUser": null,
+      "pricingInfos": [
+        {
+          "apifyMarginPercentage": 0.2,
+          "createdAt": "2026-05-18T03:56:50.614Z",
+          "isPriceChangeNotificationSuppressed": false,
+          "minimalMaxTotalChargeUsd": null,
+          "pricingModel": "PAY_PER_EVENT",
+          "pricingPerEvent": {
+            "actorChargeEvents": {
+              "apify-actor-start": {
+                "eventDescription": "Charged when the Actor starts running. Number of events charged depends on Actor memory (one event per GB, minimum one event).",
+                "eventPriceUsd": 0.00005,
+                "eventTitle": "Actor Start",
+                "isOneTimeEvent": true
+              },
+              "apify-default-dataset-item": {
+                "eventDescription": "Single result in the default dataset.",
+                "eventTieredPricingUsd": {
+                  "BRONZE": {
+                    "tieredEventPriceUsd": 0.00039
+                  },
+                  "DIAMOND": {
+                    "tieredEventPriceUsd": 0.00029
+                  },
+                  "FREE": {
+                    "tieredEventPriceUsd": 0.002
+                  },
+                  "GOLD": {
+                    "tieredEventPriceUsd": 0.00029
+                  },
+                  "PLATINUM": {
+                    "tieredEventPriceUsd": 0.00029
+                  },
+                  "SILVER": {
+                    "tieredEventPriceUsd": 0.00029
+                  }
+                },
+                "eventTitle": "result",
+                "isOneTimeEvent": false,
+                "isPrimaryEvent": true
+              }
+            }
+          },
+          "startedAt": "2026-05-18T03:56:50.019Z"
+        }
+      ]
+    }
+  },
+  "build": {
+    "data": {
+      "id": "RbzdpSITtmtqE1dhk",
+      "buildNumber": "0.1.10",
+      "status": "SUCCEEDED",
+      "actorDefinition": {
+        "input": {
+          "properties": {
+            "nextPage": {
+              "default": false,
+              "description": "Next Page for Category Url, Up to 100 items products",
+              "title": "Next Page",
+              "type": "boolean"
+            },
+            "retries": {
+              "default": 5,
+              "description": "Retries to get which is has blocked",
+              "maximum": 10,
+              "minimum": 3,
+              "title": "Retries",
+              "type": "integer"
+            },
+            "subcategoryLevel": {
+              "default": 0,
+              "description": "Scrape Subcategories Depth",
+              "maximum": 10,
+              "minimum": 0,
+              "title": "Subcategory Level",
+              "type": "integer"
+            },
+            "urls": {
+              "description": "Amazon category URLs to start from (Best Sellers / New Releases / Most Wished For / Most Gifted / Movers & Shakers). Supported domains: amazon.com, amazon.co.uk, amazon.com.au, amazon.ca, amazon.fr, amazon.it, amazon.es, amazon.in, amazon.co.jp, amazon.de.",
+              "editor": "stringList",
+              "items": {
+                "type": "string"
+              },
+              "patternValue": "^https?://(www\\.)?amazon\\.(com|co\\.uk|com\\.au|ca|fr|it|es|in|co\\.jp|de)/((gp/(bestsellers|most-gifted|most-wished-for|new-releases|movers-and-shakers)(/[^?#]*)?)|([^?#]*/zgbs(/[^?#]*)?))(?:[?#].*)?$",
+              "prefill": [
+                "https://www.amazon.com/gp/bestsellers/books/17"
+              ],
+              "title": "Amazon category URLs",
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "schemaVersion": 1,
+          "title": "Amazon Bestsellers Scraper",
+          "type": "object"
+        }
+      }
+    }
+  }
+}

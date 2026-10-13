@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "pool_enabled": true,
+  "accounts": [
+    {
+      "id": "existing-account",
+      "enabled": true,
+      "priority": 0,
+      "credential": "config/local/providers.env",
+      "binding": "config/local/apify_binding.json",
+      "profile": "config/local/apify_profile.json",
+      "handover": "config/local/apify_handover.json"
+    },
+    {
+      "id": "second-account",
+      "enabled": false,
+      "priority": 1,
+      "credential": "config/local/accounts/second/providers.env",
+      "binding": "config/local/accounts/second/binding.json",
+      "profile": "config/local/accounts/second/profile.json",
+      "handover": "config/local/accounts/second/handover.json"
+    },
+    {
+      "id": "third-account",
+      "enabled": false,
+      "priority": 2,
+      "credential": "config/local/accounts/third/providers.env",
+      "binding": "config/local/accounts/third/binding.json",
+      "profile": "config/local/accounts/third/profile.json",
+      "handover": "config/local/accounts/third/handover.json"
+    }
+  ]
+}
