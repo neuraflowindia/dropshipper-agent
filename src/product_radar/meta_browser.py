@@ -418,7 +418,7 @@ def meta_direct_source_handlers(memory, *, data_root=None, browser=native_snapsh
         if shared_acquisitions:
             from .source_acquisitions import record_meta_response
             from .source_coverage import _record_marketplace_access, source_access_scope, source_access_wait
-            commit_at = max(context["as_of"], utc_now(), key=timestamp)
+            commit_at = max(context["as_of"], utc_now(timespec="microseconds"), key=timestamp)
             response = record_meta_response(memory, context["acquisition_id"], folder=folder,
                 capture_ids=[imported["capture_id"]], as_of=commit_at)
             _record_marketplace_access(memory, context["acquisition_id"], response["response_id"], as_of=commit_at)

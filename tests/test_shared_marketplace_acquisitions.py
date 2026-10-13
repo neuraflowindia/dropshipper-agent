@@ -1,6 +1,7 @@
 """Connected original-owner proofs using only saved synthetic browser bodies."""
 
 from copy import deepcopy
+from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 import unittest
@@ -20,6 +21,12 @@ from test_marketplace_browser import snapshot, transport
 
 
 NOW = "2026-10-09T10:00:00+00:00"
+
+
+def wall_clock(instant):
+    """Real utc_now shape at one instant: whole seconds unless asked for finer."""
+    moment = datetime.fromisoformat(instant)
+    return lambda timespec="seconds": moment.astimezone(timezone.utc).isoformat(timespec=timespec)
 
 
 class SharedMarketplaceTests(unittest.TestCase):
@@ -85,6 +92,45 @@ class SharedMarketplaceTests(unittest.TestCase):
         response = state["source_checks"][owner["active_response_id"]]
         self.assertEqual(response["observed_at"], completed)
         self.assertEqual(response["recorded_at"], committed)
+        self.assertEqual(len(self.calls), 1)
+
+    def run_native_subsecond(self, completed, commit_instant):
+        # Owned Windows Chrome stamps 7-digit "Z" completion times while the
+        # wrapper's own clock is whole-second; the commit happens just after.
+        def capture(request, acquisition_id, **options):
+            self.calls.append((acquisition_id, deepcopy(request)))
+            with patch("product_radar.marketplace_browser.utc_now", return_value="2026-10-09T10:00:05+00:00"):
+                return capture_marketplace(request, acquisition_id, **options,
+                    snapshot_reader=lambda req: transport(snapshot(req), navigation_started_at="2026-10-09T10:00:01.7059311Z",
+                                                          completed_at=completed))
+        handlers = create_marketplace_handlers(self.memory, data_root=self.source_root,
+            capture=capture, shared_acquisitions=True)
+        self.prepare(handlers)
+        with patch("product_radar.source_coverage.utc_now", wall_clock(commit_instant)):
+            return execute_source_run(self.memory, self.run_id, handlers=handlers, as_of=NOW,
+                shared_marketplace=True, bounded_call=lambda callback, context, timeout: callback(context))
+
+    def test_native_completion_earlier_in_the_commit_second_is_saved(self):
+        # 13 Oct first round: observed 19:48:56.2587705Z, committed at 19:48:56.4
+        # but stamped "19:48:56" -> SOURCE_ACQUISITION_SOURCE_DATE_INVALID.
+        completed = "2026-10-09T10:00:05.2587705Z"
+        result = self.run_native_subsecond(completed, "2026-10-09T10:00:05.420000+00:00")
+        self.assertEqual(result["counts"], {"acquired": 1})
+        owner = next(iter(self.owners().values()))
+        self.assertEqual(owner["state"], "response_saved")
+        response = self.memory.snapshot()["source_checks"][owner["active_response_id"]]
+        self.assertEqual(response["observed_at"], completed)
+        self.assertEqual(response["recorded_at"], "2026-10-09T10:00:05.420000+00:00")
+        self.assertEqual(len(self.calls), 1)
+
+    def test_receipt_dated_after_the_actual_commit_instant_is_still_refused(self):
+        result = self.run_native_subsecond("2026-10-09T10:00:05.9000000Z", "2026-10-09T10:00:05.420000+00:00")
+        self.assertEqual(result["counts"], {"blocked": 1})
+        task = next(row for row in self.memory.snapshot()["query_tasks"].values()
+                    if row.get("kind") == "all_source_task_v1" and row["run_id"] == self.run_id)
+        self.assertEqual(task["reason"], "SOURCE_ACQUISITION_SOURCE_DATE_INVALID")
+        owner = next(iter(self.owners().values()))
+        self.assertEqual(owner["state"], "dispatching"); self.assertIsNone(owner["active_response_id"])
         self.assertEqual(len(self.calls), 1)
 
     def test_discovery_first_then_checks_share_exact_original_without_callback(self):

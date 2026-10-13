@@ -733,7 +733,7 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
                 if context.get("record_dispatch") and _actual([value], str(page_path)) is True:
                     context["record_dispatch"]()
                 atomic_json(page_path, {**intent, "receipt": value, "hash": digest(value)})
-            commit_at = max(context["as_of"], utc_now(), key=timestamp)
+            commit_at = max(context["as_of"], utc_now(timespec="microseconds"), key=timestamp)
             bridge, original, parsed = _record_response(memory, aid, folder=folder, as_of=commit_at)
             response = memory.snapshot()["source_checks"][bridge["stage_id"]]
             _record_marketplace_access(memory, aid, bridge["stage_id"], as_of=commit_at)

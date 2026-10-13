@@ -7,7 +7,29 @@
       "Bash(docker info)",
       "Bash(docker info *)",
       "Bash(npm view *)",
-      "Bash(dig *)"
+      "Bash(dig *)",
+      "Bash(.venv/bin/python *)",
+      "Bash(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests .venv/bin/python *)",
+      "Bash(PYTHONPATH=src:tests .venv/bin/python *)",
+      "Bash(timeout *)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git remote *)",
+      "Bash(git branch *)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(git config *)",
+      "Bash(git rm *)",
+      "Bash(git mv *)",
+      "Bash(gh repo *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(rsync *)",
+      "Bash(node *)",
+      "Bash(npx wrangler *)"
     ]
   }
 }

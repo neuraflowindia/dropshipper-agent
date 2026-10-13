@@ -132,7 +132,7 @@ def create_shared_trends_handlers(memory, *, data_root=None, transport="auto", c
             guard_shared_source_launch(memory, context, request)
         plain = dict(context, request=build_trends_request(request["query"]))
         receipt = legacy["reconcile" if reconcile else "handler"](plain)
-        commit_at = max(context["as_of"], utc_now(), key=timestamp)
+        commit_at = max(context["as_of"], utc_now(timespec="microseconds"), key=timestamp)
         bridged = record_trends_response(memory, aid, folder=folder, as_of=commit_at)
         response_id = bridged["stage_id"]
         response = memory.snapshot()["source_checks"][response_id]

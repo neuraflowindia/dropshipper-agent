@@ -13,6 +13,7 @@ from product_radar.source_coverage import execute_source_run, prepare_source_tas
 from product_radar.storage import Journal
 from product_radar.trends_controller import capture_direct_trends, create_trends_handlers
 from product_radar.trends_shared import build_shared_trends_request, validate_trends_term_receipt
+from test_shared_marketplace_acquisitions import wall_clock
 from test_trends_controller import original, snapshot
 
 NOW = "2026-10-06T10:00:00+00:00"
@@ -191,6 +192,44 @@ class SharedTrendsTests(unittest.TestCase):
         owner = next(iter(self.owners().values()))
         response = self.memory.snapshot()["source_checks"][owner["active_response_id"]]
         self.assertEqual(response["observed_at"], "2026-10-06T10:00:03+00:00")
+        self.assertEqual(len(self.calls), 1)
+
+    def run_native_subsecond(self, completed, wrapper_completed, commit_instant):
+        self.prepare()
+        def native(request, aid, **options):
+            self.calls.append((aid, request))
+            actual = original(completed_at=completed, navigation_started_at="2026-10-06T10:00:01.1881905Z",
+                              navigation_status=429, navigation_retry_after="3600")
+            with patch("product_radar.trends_controller._wrapper_utc_now", side_effect=[NOW, wrapper_completed]):
+                return capture_direct_trends(request, aid, snapshot_reader=lambda _: actual, **options)
+        handlers = create_trends_handlers(self.memory, capture=native, shared_acquisitions=True)
+        with patch("product_radar.trends_shared.utc_now", wall_clock(commit_instant)):
+            return self.checks(handlers)
+
+    def test_native_completion_earlier_in_the_commit_second_is_saved(self):
+        # 13 Oct first round: observed 19:49:25.1500845Z, wrapper 19:49:25.740331,
+        # commit stamped "19:49:25" -> DIRECT_TRENDS_RECEIPT_MISMATCH.
+        completed = "2026-10-06T10:00:03.1500845Z"
+        result = self.run_native_subsecond(completed, "2026-10-06T10:00:03.740331+00:00",
+                                           "2026-10-06T10:00:03.800000+00:00")
+        self.assertEqual(result["counts"], {"blocked": 1})
+        owner = next(iter(self.owners().values()))
+        self.assertEqual(owner["state"], "failed_access")
+        response = self.memory.snapshot()["source_checks"][owner["active_response_id"]]
+        self.assertEqual(response["observed_at"], completed)
+        self.assertEqual(response["recorded_at"], "2026-10-06T10:00:03.800000+00:00")
+        wait = source_access_wait(self.memory.snapshot(), source_access_scope(build_shared_trends_request("chair cover")["url"]), as_of=NOW)
+        self.assertEqual(wait["next_retry_at"], "2026-10-06T11:00:03+00:00")
+        self.assertEqual(len(self.calls), 1)
+
+    def test_receipt_dated_after_the_actual_commit_instant_is_still_refused(self):
+        result = self.run_native_subsecond("2026-10-06T10:00:03.9000000Z", "2026-10-06T10:00:03.950000+00:00",
+                                           "2026-10-06T10:00:03.800000+00:00")
+        self.assertEqual(result["counts"], {"failed": 1})
+        task = next(row for row in self.memory.snapshot()["query_tasks"].values() if row.get("kind") == "all_source_task_v1")
+        self.assertEqual(task["reason"], "DIRECT_TRENDS_RECEIPT_MISMATCH")
+        owner = next(iter(self.owners().values()))
+        self.assertEqual(owner["state"], "dispatching"); self.assertIsNone(owner["active_response_id"])
         self.assertEqual(len(self.calls), 1)
 
     def test_default_still_has_no_shared_owner_and_cannot_bypass_admission(self):

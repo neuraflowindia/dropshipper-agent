@@ -313,7 +313,7 @@ def shared_company_reader(memory, *, http_reader, browser_reader=None, as_of,
         owner = _record(memory.snapshot(), aid)
         if owner["active_dispatch_intent_id"] or (folder / "legacy-origin.json").is_file():
             try:
-                receipt, response_id = _record_original(memory, aid, request, folder, max(as_of, utc_now(), key=timestamp))
+                receipt, response_id = _record_original(memory, aid, request, folder, max(as_of, utc_now(timespec="microseconds"), key=timestamp))
             except SafetyError as error:
                 if str(error) in {"SOURCE_ACQUISITION_FILE_UNAVAILABLE", "SAVED_FILE_UNAVAILABLE"}:
                     raise CompanyPagePending("SUPPLIER_COMPANY_ORIGINAL_PENDING") from None
@@ -385,7 +385,7 @@ def shared_company_reader(memory, *, http_reader, browser_reader=None, as_of,
         proof = _receipt_ref(receipt, str(folder))
         if callback is not fetch_public_page and record_dispatch is not None and proof and proof["proof"] != "none":
             record_dispatch()
-        receipt, response_id = _record_original(memory, aid, request, folder, max(as_of, utc_now(), key=timestamp))
+        receipt, response_id = _record_original(memory, aid, request, folder, max(as_of, utc_now(timespec="microseconds"), key=timestamp))
         if not _closed(receipt, transport): raise CompanyPagePending("SUPPLIER_COMPANY_ORIGINAL_PENDING")
         return receipt, aid, response_id
 

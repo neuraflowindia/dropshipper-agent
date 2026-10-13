@@ -539,7 +539,7 @@ def _shared_quickcommerce_handlers(memory, funded_client, native_capture, cooldo
                     "failure_scope": "route" if record["dispatch_started"] is True and record.get("http_status") in (401, 403, 429) else "question"}
                 projection = _public_wait_projection(memory.root, route, public, cooldown_seconds)
                 if projection is not None: result["public_access_wait"] = projection
-            commit_at = max(context["as_of"], utc_now(), key=timestamp)
+            commit_at = max(context["as_of"], utc_now(timespec="microseconds"), key=timestamp)
             response = record_quickcommerce_response(memory, aid, reference=result["reference"],
                 capture_ids=result["capture_ids"], as_of=commit_at)
             _record_marketplace_access(memory, aid, response["response_id"], as_of=commit_at)

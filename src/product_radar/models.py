@@ -31,8 +31,14 @@ def usd(value):
     return number
 
 
-def utc_now():
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+def utc_now(timespec="seconds"):
+    """Whole seconds by default (truncated, not rounded).
+
+    A commit compared with a sub-second source time (the owned Windows browser
+    stamps 7-digit completion times) asks for "microseconds"; otherwise an
+    earlier observation in the same second looks later than its own commit.
+    """
+    return datetime.now(timezone.utc).isoformat(timespec=timespec)
 
 
 def timestamp(value):

@@ -852,7 +852,7 @@ def create_marketplace_handlers(memory, *, data_root=None, transport="auto",
         complete = None
         if shared_acquisitions:
             from .source_acquisitions import record_marketplace_response
-            commit_at = max(context["as_of"], utc_now(), key=timestamp)
+            commit_at = max(context["as_of"], utc_now(timespec="microseconds"), key=timestamp)
             bridged = record_marketplace_response(memory, acquisition_id, folder=folder,
                 as_of=commit_at, capture_ids=[imported["capture_id"]])
             complete = memory.snapshot()["source_checks"][bridged["response_id"]]["complete"]

@@ -15,6 +15,7 @@ from product_radar.source_coverage import execute_source_run, prepare_source_tas
 from product_radar.storage import Journal
 from product_radar.work_turns import active_work_turn, bind_work_turn, close_work_turn, open_work_turn
 from test_catalogue_expansion import fixture
+from test_shared_marketplace_acquisitions import wall_clock
 
 NOW = "2026-10-09T10:00:00+00:00"
 
@@ -25,10 +26,11 @@ class SharedMetaTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.memory = ResearchMemory(self.root / "research", Journal(self.root / "finance"), evidence_type="synthetic")
         self.calls = []; self.mode = "usable"; self.now = NOW
-        self.memory.put("concepts", "sink", {"status": "active", "description": {"label": "Sink caddy",
+        self.sink = {"status": "active", "description": {"label": "Sink caddy",
             "category": "Home and Kitchen", "function": "Store sink essentials", "mechanism": "manual",
             "audience": "adult", "features": ["draining"], "brand": "generic_or_small",
-            "basis": "observed", "reason": "Synthetic source fixture."}})
+            "basis": "observed", "reason": "Synthetic source fixture."}}
+        self.memory.put("concepts", "sink", deepcopy(self.sink))
 
     def browser(self, url, expression, folder, **options):
         self.calls.append((url, str(folder)))
@@ -92,6 +94,32 @@ class SharedMetaTests(unittest.TestCase):
         self.assertEqual(len(failures), 1)
         self.assertEqual(failures[0]["binding"]["observed_at"], completed)
         self.assertEqual(len(self.calls), 1)
+
+    def test_native_subsecond_completion_is_compared_with_the_actual_commit_instant(self):
+        for completed, counts in (("2026-10-09T10:00:05.6070928Z", {"acquired": 1}),
+                                  ("2026-10-09T10:00:05.9000000Z", {"blocked": 1})):
+            with self.subTest(completed=completed):
+                self.memory = ResearchMemory(self.root / completed[-9:-1], Journal(self.root / (completed[-9:-1] + "-money")),
+                                             evidence_type="synthetic")
+                self.memory.put("concepts", "sink", deepcopy(self.sink))
+                def native_browser(*args, **kwargs):
+                    return dict(self.browser(*args, **kwargs), completed_at=completed)
+                handlers = {"meta-ads": meta_direct_source_handlers(self.memory, browser=native_browser,
+                                                                   shared_acquisitions=True)}
+                self.prepare(handlers)
+                with patch("product_radar.meta_browser.utc_now", wall_clock("2026-10-09T10:00:05.800000+00:00")):
+                    result = self.checks(handlers)
+                self.assertEqual(result["counts"], counts)
+                owner = next(iter(self.owners().values()))
+                if counts == {"acquired": 1}:
+                    response = self.memory.snapshot()["source_checks"][owner["active_response_id"]]
+                    self.assertEqual(response["observed_at"], completed)
+                    self.assertEqual(response["recorded_at"], "2026-10-09T10:00:05.800000+00:00")
+                else:  # A receipt dated after the actual commit instant still fails closed.
+                    task = next(row for row in self.memory.snapshot()["query_tasks"].values()
+                                if row.get("kind") == "all_source_task_v1" and row["run_id"] == self.run)
+                    self.assertEqual(task["reason"], "SOURCE_ACQUISITION_SOURCE_DATE_INVALID")
+                    self.assertIsNone(owner["active_response_id"])
 
     def test_direction_first_then_real_product_check_reuses_original(self):
         handlers = self.handlers(); self.prepare(handlers)
