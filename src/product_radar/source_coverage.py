@@ -196,7 +196,8 @@ def source_access_scope(url, *, transport="public-browser", access_identity="own
 
     Owned native/Playwright public browsers share this conservative local
     access identity. A transport change cannot bypass its saved host refusal.
-    Other installed readers must supply their actual distinct identity.
+    Other installed readers (including the owner's signed-in research
+    profile, ``signed_in_access_scope``) must supply their actual distinct identity.
     """
     if not isinstance(url, str): raise SafetyError("SOURCE_ACCESS_SCOPE_INVALID")
     try: parsed = urlsplit(url)
@@ -207,6 +208,34 @@ def source_access_scope(url, *, transport="public-browser", access_identity="own
         if value is not None: identifier(value)
     return {"host": parsed.hostname.lower(), "transport": transport, "access_identity": access_identity,
             "account_key": account_key, "location_key": location_key}
+
+
+SIGNED_IN_TRANSPORT = "signed-in-browser"
+SIGNED_IN_ACCESS_IDENTITY = "owner-signed-in"
+# Each supplier route's own first read (owner decisions D6 and D11): IndiaMART
+# in the owner's signed-in research profile, Google Maps straight in the owned
+# browser. Other supplier routes read plainly first.
+SUPPLIER_FIRST_TRANSPORT = {"indiamart": SIGNED_IN_TRANSPORT, "google-maps": "public-browser"}
+_DECOR_REASON = "The old Amazon India home department is undefined; use the verified Home and Decor node."
+_FIRST_READ_REASON = "This route now starts with its own browser read; the old queued read is saved history."
+
+
+def _superseding_reason(route, old, new):
+    """Why a new question may take over an old one's future work, or None."""
+    if (route in {"amazon-bestsellers", "amazon-movers-and-shakers"}
+            and old.get("department") == "home" and new.get("department") == "kitchen/1380374031"):
+        return _DECOR_REASON
+    first = SUPPLIER_FIRST_TRANSPORT.get(route)
+    if first and new.get("transport") == first and old.get("transport") not in (None, first):
+        return _FIRST_READ_REASON
+    return None
+
+
+def signed_in_access_scope(url):
+    """The owner's real signed-in research profile is its own access identity:
+    old refusals of the hidden throwaway browser never hold it, and its own
+    refusals never hold the public routes."""
+    return source_access_scope(url, transport=SIGNED_IN_TRANSPORT, access_identity=SIGNED_IN_ACCESS_IDENTITY)
 
 
 def acquisition_access_scope(owner, response=None, *, state=None, planned=False):
@@ -224,6 +253,8 @@ def acquisition_access_scope(owner, response=None, *, state=None, planned=False)
         return source_access_scope(url, transport="supplier-public", access_identity="owned-supplier-public")
     from .supplier_route_acquisition import SEARCH_ROUTES
     if owner["binding"]["route"] in SEARCH_ROUTES:
+        if request.get("transport") == SIGNED_IN_TRANSPORT:
+            return signed_in_access_scope(request["url"])
         # HTTP and browser are different reads, not a way around the same
         # public supplier host's real refusal. Google search/Maps share it.
         return source_access_scope(request["url"], transport="supplier-public", access_identity="owned-supplier-public")
@@ -500,6 +531,10 @@ def _record_marketplace_access(memory, acquisition_id, response_id, *, as_of):
         wait_seconds = _access_backoff_seconds(attempt,
             challenge=status in _ACCESS_CHALLENGE_STATUSES or response["source_state"] == "blocked",
             image=owner["binding"]["route"] == "public_image_http")
+        if scope["transport"] == SIGNED_IN_TRANSPORT and response.get("parse_reason") == "OWNER_SIGN_IN_REQUIRED":
+            # A sign-in wall in the owner's profile waits for the owner to sign in
+            # again (signed_in_browser); a long back-off would only delay that.
+            wait_seconds = ACCESS_BACKOFF_SECONDS[0]
         binding = {"scope": scope, "scope_hash": digest(scope), "acquisition_id": acquisition_id,
             "response_id": response_id, "response_hash": digest(response), "observed_at": response["observed_at"],
             "http_status": status, "challenge": response["source_state"] == "blocked",
@@ -1341,7 +1376,12 @@ def product_source_request_builder(*, location=None, catalogue=None, run_id=None
         def make_request(query):
             if shared_suppliers and group == "supplier":
                 from .supplier_search import supplier_request_for_state
-                return supplier_request_for_state(state, route, query)
+                request = supplier_request_for_state(state, route, query)
+                stale = [task_id for task_id, task in histories.get((cid, context["description_hash"], route), [])
+                         if _superseding_reason(route, task.get("request", {}), request) and not task.get("reconcile_required")]
+                if stale:
+                    context["supersedes_task_ids"] = stale
+                return request
             if route in {"amazon-search", "flipkart-search"}:
                 from .marketplace_browser import build_marketplace_request
                 return build_marketplace_request(route, term=query)
@@ -1601,27 +1641,25 @@ def prepare_source_tasks(memory, questions, *, run_id, as_of=None,
                 state["query_tasks"][task_id] = value
             if task_id not in task_ids:
                 task_ids.append(task_id)
-            # The public India `home` department was proved undefined. A new
-            # verified decor-node question can supersede its future work, but
-            # never rewrite the original request, receipt, cost or uncertainty.
+            # The public India `home` department was proved undefined, and a
+            # supplier route's old queued read was replaced by its own first
+            # read. A new question can supersede such future work, but never
+            # rewrite the original request, receipt, cost or uncertainty.
             superseded = question.get("supersedes_task_ids", [])
             if not isinstance(superseded, list) or any(not isinstance(ref, str) for ref in superseded):
                 raise SafetyError("SOURCE_SUPERSEDED_BINDING_INVALID")
             for prior_id in superseded:
                 prior = state["query_tasks"].get(prior_id)
+                reason = _superseding_reason(route, (prior or {}).get("request", {}), request)
                 if (not prior or prior.get("kind") != TASK_KIND or prior.get("run_id") != run_id
-                        or prior.get("route") != route or route not in {"amazon-bestsellers", "amazon-movers-and-shakers"}
-                        or prior.get("request", {}).get("department") != "home"
-                        or request.get("department") != "kitchen/1380374031"
-                        or prior.get("reconcile_required")
+                        or prior.get("route") != route or reason is None or prior.get("reconcile_required")
                         or any(prior.get("targets", {}).get(cid) != targets[cid]
-                               or state["concepts"][cid]["description"].get("category") != "Home and Decor" for cid in ids)):
+                               or reason == _DECOR_REASON
+                               and state["concepts"][cid]["description"].get("category") != "Home and Decor" for cid in ids)):
                     raise SafetyError("SOURCE_SUPERSEDED_BINDING_INVALID")
                 updated = deepcopy(prior)
                 updated["superseded_targets"] = {**updated.get("superseded_targets", {}), **{cid: {
-                    "task_id": task_id, "request_hash": digest(request),
-                    "reason": "The old Amazon India home department is undefined; use the verified Home and Decor node."}
-                    for cid in ids}}
+                    "task_id": task_id, "request_hash": digest(request), "reason": reason} for cid in ids}}
                 if updated != prior:
                     updated["revision"] = prior.get("revision", 0) + 1
                     changes.append(change("query_tasks", prior_id, updated, prior)); state["query_tasks"][prior_id] = updated
@@ -2663,8 +2701,7 @@ def _target_superseded(state, task, concept_id):
     replacement = state["query_tasks"].get(marker.get("task_id")) if isinstance(marker, dict) else None
     if (not replacement or replacement.get("kind") != TASK_KIND or replacement.get("run_id") != task.get("run_id")
             or replacement.get("route") != task.get("route")
-            or task.get("request", {}).get("department") != "home"
-            or replacement.get("request", {}).get("department") != "kitchen/1380374031"
+            or _superseding_reason(task.get("route"), task.get("request", {}), replacement.get("request", {})) is None
             or marker.get("request_hash") != replacement.get("request_hash")
             or replacement.get("targets", {}).get(concept_id) != task.get("targets", {}).get(concept_id)
             or task.get("reconcile_required")):
@@ -3039,6 +3076,15 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
                     results.append({"task_id": task_id, "state": "waiting", "actual_attempt": False,
                                     "reason": resolution["reason"], "next_retry_at": resolution.get("next_retry_at")})
                     continue
+                if resolution["action"] == "not_connected":
+                    # A question this route will never send (a replaced transport or
+                    # a retired route) is closed, not left waiting for ever.
+                    _upsert(memory, "query_tasks", task_id, dict(task, status="blocked", reconcile_required=False,
+                            retryable=False, next_retry_at=None, reason=resolution["reason"]), task)
+                    state = memory.snapshot()
+                    results.append({"task_id": task_id, "state": "not_connected", "actual_attempt": False,
+                                    "reason": resolution["reason"]})
+                    continue
                 if resolution["action"] == "collect":
                     callback = registry[route]["handler"]
                     reconciling = False
@@ -3190,10 +3236,16 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
             if not local_saved and not staged:
                 calls += 1
                 inspection["service_next_index"] = (members.index(task_id) + 1) % len(members)
+            # A read in the owner's signed-in profile may first wait for the
+            # one signed-in browser and always closes it gracefully afterwards.
+            deadline = timeout_seconds
+            if context["request"].get("transport") == SIGNED_IN_TRANSPORT:
+                from .native_public_browser import signed_in_budget
+                deadline = max(timeout_seconds, signed_in_budget())
             try:
-                with trace_source(dict(context, deadline_seconds=timeout_seconds)) as trace:
+                with trace_source(dict(context, deadline_seconds=deadline)) as trace:
                     with source_phase("handler"):
-                        receipt = (access_resolution["receipt"] if access_saved else resolution["receipt"]) if local_saved else runner(callback, context, timeout_seconds)
+                        receipt = (access_resolution["receipt"] if access_saved else resolution["receipt"]) if local_saved else runner(callback, context, deadline)
                     with source_phase("response_save"):
                         _stage_receipt(memory, context, receipt)
                     trace.response_saved = True
@@ -3217,6 +3269,19 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
             except (KeyboardInterrupt, SystemExit):
                 raise  # Durable intent/actual dispatch survives; no replacement launch.
             except (SourceActionDeadline, Exception) as error:
+                if isinstance(error, SafetyError) and getattr(error, "calm_wait", False) is True:
+                    # The handler proved nothing was requested (a signed-in read
+                    # waiting for the owner, the desktop, the browser or pacing):
+                    # the question returns to waiting, not to a failure.
+                    current = memory.snapshot()["query_tasks"][task_id]
+                    _upsert(memory, "query_tasks", task_id, dict(task, reason=str(error), revision=current.get("revision", 0),
+                            next_retry_at=getattr(error, "next_retry_at", None)), current)
+                    state = memory.snapshot()
+                    row = {"task_id": task_id, "state": "waiting", "actual_attempt": False, "reason": str(error),
+                           "next_retry_at": getattr(error, "next_retry_at", None), "route": route}
+                    results.append(row)
+                    notify_progress(row)
+                    continue
                 record_error("source_action_failed", error, stage="acquire", task_id=task_id, route=route,
                     phase=getattr(error, "phase", trace.failure_phase or trace.phase), timings=dict(trace.durations),
                     response_saved=trace.response_saved)

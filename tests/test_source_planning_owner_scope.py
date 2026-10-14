@@ -183,7 +183,9 @@ class SourcePlanningOwnerScopeTests(unittest.TestCase):
         before = digest(state)
         with patch.object(acquisitions, "_record", wraps=acquisitions._record) as validations:
             unscoped = self.supplier_walk(state, scoped=False)
-            self.assertEqual(validations.call_count, 36)  # 2 products * 3 routes * 2 lookups * 3 owners.
+            # 2 products * 1 plain-first route (TradeIndia) * 2 lookups * 3 owners. Google Maps
+            # and IndiaMART plan their own first read without consulting saved owners.
+            self.assertEqual(validations.call_count, 12)
             validations.reset_mock()
             scoped = self.supplier_walk(state, scoped=True)
             self.assertEqual(validations.call_count, 3)
@@ -217,10 +219,14 @@ class SourcePlanningOwnerScopeTests(unittest.TestCase):
     def test_unrelated_damaged_owner_is_not_hidden_by_requested_fingerprint(self):
         self.memory.state["batch_runs"][self.unrelated_owner]["binding"]["physical_request_fingerprint"] = "f" * 64
         prepared = self.prepare()
+        # Only TradeIndia's planning consults saved owners; Google Maps and IndiaMART
+        # plan their own first read and meet the owners when they are resolved.
         rejected = [row for row in prepared["pending_preparation"] if row["route"] in SUPPLIER_ROUTES]
-        self.assertEqual(len(rejected), 6)
+        self.assertEqual({row["route"] for row in rejected}, {"tradeindia"})
+        self.assertEqual(len(rejected), 2)
         self.assertEqual({row["reason"] for row in rejected}, {"SOURCE_ACQUISITION_RECORD_INVALID"})
-        self.assertFalse(any(row["route"] in SUPPLIER_ROUTES for row in self.memory.state["query_tasks"].values()))
+        self.assertEqual({row["route"] for row in self.memory.state["query_tasks"].values() if row["route"] in SUPPLIER_ROUTES},
+                         {"google-maps", "indiamart"})
         self.assertIsNone(acquisitions._READINESS_OWNERS.get())
 
     def test_unmarked_mutable_builder_keeps_uncached_lookup_semantics(self):
@@ -391,13 +397,14 @@ class SourcePlanningOwnerScopeTests(unittest.TestCase):
             files.reset_mock()
             scoped = self.supplier_walk(state, scoped=True)
             self.assertEqual(files.call_count, unscoped_reads)
-            # Both owners' saved responses, plus the plain read's original page
-            # re-read once to confirm the current parser still cannot read it.
-            self.assertEqual(files.call_count, 4)
+            # TradeIndia's saved plain response and its original page, re-read once
+            # to confirm the current parser still cannot read it. IndiaMART's old
+            # throwaway-browser result is history: it never decides the next read.
+            self.assertEqual(files.call_count, 3)
         self.assertEqual(scoped, unscoped)
         transports = {(cid, route): request["transport"] for cid, route, request, _ in scoped}
         self.assertEqual(transports["first", "tradeindia"], "public-browser")
-        self.assertEqual(transports["first", "indiamart"], "public-browser")
+        self.assertEqual(transports["first", "indiamart"], "signed-in-browser")
         self.assertEqual(transports["second", "tradeindia"], "public-http")
         self.assertEqual(digest(state), before)
 

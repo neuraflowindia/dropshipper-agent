@@ -152,13 +152,17 @@ class DescriptionFitTests(unittest.TestCase):
         from product_radar.fit_description import display_fit_reason
         payload = _payload(self.base())
         for reason in ("Ordinary compact household construction.", "Roughly 2 kg for an ordinary example.",
-                       "Estimated: Saves about 10 minutes of repeated setup.", "Likely around 20 cm for a typical example."):
+                       "Estimated: Skips repeated setup steps.", "Likely around 20 cm for a typical example."):
             response = response_for(payload); response["results"][0]["criteria"][0]["reason"] = reason
             checked = self.checked(payload, response)
             self.assertEqual(checked["failures"], {}, reason)
             row = checked["accepted"][self.concept_id]["criteria"][0]
             self.assertEqual(row["reason"], reason)
             self.assertTrue(display_fit_reason(row).startswith("Estimated:"))
+        # Contract ID7 (validation v3): an invented time saving is refused even as "about".
+        response = response_for(payload)
+        response["results"][0]["criteria"][0]["reason"] = "Estimated: Saves about 10 minutes of repeated setup."
+        self.assertEqual(set(self.checked(payload, response)["failures"].values()), {"FIT_DESCRIPTION_INFERENCE_INVALID"})
 
     def test_supplied_advertised_capacity_is_not_a_blanket_numerical_rejection(self):
         from product_radar.fit_description import validate_description_inference

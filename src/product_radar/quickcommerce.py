@@ -8,6 +8,7 @@ No order, supplier contact, billing purchase, paid upgrade or Apify call exists.
 from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
+from pathlib import Path
 import re
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -26,11 +27,80 @@ HOSTS = {"blinkit": {"blinkit.com", "www.blinkit.com"},
          "zepto": {"zepto.com", "www.zepto.com", "zeptonow.com", "www.zeptonow.com"},
          "instamart": {"swiggy.com", "www.swiggy.com"}}
 MAX_BYTES = 3 * 1024 * 1024
+CREDITS_ENDPOINT = "https://api.quickcommerceapi.com/v1/credits"
+KEY_FILE = Path(__file__).resolve().parents[2] / "config/local/quickcommerce.env"
+MAX_KEY_FILE_BYTES = 8192
+MAX_CREDITS_BYTES = 65536
+_PACK_FIELDS = ("credits_total", "credits_remaining", "credits_used")
 
 
 class _NoRedirects(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
+
+
+def parse_key(contents):
+    """One QUICKCOMMERCE_API_KEY line; errors never repeat the file contents."""
+    values = []
+    for line in contents.lstrip("﻿").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        name, separator, value = line.partition("=")
+        if name.strip() == "QUICKCOMMERCE_API_KEY":
+            if not separator:
+                raise SafetyError("QUICKCOMMERCE_KEY_FILE_INVALID")
+            values.append(value.strip())
+    if len(values) != 1:
+        raise SafetyError("QUICKCOMMERCE_KEY_FILE_INVALID")
+    secret = values[0]
+    if len(secret) >= 2 and secret[0] == secret[-1] and secret[0] in "\"'":
+        secret = secret[1:-1]
+    if not re.fullmatch(r"[A-Za-z0-9_-]{16,512}", secret):
+        raise SafetyError("QUICKCOMMERCE_KEY_FILE_INVALID")
+    return secret
+
+
+def load_key(path=KEY_FILE):
+    try:
+        with Path(path).open("rb") as handle:
+            raw = handle.read(MAX_KEY_FILE_BYTES + 1)
+        if len(raw) > MAX_KEY_FILE_BYTES:
+            raise SafetyError("QUICKCOMMERCE_KEY_FILE_INVALID")
+        return parse_key(raw.decode("utf-8-sig"))
+    except (OSError, UnicodeError):
+        raise SafetyError("QUICKCOMMERCE_KEY_FILE_UNREADABLE") from None
+
+
+def _pack_time(value):
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value) > 64:
+        raise SafetyError("QUICKCOMMERCE_CREDITS_RESPONSE_INVALID")
+    try:
+        return timestamp(value).isoformat()
+    except SafetyError:
+        raise SafetyError("QUICKCOMMERCE_CREDITS_RESPONSE_INVALID") from None
+
+
+def map_credits(payload):
+    """Validated balance aggregates and active packs; pack ids are not kept."""
+    summary = payload.get("summary") if isinstance(payload, dict) else None
+    fields = ("total_available", "total_used", "active_packs")
+    if (not isinstance(summary, dict) or any(type(summary.get(field)) is not int or summary[field] < 0 for field in fields)
+            or any(not isinstance(payload.get(field), list) for field in ("active", "inactive"))
+            or len(payload["active"]) > 100):
+        raise SafetyError("QUICKCOMMERCE_CREDITS_RESPONSE_INVALID")
+    def pack(row):
+        if (not isinstance(row, dict) or any(type(row.get(field)) is not int or row[field] < 0 for field in _PACK_FIELDS)
+                or type(row.get("is_trial")) is not bool):
+            raise SafetyError("QUICKCOMMERCE_CREDITS_RESPONSE_INVALID")
+        return {**{field: row[field] for field in _PACK_FIELDS}, "is_trial": row["is_trial"],
+                "purchased_at": _pack_time(row.get("purchased_at")), "expires_at": _pack_time(row.get("expires_at"))}
+    if len(payload["inactive"]) > 500:
+        raise SafetyError("QUICKCOMMERCE_CREDITS_RESPONSE_INVALID")
+    return {**{field: summary[field] for field in fields}, "packs": [pack(row) for row in payload["active"]],
+            "inactive_packs": [pack(row) for row in payload["inactive"]]}
 
 
 def prepare_query(platform, query, location):
@@ -147,6 +217,31 @@ class QuickCommerceClient:
             raise SafetyError("QUICKCOMMERCE_CREDENTIAL_INVALID")
         self._key = api_key
         self._opener = opener or build_opener(_NoRedirects())
+
+    def credits(self):
+        """The provider's free balance check: no search, purchase or retry."""
+        prepared = Request(CREDITS_ENDPOINT, headers={"X-API-Key": self._key, "Accept": "application/json",
+                                                      "User-Agent": "NeuraFlow-Public-Research/1.0"}, method="GET")
+        try:
+            with self._opener.open(prepared, timeout=20) as response:
+                if response.status != 200:
+                    raise SafetyError("QUICKCOMMERCE_CREDITS_HTTP_UNEXPECTED")
+                raw = response.read(MAX_CREDITS_BYTES + 1)
+        except HTTPError as error:
+            code = error.code
+            error.close()
+            raise SafetyError({401: "QUICKCOMMERCE_AUTH_REJECTED", 402: "QUICKCOMMERCE_CREDITS_CHECK_REFUSED",
+                               403: "QUICKCOMMERCE_ACCESS_DENIED", 429: "QUICKCOMMERCE_RATE_LIMITED"}.get(
+                                   code, "QUICKCOMMERCE_PROVIDER_HTTP_FAILED")) from None
+        except (URLError, TimeoutError, OSError):
+            raise SafetyError("QUICKCOMMERCE_NETWORK_FAILED") from None
+        if len(raw) > MAX_CREDITS_BYTES:
+            raise SafetyError("QUICKCOMMERCE_CREDITS_RESPONSE_INVALID")
+        try:
+            payload = decode_json(raw)
+        except SafetyError:
+            raise SafetyError("QUICKCOMMERCE_CREDITS_RESPONSE_INVALID") from None
+        return map_credits(payload)
 
     def search(self, request, *, on_dispatch=None, retain_transport=False):
         # Validate even a caller-provided saved preparation before access.

@@ -136,7 +136,7 @@ class PublicResearchCliTests(unittest.TestCase):
                                          "--failure-id", "known-failure", "--job-id", "known-job"])
         self.assertEqual(code, 0)
         self.assertEqual(repair.call_args.kwargs, {"concept_id": "known-product", "failure_id": "known-failure", "job_id": "known-job"})
-        self.assertIs(repair.call_args.args[1], runner.return_value)
+        self.assertIs(repair.call_args.args[1].runner, runner.return_value)  # always behind the money guard
         summary.assert_called_once()
         write.assert_called_once()
         self.assertIn("No collector, supplier contact or publication call", output)
@@ -214,8 +214,9 @@ class PublicResearchCliTests(unittest.TestCase):
             code, output = self.run_cli(["research-visual-followup", "--visual-input", "saved.json", "--live-model"])
         self.assertEqual(code, 0)
         journal.assert_called_once_with(self.root / "data/benchmarks/state/apify")
-        resolve.assert_called_once_with(memory.return_value, requests, runner.return_value)
-        runner.assert_called_once_with({"fixture_config": True})
+        self.assertEqual(resolve.call_args.args[:2], (memory.return_value, requests))
+        self.assertIs(resolve.call_args.args[2].runner, runner.return_value)  # always behind the money guard
+        runner.assert_called_once_with({"fixture_config": True}, stop_on_interrupt=False)
         summary.assert_called_once_with(memory.return_value)
         write.assert_called_once_with(memory.return_value, {"products": []})
         self.assertIn('"collector_requests": 0', output)

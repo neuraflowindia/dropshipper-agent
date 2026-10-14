@@ -57,7 +57,7 @@ class BuildReviewPackageCliTests(unittest.TestCase):
         return status, out.getvalue()
 
     def test_live_flag_required_before_reading_memory_or_creating_runner(self):
-        with patch.object(cli, "ResearchMemory") as memory, patch.object(cli, "CodexRunner") as runner:
+        with patch.object(cli, "ResearchMemory") as memory, patch.object(cli, "research_codex_runner") as runner:
             status, output = self.run_cli(live=False)
         self.assertEqual(status, 2)
         self.assertIn("EXPLICIT_LIVE_MODEL_REQUIRED", output)
@@ -69,7 +69,7 @@ class BuildReviewPackageCliTests(unittest.TestCase):
             with self.subTest(filename=filename):
                 self.save()
                 (self.folder / filename).unlink()
-                with patch.object(cli, "CodexRunner") as runner:
+                with patch.object(cli, "research_codex_runner") as runner:
                     status, output = self.run_cli()
                 self.assertEqual(status, 2)
                 self.assertIn("SAVED_FILE_UNAVAILABLE", output)
@@ -84,21 +84,21 @@ class BuildReviewPackageCliTests(unittest.TestCase):
                 else:
                     self.pool["evidence_type"] = "synthetic"
                     self.save()
-                with patch.object(cli, "CodexRunner") as runner:
+                with patch.object(cli, "research_codex_runner") as runner:
                     status, output = self.run_cli()
                 self.assertEqual(status, 2)
                 self.assertIn("SAVED_REPORT_POOL_CHANGED", output)
                 runner.assert_not_called()
 
     def test_unknown_or_duplicate_saved_issue_is_refused_before_runner(self):
-        with patch.object(cli, "CodexRunner") as runner:
+        with patch.object(cli, "research_codex_runner") as runner:
             status, output = self.run_cli(issue_id="unknown-issue")
         self.assertEqual(status, 2)
         self.assertIn("SAVED_REPORT_ISSUE_REQUIRED", output)
         runner.assert_not_called()
         self.drafts["allocation"]["issues"].append(deepcopy(self.issue))
         self.save()
-        with patch.object(cli, "CodexRunner") as runner:
+        with patch.object(cli, "research_codex_runner") as runner:
             status, output = self.run_cli()
         self.assertEqual(status, 2)
         self.assertIn("SAVED_REPORT_ISSUE_REQUIRED", output)
@@ -117,7 +117,7 @@ class BuildReviewPackageCliTests(unittest.TestCase):
                     self.issue["selection_hash"] = "a" * 64
                 self.save()
                 work = Mock(side_effect=AssertionError("Model invocation forbidden"))
-                with patch.object(cli, "CodexRunner", return_value=work), patch.object(cli, "render") as render:
+                with patch.object(cli, "research_codex_runner", return_value=work), patch.object(cli, "render") as render:
                     status, output = self.run_cli()
                 self.assertEqual(status, 2)
                 expected = {"missing": "LIVE_FACTS_CONCEPT_MISMATCH", "duplicate": "LIVE_DUPLICATE_CONCEPT",
@@ -129,7 +129,7 @@ class BuildReviewPackageCliTests(unittest.TestCase):
     def test_shortfall_returns_without_runner_or_renderer(self):
         self.issue.update(ready_for_review=False, shortfall=3)
         self.save()
-        with patch.object(cli, "CodexRunner") as runner, patch.object(cli, "render") as render:
+        with patch.object(cli, "research_codex_runner") as runner, patch.object(cli, "render") as render:
             status, output = self.run_cli()
         self.assertEqual(status, 0)
         self.assertIn("state: shortfall", output)
@@ -140,7 +140,7 @@ class BuildReviewPackageCliTests(unittest.TestCase):
     def test_later_language_pending_saves_binding_without_runner_or_renderer(self):
         self.issue.update(projected_ordinal=3, language_state="language_pending")
         self.save()
-        with patch.object(cli, "CodexRunner") as runner, patch.object(cli, "render") as render:
+        with patch.object(cli, "research_codex_runner") as runner, patch.object(cli, "render") as render:
             status, output = self.run_cli()
         self.assertEqual(status, 0)
         self.assertIn("state: language_pending", output)
@@ -156,7 +156,7 @@ class BuildReviewPackageCliTests(unittest.TestCase):
         self.policy.return_value = {"ongoing_pdf_language": "en"}
         self.save()
         runner = Mock()
-        with patch.object(cli, "CodexRunner", return_value=runner), \
+        with patch.object(cli, "research_codex_runner", return_value=runner), \
                 patch.object(cli, "prepare_review_package", return_value={"state": "draft_ready_for_review", "manifest_path": "fixture-only"}) as prepare:
             status, output = self.run_cli()
         self.assertEqual(status, 0)
@@ -171,7 +171,7 @@ class BuildReviewPackageCliTests(unittest.TestCase):
 
     def test_presentation_cli_does_not_initialize_a_runner_or_read_model_config(self):
         (self.root / "config/ai/codex_luna.json").unlink()
-        with patch.object(cli, "CodexRunner") as runner, \
+        with patch.object(cli, "research_codex_runner") as runner, \
                 patch.object(cli, "prepare_review_package", return_value={"state": "draft_ready_for_review"}) as prepare:
             status, output = self.run_cli(live=False, presentation_source_revision=1)
         self.assertEqual(status, 0)
@@ -181,7 +181,7 @@ class BuildReviewPackageCliTests(unittest.TestCase):
         self.assertIn("No collection, reservation, approval", output)
 
     def test_invalid_presentation_source_revision_is_refused_before_memory_or_runner(self):
-        with patch.object(cli, "ResearchMemory") as memory, patch.object(cli, "CodexRunner") as runner:
+        with patch.object(cli, "ResearchMemory") as memory, patch.object(cli, "research_codex_runner") as runner:
             status, output = self.run_cli(live=False, presentation_source_revision=0)
         self.assertEqual(status, 2)
         self.assertIn("REPORT_PRESENTATION_REVISION_INVALID", output)
@@ -198,7 +198,7 @@ class BuildReviewPackageCliTests(unittest.TestCase):
         render_fixture.renders = []
         with patch.object(cli, "ResearchMemory", return_value=memory), \
                 patch.object(cli, "load_json", side_effect=lambda path, *args: self.drafts if Path(path).name == "report_drafts.json" else self.pool if Path(path).name == "report_pool.json" else {}), \
-                patch.object(cli, "CodexRunner", return_value=runner), \
+                patch.object(cli, "research_codex_runner", return_value=runner), \
                 patch.object(cli, "render", side_effect=render_fixture.render), patch.object(cli, "inspect_pdf", side_effect=workflow_fixture.inspect):
             status, output = self.run_cli()
         self.assertEqual(status, 0)

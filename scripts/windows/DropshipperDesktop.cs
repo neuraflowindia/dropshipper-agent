@@ -50,6 +50,36 @@ namespace NeuraFlow.Dropshipper {
         public string message { get; set; }
         public string reason { get; set; }
         public string checked_at { get; set; }
+        public SignInStatus sign_in { get; set; }
+        public List<SpendLine> spend { get; set; }
+        public List<SpendAlert> spend_alerts { get; set; }
+    }
+
+    internal sealed class SpendLine {
+        public string item { get; set; }
+        public string text { get; set; }
+        public int? percent { get; set; }
+        public List<int> flags { get; set; }
+    }
+
+    internal sealed class SpendAlert {
+        public string alert_id { get; set; }
+        public string kind { get; set; }
+        public string message { get; set; }
+    }
+
+    internal sealed class SignInNeed {
+        public string id { get; set; }
+        public string site { get; set; }
+        public string label { get; set; }
+        public string state { get; set; }
+    }
+
+    internal sealed class SignInStatus {
+        public bool window_open { get; set; }
+        public string line { get; set; }
+        public string notice { get; set; }
+        public List<SignInNeed> needs { get; set; }
     }
 
     internal interface IControls {
@@ -152,13 +182,19 @@ namespace NeuraFlow.Dropshipper {
 
     internal sealed class ControlWindow : Form {
         private readonly IControls controls;
-        internal readonly Button StartButton, StopButton, ExitButton;
+        internal readonly Button StartButton, StopButton, ExitButton, SignInButton;
         internal readonly NotifyIcon Tray;
         private readonly ToolStripMenuItem startMenu, stopMenu;
-        private readonly Label heading, detail, checkedAt;
+        private readonly Label heading, detail, checkedAt, signInLine, spendLines, hint;
+        private readonly HashSet<string> notifiedNeeds = new HashSet<string>();
+        private readonly HashSet<string> notifiedAlerts = new HashSet<string>();
+        private string signInNotice;
+        internal int NotificationsShown { get; private set; }
+        internal int SpendNotificationsShown { get; private set; }
+        internal string LastSpendNotification { get; private set; }
         private readonly System.Windows.Forms.Timer timer;
         private readonly EventWaitHandle restoreEvent;
-        private bool refreshing, changing, exitRequested, allowClose;
+        private bool refreshing, changing, exitRequested, allowClose, signingIn;
         private int generation;
         internal ResearchStatus Latest;
         internal CloseReason LastCloseReason { get; private set; }
@@ -167,7 +203,7 @@ namespace NeuraFlow.Dropshipper {
             Text = "NeuraFlow Dropshipper";
             Name = "NeuraFlowDropshipperWindow";
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(520, 330); MinimumSize = new Size(536, 369);
+            ClientSize = new Size(520, 416); MinimumSize = new Size(536, 455);
             FormBorderStyle = FormBorderStyle.FixedSingle; MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(249, 246, 240); ForeColor = Color.FromArgb(32, 49, 62);
@@ -184,9 +220,18 @@ namespace NeuraFlow.Dropshipper {
             StartButton = MakeButton("Start", "StartResearch", 29, Color.FromArgb(117, 37, 57), Color.White);
             StopButton = MakeButton("Stop", "StopResearch", 184, Color.FromArgb(229, 232, 223), ForeColor);
             ExitButton = MakeButton("Exit", "ExitResearch", 339, Color.FromArgb(229, 232, 223), ForeColor);
-            var hint = new Label { Text = "Minimize or close this window to keep it in the tray.\nClick its tray icon once to bring it back. Exit stops research.",
-                Location = new Point(29, 270), Size = new Size(465, 44), Font = new Font("Segoe UI", 8.5F) };
-            Controls.AddRange(new Control[] { brand, heading, detail, checkedAt, StartButton, StopButton, ExitButton, hint });
+            SignInButton = new Button { Text = "Sign in to research sites", Name = "SignInResearchSites", Location = new Point(29, 268),
+                Size = new Size(298, 38), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(229, 232, 223), ForeColor = ForeColor,
+                Cursor = Cursors.Hand, Font = new Font("Segoe UI", 10F, FontStyle.Bold), TabStop = true };
+            signInLine = new Label { Location = new Point(29, 312), Size = new Size(465, 40), Name = "SignInNeeds",
+                Font = new Font("Segoe UI", 9F) };
+            // Reserved for the spend and allowance lines (one line per item).
+            spendLines = new Label { Location = new Point(29, 356), Size = new Size(465, 0), Name = "SpendLines",
+                Font = new Font("Segoe UI", 9F) };
+            hint = new Label { Text = "Minimize or close this window to keep it in the tray.\nClick its tray icon once to bring it back. Exit stops research.",
+                Location = new Point(29, 360), Size = new Size(465, 44), Font = new Font("Segoe UI", 8.5F) };
+            Controls.AddRange(new Control[] { brand, heading, detail, checkedAt, StartButton, StopButton, ExitButton,
+                SignInButton, signInLine, spendLines, hint });
             var menu = new ContextMenuStrip();
             menu.Items.Add("Open window", null, delegate { RestoreWindow(); });
             startMenu = new ToolStripMenuItem("Start", null, async delegate { await Change("start"); });
@@ -202,6 +247,7 @@ namespace NeuraFlow.Dropshipper {
             StartButton.Click += async delegate { await Change("start"); };
             StopButton.Click += async delegate { await Change("stop"); };
             ExitButton.Click += async delegate { await ExitResearch(); };
+            SignInButton.Click += async delegate { await SignIn(); };
             Resize += delegate { if (WindowState == FormWindowState.Minimized) HideToTray(); };
             FormClosing += delegate(object sender, FormClosingEventArgs e) {
                 LastCloseReason = e.CloseReason;
@@ -243,8 +289,67 @@ namespace NeuraFlow.Dropshipper {
             Tray.Text = "NeuraFlow Dropshipper — " + state.state;
             SetButtons(!changing && !exitRequested && !state.enabled && state.active_processes == 0,
                        !changing && !exitRequested && state.enabled);
+            ApplySignIn(state.sign_in);
+            ApplySpend(state);
             if (exitRequested && !state.enabled && state.active_processes == 0) {
                 allowClose = true; Close();
+            }
+        }
+        private void ApplySignIn(SignInStatus signIn) {
+            // A busy/error notice stays until the owner's next action.
+            signInLine.Text = signInNotice ?? (signIn == null ? "" : signIn.line ?? "");
+            SignInButton.Enabled = !signingIn && (signIn == null || !signIn.window_open);
+            if (signIn == null || signIn.needs == null) return;
+            var fresh = new List<SignInNeed>();
+            foreach (SignInNeed need in signIn.needs)
+                if (need != null && !String.IsNullOrEmpty(need.id) && notifiedNeeds.Add(need.id)) fresh.Add(need);
+            if (fresh.Count == 0) return;
+            // One Windows notification for the new needs together; a repeat status is quiet.
+            NotificationsShown++;
+            string text = fresh.Count == 1 && fresh[0].state == "expired" ? "The " + fresh[0].label + " sign-in has expired."
+                : "Sign-in needed for " + String.Join(", ", fresh.ConvertAll(need => need.label).ToArray()) + ".";
+            Tray.ShowBalloonTip(10000, "Sign-in needed", text + " Open NeuraFlow Dropshipper and click Sign in to research sites.", ToolTipIcon.Info);
+        }
+        private void ApplySpend(ResearchStatus state) {
+            // One line per spend or allowance item, as the status command words it.
+            var lines = new List<string>();
+            if (state.spend != null)
+                foreach (SpendLine line in state.spend)
+                    if (line != null && !String.IsNullOrEmpty(line.text)) lines.Add(line.text);
+            string text = String.Join("\n", lines.ToArray());
+            if (spendLines.Text != text) {
+                spendLines.Text = text;
+                int height = lines.Count == 0 ? 0 : TextRenderer.MeasureText(text, spendLines.Font,
+                    new Size(spendLines.Width, 0), TextFormatFlags.WordBreak).Height + 4;
+                spendLines.Height = height;
+                hint.Top = spendLines.Top + height + 4;
+                ClientSize = new Size(ClientSize.Width, hint.Bottom + 12);
+            }
+            if (state.spend_alerts == null) return;
+            var fresh = new List<SpendAlert>();
+            foreach (SpendAlert alert in state.spend_alerts)
+                if (alert != null && !String.IsNullOrEmpty(alert.alert_id) && !String.IsNullOrEmpty(alert.message) &&
+                    notifiedAlerts.Add(alert.alert_id)) fresh.Add(alert);
+            if (fresh.Count == 0) return;
+            // One Windows notification for the new spending alerts together; a repeat status is quiet.
+            string message = fresh.Count == 1 ? fresh[0].message : fresh.Count.ToString() + " spending updates: " +
+                String.Join(" ", fresh.ConvertAll(alert => alert.message).ToArray());
+            if (message.Length > 250) message = message.Substring(0, 247) + "...";
+            SpendNotificationsShown++; LastSpendNotification = message;
+            Tray.ShowBalloonTip(10000, "Spending and allowances", message, ToolTipIcon.Info);
+        }
+        internal async Task SignIn() {
+            if (signingIn || changing) return;
+            signingIn = true; SignInButton.Enabled = false; signInNotice = null;
+            signInLine.Text = "Opening the sign-in window…";
+            try {
+                ResearchStatus result = await controls.Call("sign-in");
+                signingIn = false;
+                signInNotice = result.sign_in != null ? result.sign_in.notice : null;
+                Apply(result);
+            } catch (Exception error) {
+                // A sign-in problem never reads as a research Stop failure.
+                signingIn = false; signInNotice = error.Message; signInLine.Text = error.Message; SignInButton.Enabled = true;
             }
         }
         internal async Task RefreshStatus() {
@@ -267,7 +372,7 @@ namespace NeuraFlow.Dropshipper {
         }
         internal async Task Change(string action) {
             if (changing) return;
-            changing = true; generation++; SetButtons(false, false);
+            changing = true; generation++; SetButtons(false, false); signInNotice = null;
             heading.Text = action == "start" ? "Starting research…" : "Stopping research…";
             try {
                 ResearchStatus result = await controls.Call(action);
@@ -330,14 +435,28 @@ namespace NeuraFlow.Dropshipper {
     }
 
     internal sealed class FakeControls : IControls {
-        internal bool Enabled, Active, Fail;
-        internal int Starts, Stops, Workers;
+        internal bool Enabled, Active, Fail, SignInWindowOpen, Busy;
+        internal List<SpendLine> Spend = new List<SpendLine> {
+            new SpendLine { item = "ai-codex-10080", text = "AI weekly allowance: 76% used, resets 20 Oct 2026, 05:04 UTC.", percent = 76, flags = new List<int> { 50, 75 } },
+            new SpendLine { item = "quickcommerce", text = "Quick-commerce credits: 56 of 100 used, 44 left in 1 active pack(s).", percent = 56, flags = new List<int> { 50 } } };
+        internal List<SpendAlert> SpendAlerts = new List<SpendAlert> {
+            new SpendAlert { alert_id = "a1", kind = "threshold", message = "AI weekly allowance: 76% used (passed 75%)." },
+            new SpendAlert { alert_id = "a2", kind = "notice", message = "A Rs 500 quick-commerce pack (2,500 credits) was bought." } };
+        internal int Starts, Stops, Workers, SignIns;
+        internal List<SignInNeed> Needs = new List<SignInNeed> {
+            new SignInNeed { id = "indiamart:expired:2026-10-14T10:00:00+00:00", site = "indiamart", label = "IndiaMART", state = "expired" },
+            new SignInNeed { id = "dropdash:sign_in_needed:never", site = "dropdash", label = "Dropdash", state = "sign_in_needed" } };
         public Task<ResearchStatus> Call(string action) {
             if (Fail) throw new IOException("Controlled connection failure.");
             if (action == "start") { Enabled = true; Active = true; Starts++; }
             if (action == "stop") { Enabled = false; Active = false; Stops++; }
+            if (action == "sign-in") { SignIns++; SignInWindowOpen = !Busy; }
             return Task.FromResult(new ResearchStatus { enabled = Enabled, active_processes = Active ? 1 : 0,
-                state = Enabled ? "running" : "stopped", message = Enabled ? "Research is running." : "Research is stopped. Your saved work is kept." });
+                state = Enabled ? "running" : "stopped", message = Enabled ? "Research is running." : "Research is stopped. Your saved work is kept.",
+                spend = Spend, spend_alerts = SpendAlerts,
+                sign_in = new SignInStatus { window_open = SignInWindowOpen, needs = Needs,
+                    notice = action == "sign-in" && Busy ? "A research read is using the browser. Try again in a minute." : null,
+                    line = SignInWindowOpen ? "The sign-in window is open." : "Sign-in expired: IndiaMART. Click Sign in to research sites." } });
         }
         public void LaunchWorker() { Workers++; }
         public void OpenLogs() { }
@@ -356,6 +475,24 @@ namespace NeuraFlow.Dropshipper {
                         LocalControls.Quote("/mnt/d/a project") == "\"/mnt/d/a project\"";
                     checks["native_executable_has_no_console"] = NativeMethods.GetConsoleWindow() == IntPtr.Zero;
                     checks["stopped_buttons"] = window.StartButton.Enabled && !window.StopButton.Enabled;
+                    checks["sign_in_need_line_and_one_notification"] = window.Controls["SignInNeeds"].Text.StartsWith("Sign-in expired: IndiaMART") &&
+                        window.NotificationsShown == 1 && window.SignInButton.Enabled;
+                    checks["spend_lines_and_one_combined_notification"] = window.Controls["SpendLines"].Text.StartsWith("AI weekly allowance: 76% used") &&
+                        window.Controls["SpendLines"].Height > 0 && window.SpendNotificationsShown == 1 &&
+                        window.LastSpendNotification.StartsWith("2 spending updates:");
+                    await window.RefreshStatus();
+                    checks["repeat_need_not_notified_again"] = window.NotificationsShown == 1;
+                    controls.SpendAlerts.Add(new SpendAlert { alert_id = "a3", kind = "paused",
+                        message = "AI waiting so it doesn't spend paid Codex credits (plan limit reached; resumes at 20 Oct 2026, 05:04 UTC)." });
+                    await window.RefreshStatus();
+                    checks["only_new_spend_alert_notified"] = window.SpendNotificationsShown == 2 &&
+                        window.LastSpendNotification.StartsWith("AI waiting so it doesn't spend paid Codex credits");
+                    controls.Busy = true; window.SignInButton.PerformClick(); await window.RefreshStatus();
+                    checks["busy_notice_survives_refresh"] = window.Controls["SignInNeeds"].Text.StartsWith("A research read is using the browser") &&
+                        window.SignInButton.Enabled;
+                    controls.Busy = false; window.SignInButton.PerformClick();
+                    checks["sign_in_button_action"] = controls.SignIns == 2 && !window.SignInButton.Enabled &&
+                        window.Controls["SignInNeeds"].Text == "The sign-in window is open." && window.StartButton.Enabled;
                     window.StartButton.PerformClick();
                     checks["start_button_action"] = controls.Starts == 1 && controls.Workers == 1;
                     checks["running_buttons"] = !window.StartButton.Enabled && window.StopButton.Enabled;
@@ -389,7 +526,7 @@ namespace NeuraFlow.Dropshipper {
                 finally { if (!window.IsDisposed) window.DisposeForTest(); }
             };
             Application.Run(window);
-            bool passed = failure == null && checks.Count == 15;
+            bool passed = failure == null && checks.Count == 21;
             foreach (bool check in checks.Values) passed &= check;
             File.WriteAllText(output, new JavaScriptSerializer().Serialize(new { passed = passed, checks = checks, failure = failure,
                 actual_research_started = false, provider_calls = 0, tested_at = DateTime.UtcNow.ToString("o") }));

@@ -238,7 +238,8 @@ def main(argv=None):
         if args.action.startswith("research-"):
             from product_radar.research_memory import ResearchMemory, import_saved_attempt, key
             from product_radar.research_flow import candidate_summary, run_flow, write_summary
-            from product_radar.research_ai import CodexRunner, prepare_retry
+            from product_radar.research_ai import prepare_retry
+            from product_radar.spend_watch_ai import research_codex_runner
             from product_radar.storage import load_json
             memory = ResearchMemory(runtime_path(ROOT, "data/research/captured"), journal)
             if args.action == "research-project-fit":
@@ -277,7 +278,7 @@ def main(argv=None):
                 print("Saved rows projected only. No collector, model, reservation or publication call.")
             elif args.action == "research-review-fit":
                 from product_radar.fit_review import run_fit_reviews
-                runner = CodexRunner(load_json(ROOT / "config/ai/codex_luna.json"))
+                runner = research_codex_runner(load_json(ROOT / "config/ai/codex_luna.json"), root=ROOT)
                 print("Reviewing only the named saved public fit questions; no collector searches.", flush=True)
                 result = run_fit_reviews(memory, runner, args.review_id, limit=args.item_limit or 10)
                 print(json.dumps({"outcomes": result}, indent=2), flush=True)
@@ -286,13 +287,13 @@ def main(argv=None):
             elif args.action == "research-visual-followup":
                 from product_radar.visual_followups import resolve_saved_visual_followups
                 result = resolve_saved_visual_followups(memory, visual_requests,
-                    CodexRunner(load_json(ROOT / "config/ai/codex_luna.json")))
+                    research_codex_runner(load_json(ROOT / "config/ai/codex_luna.json"), root=ROOT))
                 write_summary(memory, candidate_summary(memory))
                 print(json.dumps(result, indent=2))
                 print("Only explicitly selected saved photographs were checked. No photo fetch, collector, supplier contact or publication call.")
             elif args.action == "research-repair-checklist":
                 from product_radar.checklist_repair import repair_checklist_item
-                result = repair_checklist_item(memory, CodexRunner(load_json(ROOT / "config/ai/codex_luna.json")),
+                result = repair_checklist_item(memory, research_codex_runner(load_json(ROOT / "config/ai/codex_luna.json"), root=ROOT),
                     concept_id=args.concept_id, failure_id=args.failure_id, job_id=args.job_id)
                 write_summary(memory, candidate_summary(memory))
                 print(json.dumps(result, indent=2))
@@ -381,7 +382,7 @@ def main(argv=None):
                 controller = MetaTrial(ROOT, journal, announce=lambda message: print(message, flush=True))
                 result = execute_plan(memory, args.plan_id, prepare_action=prepare_planned_action,
                     controller_factory=lambda: controller,
-                    runner=CodexRunner(load_json(ROOT / "config/ai/codex_luna.json")),
+                    runner=research_codex_runner(load_json(ROOT / "config/ai/codex_luna.json"), root=ROOT),
                     item_limit=args.item_limit or 10, action_limit=args.action_limit or 8)
                 write_summary(memory, result["summary"])
                 for action in result["actions"]:
@@ -397,7 +398,7 @@ def main(argv=None):
                 from product_radar.catalogue import load_catalogue
                 from product_radar.catalogue_expansion import run_expansion, effective_catalogue
                 from product_radar.research_operations import write_catalogue_view
-                result = run_expansion(memory, load_catalogue(), CodexRunner(load_json(ROOT / "config/ai/codex_luna.json")), limit=args.item_limit or 5)
+                result = run_expansion(memory, load_catalogue(), research_codex_runner(load_json(ROOT / "config/ai/codex_luna.json"), root=ROOT), limit=args.item_limit or 5)
                 write_catalogue_view(memory.root, effective_catalogue(load_catalogue(), memory.snapshot()))
                 print("Saved catalogue decisions: " + str(len(result["records"])) + "; pending: " + str(len(result["pending"])))
                 if result.get("problem"):
@@ -429,7 +430,7 @@ def main(argv=None):
                 elif "items" not in payload:
                     from product_radar.research_operations import supplier_capture_inputs
                     payload = {"items": supplier_capture_inputs(memory, payload)}
-                result = extract_supplier_terms(memory, payload["items"], CodexRunner(load_json(ROOT / "config/ai/codex_luna.json")),
+                result = extract_supplier_terms(memory, payload["items"], research_codex_runner(load_json(ROOT / "config/ai/codex_luna.json"), root=ROOT),
                                                 source_dates=source_dates)
                 atomic_json(memory.root / "supplier_summary.json", result)
                 print("Saved supplier interpretations: " + str(len(result["accepted"])) + "; unresolved: " + str(len(result["failures"])))
@@ -442,7 +443,7 @@ def main(argv=None):
                 print("Source-backed operator correction saved. No model, collector or publication call.")
             elif args.action == "research-market":
                 from product_radar.market_validation import review_marketplace
-                result = review_marketplace(memory, CodexRunner(load_json(ROOT / "config/ai/codex_luna.json")), limit=args.item_limit or 5)
+                result = review_marketplace(memory, research_codex_runner(load_json(ROOT / "config/ai/codex_luna.json"), root=ROOT), limit=args.item_limit or 5)
                 print(json.dumps(result, indent=2))
                 write_summary(memory, candidate_summary(memory))
                 print("Only saved marketplace evidence was reviewed. No paid collector search or publication.")
@@ -506,7 +507,7 @@ def main(argv=None):
             else:
                 if args.action == "research-run":
                     print("Interpreting saved research with the approved model; no paid collector searches.", flush=True)
-                    summary = run_flow(memory, CodexRunner(load_json(ROOT / "config/ai/codex_luna.json")), limit=args.item_limit or 10,
+                    summary = run_flow(memory, research_codex_runner(load_json(ROOT / "config/ai/codex_luna.json"), root=ROOT), limit=args.item_limit or 10,
                                        acquisition_ids=args.acquisition_id, fit_policy_id=load_policy().get("fit_policy_id", "fit-13-v1"))
                     from product_radar.research_operations import sync_query_feedback
                     sync_query_feedback(memory)

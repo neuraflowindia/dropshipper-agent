@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from product_radar.fit_review import prepare_practical_fit_reviews, run_fit_reviews
 from product_radar.models import utc_now
-from product_radar.research_ai import CodexRunner
+from product_radar.spend_watch_ai import research_codex_runner
 from product_radar.research_flow import candidate_summary, write_summary
 from product_radar.research_memory import ResearchMemory, key
 from product_radar.runtime_storage import runtime_path
@@ -35,7 +35,7 @@ def main(argv=None):
     if not args.live_model:
         print("Prepared only. No model, collector, purchase, supplier message or client publication.", flush=True)
         return 0
-    runner = CodexRunner(load_json(ROOT / "config/ai/codex_luna.json"))
+    runner = research_codex_runner(load_json(ROOT / "config/ai/codex_luna.json"), root=ROOT)
     outcomes = []
     stopped_reason = None
     for offset in range(0, len(reviews), 5):

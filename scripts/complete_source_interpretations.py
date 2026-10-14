@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from product_radar.models import SafetyError, utc_now
-from product_radar.research_ai import CodexRunner
+from product_radar.spend_watch_ai import research_codex_runner
 from product_radar.research_memory import ResearchMemory, key
 from product_radar.source_interpretation import _questions, review_source_results
 from product_radar.runtime_storage import runtime_path
@@ -32,7 +32,7 @@ def main(argv=None):
     questions = _questions(memory.snapshot(), run_id=args.run_id)
     print(json.dumps({"pending_product_source_questions": len(questions),
                       "unreviewed_returned_rows": sum(len(row["unknown_ids"]) for row in questions)}), flush=True)
-    runner = CodexRunner(load_json(ROOT / "config/ai/codex_luna.json")) if args.live_model else None
+    runner = research_codex_runner(load_json(ROOT / "config/ai/codex_luna.json"), root=ROOT) if args.live_model else None
     skip_targets, outcomes, reason, passes = set(), [], None, 0
     # Each successful pass accepts at least one supplied row or settles a
     # question. A failed target is deferred within this pass, never allowed to

@@ -10,7 +10,7 @@ from .brand_reviews import brand_binding, current_brand
 from .fit_policy import FIT_POLICY_ID, LEGACY_POLICY_ID, evaluate_fit, policy_for
 from .fit_description import (DESCRIPTION_CONTRACT, DESCRIPTION_INFERENCE_KIND, DESCRIPTION_STYLE,
                               description_inference_context, validate_description_inference,
-                              FUNCTIONAL_CONTRACT, FUNCTIONAL_INFERENCE_KIND, FUNCTIONAL_STYLE,
+                              FUNCTIONAL_CONTRACT, FUNCTIONAL_INFERENCE_KIND, FUNCTIONAL_REVIEW_REASON, FUNCTIONAL_STYLE,
                               functional_inference_context, functional_changed_criteria)
 from .models import SafetyError, canonical, digest, identifier, timestamp, utc_now
 from .research_memory import change, key
@@ -313,7 +313,7 @@ def prepare_practical_fit_reviews(memory, *, concept_ids=None, as_of=None, contr
             if base is None:
                 base = _review_base(state, concept_id, item, parent,
                     requested,
-                    "functional_type_estimates_v4_review" if contract_version == FUNCTIONAL_CONTRACT
+                    FUNCTIONAL_REVIEW_REASON if contract_version == FUNCTIONAL_CONTRACT
                     else "full_practical_description_estimates_v3_review" if contract_version == DESCRIPTION_CONTRACT
                     else "full_practical_estimates_v2_review", at, contract_version=contract_version)
             previous = state["source_checks"].get(base["reference"])
@@ -353,7 +353,7 @@ def prepare_practical_fit_reviews(memory, *, concept_ids=None, as_of=None, contr
                         requested = functional_changed_criteria(latest["assessments"].get(concept_id), fresh_item) or requested
                     fresh = prepare_fit_review(memory, concept_id,
                         requested_criterion_ids=requested,
-                        reason="functional_type_estimates_v4_review" if contract_version == FUNCTIONAL_CONTRACT
+                        reason=FUNCTIONAL_REVIEW_REASON if contract_version == FUNCTIONAL_CONTRACT
                         else "full_practical_description_estimates_v3_review" if contract_version == DESCRIPTION_CONTRACT
                         else "full_practical_estimates_v2_review", as_of=at,
                         contract_version=contract_version)

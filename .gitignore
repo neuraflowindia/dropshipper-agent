@@ -29,6 +29,11 @@ __pycache__/
 /.claude/settings.local.json
 /trends-mattress-browser-success-20261006.png
 /docs/project/handoff.md
+
+# The program's signed-in research browser profile (sign-ins stay on the owner's computer).
+research-browser-profile/
 node_modules/
 /config/hosting/
 /media/trials/
+.coverage
+.coverage.*

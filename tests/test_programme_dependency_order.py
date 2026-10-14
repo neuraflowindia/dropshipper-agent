@@ -45,6 +45,10 @@ class ProgrammeDependencyOrderTests(unittest.TestCase):
         self.assertEqual(control, original)
         return result
 
+    def enough(self):
+        # The allocator found no shortfall: finishing work keeps its fair turn.
+        return dict(deepcopy(self.record), inventory_release_need={"shortfall": 0, "upcoming_issue_ids": []})
+
     def test_legacy_fallback_is_not_an_accepted_definition(self):
         value = self.plan()
         self.assertEqual(value["stage_order"], list(programme.STAGES[1:] + programme.STAGES[:1]))
@@ -74,14 +78,14 @@ class ProgrammeDependencyOrderTests(unittest.TestCase):
 
     def test_current_functional_fit_is_not_replaced_by_a_fresh_question(self):
         self.fixture.accept(); self.fixture.complete()
-        value = self.plan()
+        value = self.plan(record=self.enough())
         self.assertEqual(value["priority_concept_ids"], {"profiles": [self.cid]})
         self.assertEqual(value["stage_order"][0], "profiles")
 
     def test_both_current_restore_the_ordinary_fair_order(self):
         self.fixture.accept(); self.fixture.complete()
         ensure_query_profiles(self.memory, query_fixtures.Runner(), concept_ids=[self.cid], as_of=NOW)
-        value = self.plan(sequence=5)
+        value = self.plan(sequence=5, record=self.enough())
         self.assertEqual(value["priority_concept_ids"], {})
         self.assertEqual(value["discovery_position"], "before")
         self.assertEqual(value["stage_order"][0], "acquire")

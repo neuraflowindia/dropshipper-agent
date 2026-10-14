@@ -131,9 +131,28 @@ class CodexLunaConnectionTests(unittest.TestCase):
             self.assertEqual(check.main([]), 2)
             run.assert_not_called()
         output = io.StringIO()
-        with patch.object(check, "run_probe", side_effect=RuntimeError("private-diagnostic")), contextlib.redirect_stdout(output):
+        passthrough = lambda inner, config, root: inner
+        with patch.object(check, "run_probe", side_effect=RuntimeError("private-diagnostic")), \
+                patch.object(check, "watched_codex_runner", side_effect=passthrough), contextlib.redirect_stdout(output):
             self.assertEqual(check.main(["--live"]), 1)
         self.assertNotIn("private-diagnostic", output.getvalue())
+
+    def test_live_probe_runs_only_behind_the_money_guard(self):
+        refusing = Mock(side_effect=check.SafetyError("AI_PLAN_LIMIT_CREDITS_PROTECTED"))
+        output = io.StringIO()
+        with patch.object(check, "run_probe") as run, \
+                patch.object(check, "watched_codex_runner", return_value=refusing) as guard, contextlib.redirect_stdout(output):
+            self.assertEqual(check.main(["--live"]), 1)
+        run.assert_not_called()
+        self.assertIn("AI_PLAN_LIMIT_CREDITS_PROTECTED", output.getvalue())
+        self.assertEqual(guard.call_args.kwargs["root"], check.ROOT)
+        output = io.StringIO()
+        with patch.object(check, "run_probe", return_value={"structured_evidence_check": "passed"}) as run, \
+                patch.object(check, "watched_codex_runner", side_effect=lambda inner, config, root: inner), \
+                contextlib.redirect_stdout(output):
+            self.assertEqual(check.main(["--live"]), 0)
+        run.assert_called_once()
+        self.assertIn("PASS", output.getvalue())
 
 
 if __name__ == "__main__":

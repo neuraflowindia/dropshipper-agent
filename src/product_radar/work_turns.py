@@ -176,6 +176,50 @@ def _binding(memory):
     return _context_var(memory).get()
 
 
+# While the coming report sets are short of eligible types, two of a round's
+# model executions are held back from the stages that run before discovery,
+# until discovery has run (Plan R10 W9). In-process scheduling of one bound
+# round only: nothing new is saved, the total allowance is unchanged and
+# discovery's own questions are never held back.
+DISCOVERY_RESERVED_EXECUTIONS = 2
+
+
+def _discovery_var(memory):
+    with memory._cache_lock:
+        variable = getattr(memory, "_work_turn_discovery_reserve", None)
+        if variable is None:
+            variable = ContextVar("product_radar_discovery_reserve", default=None)
+            memory._work_turn_discovery_reserve = variable
+        return variable
+
+
+@contextmanager
+def discovery_reserve_scope(memory):
+    """Bind one round's discovery hold; it always ends with the round."""
+    token = _discovery_var(memory).set({"count": 0})
+    try:
+        yield
+    finally:
+        _discovery_var(memory).reset(token)
+
+
+def hold_for_discovery(memory, count):
+    """Set the round's hold. Outside a bound round there is nothing to hold."""
+    if type(count) is not int or not 0 <= count <= DISCOVERY_RESERVED_EXECUTIONS:
+        raise SafetyError("WORK_TURN_DISCOVERY_RESERVE_INVALID")
+    holder = _discovery_var(memory).get()
+    if holder is not None:
+        holder["count"] = count
+
+
+def discovery_reserved_slots(memory, turn):
+    """Held executions, clamped so writing, review and one ordinary call remain."""
+    holder = _discovery_var(memory).get()
+    count = holder["count"] if holder is not None else 0
+    policy = turn["policy"]
+    return max(0, min(count, policy["model_executions"] - policy["report_slots"] - review_share(policy) - 1))
+
+
 def active_work_turn(memory, *, state=None):
     binding = _binding(memory)
     return None if binding is None else _record(memory.snapshot() if state is None else state, binding["turn_id"])
@@ -244,6 +288,7 @@ def new_model_work_wait(memory, purpose, *, item_count=1, state=None, review=Fal
         return "WORK_TURN_CLOSED"
     counter, policy = turn["counters"], turn["policy"]
     withheld = protected_model_slots(turn, purpose, review=review, jobs=state.get("jobs"))
+    withheld += discovery_reserved_slots(memory, turn)
     if counter["model_executions"] >= policy["model_executions"] - withheld:
         return "WORK_TURN_MODEL_LIMIT"
     if purpose in policy["purpose_items"] and counter["purpose_items"][purpose] + item_count > policy["purpose_items"][purpose]:
@@ -573,6 +618,7 @@ def admit_model_job(memory, job_id, request, binding_keys, *, attempt, at):
         raise SafetyError("AI_JOB_PENDING_RECONCILIATION")
     counter, policy = row["counters"], row["policy"]
     withheld = protected_model_slots(row, purpose, review=review_model_request(request), jobs=state["jobs"])
+    withheld += discovery_reserved_slots(memory, row)
     if counter["model_executions"] >= policy["model_executions"] - withheld:
         raise SafetyError("WORK_TURN_MODEL_LIMIT")
     overage = False

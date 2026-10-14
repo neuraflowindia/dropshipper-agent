@@ -36,7 +36,8 @@ _HASH = re.compile(r"[0-9a-f]{64}")
 _TRENDS_SCOPE_FIELDS = ("term", "geo", "time_range", "property", "kind", "collected_at", "source_reference", "scope_verified")
 _TRENDS_RELATED_FIELDS = _TRENDS_SCOPE_FIELDS + ("widget", "displayed_section")
 _PRIVATE = {".git", ".codex", ".agents", ".aws", ".venv", "node_modules", "__pycache__",
-            "profiles", "browser-profile", "native-profile"}
+            "profiles", "browser-profile", "native-profile", "research-browser-profile",
+            "signed-in-quarantine"}  # indiamart_redaction.QUARANTINE: saved signed-in results never cleaned
 _PRIVATE_FILES = {"auth.json", "credentials.json", "tokens.json", "apify_accounts.json",
                   "providers.env", "quickcommerce.env", "cookies.json", "login.json"}
 _SECRET_FIELDS = {"password", "api_key", "apikey", "access_token", "refresh_token", "id_token",
@@ -60,7 +61,7 @@ _SCRIPTS = ("run_programme.py", "run_source_coverage.py", "benchmark_providers.p
             "check_quickcommerce_connection.py", "render_live_pdf.py", "generate_sample_excel.py",
             "generate_sample_pdf.py", "build_review_package.py", "rehearse_operational_restore.py",
             "stage_private_draft.py", "setup_programme_task.ps1", "adopt_local_storage.py",
-            "desktop_research_control.py", "windows/DropshipperDesktop.cs", "windows/DropshipperDesktop.manifest",
+            "desktop_research_control.py", "research_sign_in.py", "windows/DropshipperDesktop.cs", "windows/DropshipperDesktop.manifest",
             "windows/Build-Dropshipper.ps1", "windows/Install-Dropshipper.ps1", "windows/Test-Dropshipper.ps1")
 _PORTAL = ("worker.mjs", "release-admin.mjs", "admin-status.mjs", "access-service-assertion.mjs",
            "functional-packet.mjs", "supplier-scoped.mjs", "release-pages.mjs", "release-history.mjs", "alias-proof.mjs",
@@ -70,7 +71,8 @@ _TESTS = ("tests/test_source_exhausted_preparation.py", "tests/test_source_prepa
           "tests/test_report_print_layout.py", "tests/test_live_outputs.py")
 _PUBLIC_SETTINGS = ("config/service.json", "config/research/catalogue.json",
                     "config/research/catalogue_branch_inventory_2026-10-08.json", "config/ai/codex_luna.json",
-                    "config/operations/backup.json", "config/research/collection_cost_baseline.json")
+                    "config/operations/backup.json", "config/research/collection_cost_baseline.json",
+                    "config/research/spend_watch.json")
 _DEPENDENCIES = ("requirements-research.txt", "requirements-preview.txt")
 _ASSETS = ("media/NeuraFlow/long_maroon_path_transparent_1024.png",
            "assets/windows/neuraflow-dropshipper.ico", "assets/windows/neuraflow-dropshipper.png")
@@ -167,7 +169,7 @@ def _lexical_reference(value, kind, root):
                    and parts[3] in {"catalogue_materials", "discovery_cycles"})
     elif kind == "operating_control":
         allowed = (parts[:3] == ("data", "research", "captured") and len(parts) >= 5
-                   and parts[3] in {"programme_runs", "programme_service", "all_source_dispatch"})
+                   and parts[3] in {"programme_runs", "programme_service", "all_source_dispatch", "spend_watch"})
     elif kind == "source_capture":
         allowed = (parts[:3] == ("data", "research", "captured") and len(parts) >= 5 and parts[3] in _SOURCE_AREAS
                    or parts[:3] in (("data", "research", "connected-trends"), ("data", "research", "catalogue-public"))
@@ -1144,6 +1146,9 @@ class _Selection:
                                                                  or not 1 <= value["probe_timeout_seconds"] <= 90)
                         or "executable" in value and (not isinstance(value["executable"], str) or not Path(value["executable"]).is_absolute())):
                     raise SafetyError("BACKUP_PUBLIC_SETTINGS_INVALID")
+            elif relative == "config/research/spend_watch.json":
+                from .spend_watch import validate_settings
+                validate_settings(value)
             elif relative.endswith("/origin.json"):
                 if (set(value) != {"schema_version", "attempt_id", "config_hash", "account_id", "namespace", "generation"}
                         or type(value["schema_version"]) is not int or value["schema_version"] != 1
@@ -1342,6 +1347,14 @@ def select_essential_backup_files(research_state, financial_state, *, root, pend
                 selection.issue(record["issue_id"], record["revision"], table + "/" + record_id,
                                 required=table == "published_history")
     selection.add(selection.memory / "programme_service/control.json", "operating_control", "programme_service", required=False)
+    # Spend-watch records: the allowance state and every dated alert log.
+    selection.add(selection.memory / "spend_watch/state.json", "operating_control", "spend_watch", required=False)
+    alerts = selection.memory / "spend_watch/alerts"
+    if alerts.is_symlink():
+        selection.note(selection.unsafe, "spend_watch/alerts", "SYMLINK_PATH_REFUSED")
+    elif alerts.is_dir():
+        for path in sorted(alerts.glob("*.jsonl")):
+            selection.add(path, "operating_control", "spend_watch/alerts", required=False)
     for control in pending_controls:
         path = control.get("path") if isinstance(control, dict) else control
         saved = selection.add(path, "operating_control", "supplied_pending_control")

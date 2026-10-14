@@ -200,7 +200,7 @@ class ResearchBatchCliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             kwargs = execute.call_args.kwargs
             self.assertEqual(execute.call_args.args[1], self.plan["id"])
-            self.assertIs(kwargs["runner"], model)
+            self.assertIs(kwargs["runner"].runner, model)  # always behind the money guard
             self.assertEqual(kwargs["action_limit"], 2)
             self.assertEqual(kwargs["item_limit"], 6)
             preparation = kwargs["prepare_action"](self.plan, self.action)

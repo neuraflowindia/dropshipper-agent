@@ -20,7 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from product_radar.models import SafetyError
-from product_radar.research_ai import resolve_codex_executable
+from product_radar.research_ai import codex_environment, resolve_codex_executable
+from product_radar.spend_watch_ai import watched_codex_runner
 
 CONFIG = ROOT / "config/ai/codex_luna.json"
 MAX_OUTPUT_BYTES = 65536
@@ -75,15 +76,8 @@ Data: {"product_id":"DEMO-P1","title":"Reusable silicone lid set",
 def child_environment() -> dict[str, str]:
     # Preserve existing sign-in location and network settings, never provider
     # API keys or a dump of the parent environment. Codex manages its own auth.
-    allowed = {
-        "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "TMPDIR",
-        "CODEX_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR",
-        "APPDATA", "LOCALAPPDATA", "SystemRoot", "SYSTEMROOT",
-        "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
-        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
-        "http_proxy", "https_proxy", "all_proxy", "no_proxy",
-    }
-    return {key: value for key, value in os.environ.items() if key in allowed}
+    # The same allowlist as every other local Codex process.
+    return codex_environment()
 
 
 def valid_result(value: object) -> bool:
@@ -217,7 +211,14 @@ def main(argv=None) -> int:
         print("No request made. Use --live for one fictional subscription check.")
         return 2
     try:
-        result = run_probe(json.loads(CONFIG.read_text(encoding="utf-8")))
+        config = json.loads(CONFIG.read_text(encoding="utf-8"))
+        # The probe is a model call, so the same paid-credit money guard applies:
+        # it is refused before the call while a plan limit could draw paid credits.
+        guarded = watched_codex_runner(lambda role, payload, folder: run_probe(config), config, root=ROOT)
+        result = guarded("probe", None, None)
+    except SafetyError as error:
+        print("CHECK FAILED: the spending guard did not allow a model call (" + str(error) + "). No request was made.")
+        return 1
     except ValueError as error:
         print("CHECK FAILED: " + SAFE_FAILURES.get(str(error), "Luna access or the response format was not confirmed."))
         return 1

@@ -20,17 +20,21 @@ class SupplierUnchangedOriginalTests(unittest.TestCase):
     reader = fixtures.SharedSupplierTests.reader
     browser = fixtures.SharedSupplierTests.browser
     checks = fixtures.SharedSupplierTests.checks
+    signed_in_page = fixtures.SharedSupplierTests.signed_in_page
     owners = fixtures.SharedSupplierTests.owners
 
-    def handlers(self, route="indiamart", *, unclosed=True):
+    def handlers(self, route="tradeindia", *, unclosed=True):
         def reader(item):
             result = self.reader(item)
             return dict(result, owned_worker_exited=False) if unclosed else result
+        def browser(item):
+            result = self.browser(item)
+            return dict(result, owned_process_exited=False) if unclosed else result
         installed = create_supplier_handlers(self.memory, http_reader=reader,
-            browser_reader=self.browser, respect_access_waits=True, shared_acquisitions=True)
+            browser_reader=browser, respect_access_waits=True, shared_acquisitions=True)
         return {route: installed[route]}
 
-    def prepare(self, route="indiamart", *, run="supplier-unchanged", concept_ids=None):
+    def prepare(self, route="tradeindia", *, run="supplier-unchanged", concept_ids=None):
         self.run = run
         result = prepare_source_tasks(self.memory, [{"route": route,
             "request": {"query": self.query, "country": "IN"},
@@ -56,11 +60,8 @@ class SupplierUnchangedOriginalTests(unittest.TestCase):
         self.assertEqual(result["counts"], {"waiting": 1})
         self.assertEqual(result["handler_calls"], 0)
         self.assertEqual(result["results"][0]["reason"], "SUPPLIER_ORIGINAL_SEARCH_PENDING")
-        self.assertEqual(len(self.http_calls), 1)
-        self.assertEqual(self.browser_calls, [])
-
-    def test_indiamart_unchanged_unclosed_original_does_not_reapply_caller(self):
-        self.assert_unchanged_replay("indiamart")
+        # One original read only: plain for TradeIndia, the browser for Maps (D11).
+        self.assertEqual((len(self.http_calls), len(self.browser_calls)), (0, 1) if route == "google-maps" else (1, 0))
 
     def test_tradeindia_unchanged_unclosed_original_does_not_reapply_caller(self):
         self.assert_unchanged_replay("tradeindia")
@@ -348,7 +349,7 @@ class SupplierUnchangedOriginalTests(unittest.TestCase):
         context = source_access_context(state, task, as_of=self.at)
         context["request_hash"] = task["request_hash"]
         with patch("product_radar.supplier_search.utc_now", return_value=self.at):
-            returned = handlers["indiamart"]["reconcile"](context)
+            returned = handlers["tradeindia"]["reconcile"](context)
         self.assertEqual({row["concept_id"] for row in returned["target_results"]}, {self.cid, "staged-caddy"})
         _stage_receipt(self.memory, context, returned)
         staged_path = self.memory.root / "all_source_dispatch/returned_receipts" / task["acquisition_id"] / (digest(returned) + ".json")
@@ -356,10 +357,10 @@ class SupplierUnchangedOriginalTests(unittest.TestCase):
         self.memory.put("concepts", "staged-caddy", dict(another, status="retired"), previous=another)
         state = self.memory.snapshot()
         self.assertTrue(_has_unapplied_receipt(self.memory, state, state["query_tasks"][task_id]))
-        resolver = handlers["indiamart"]["resolve_source"]; resolutions = []
+        resolver = handlers["tradeindia"]["resolve_source"]; resolutions = []
         def recorded(context):
             value = resolver(context); resolutions.append(value); return value
-        installed = {"indiamart": dict(handlers["indiamart"], resolve_source=recorded)}
+        installed = {"tradeindia": dict(handlers["tradeindia"], resolve_source=recorded)}
         result = self.checks(installed)
         self.assertEqual(resolutions[0]["action"], "saved")
         self.assertEqual(result["counts"], {"acquired": 1})
@@ -385,17 +386,24 @@ class SupplierUnchangedOriginalTests(unittest.TestCase):
 
     def test_waiting_original_does_not_prevent_next_distinct_healthy_supplier_task(self):
         handlers = self.handlers(); task_id = self.prepare(); self.checks(handlers)
-        other = self.handlers("tradeindia", unclosed=False)
+        other = self.handlers("google-maps", unclosed=False)
         handlers.update(other)
-        prepare_source_tasks(self.memory, [{"route": "tradeindia",
+        prepare_source_tasks(self.memory, [{"route": "google-maps",
             "request": {"query": self.query, "country": "IN"}, "concept_ids": [self.cid]}],
             run_id=self.run, as_of=self.at)
         before = deepcopy(self.memory.snapshot()["query_tasks"][task_id])
         result = self.checks(handlers)
-        self.assertEqual(result["counts"], {"waiting": 1, "acquired": 1})
+        # The run resumes after the original it already visited: this pass reads
+        # only the healthy task; the next full pass revisits the waiting original.
+        self.assertEqual(result["counts"], {"acquired": 1})
         self.assertEqual(result["handler_calls"], 1)
         self.assertEqual(self.memory.snapshot()["query_tasks"][task_id], before)
-        self.assertEqual(len(self.http_calls), 2)
+        result = self.checks(handlers)
+        self.assertEqual((result["counts"], result["handler_calls"]), ({"waiting": 1, "reused": 1}, 0))
+        self.assertEqual(next(row["reason"] for row in result["results"] if row["task_id"] == task_id),
+                         "SUPPLIER_ORIGINAL_SEARCH_PENDING")
+        self.assertEqual(self.memory.snapshot()["query_tasks"][task_id], before)
+        self.assertEqual((len(self.http_calls), len(self.browser_calls)), (1, 1))
 
 
 if __name__ == "__main__":

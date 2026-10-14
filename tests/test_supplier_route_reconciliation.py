@@ -9,13 +9,13 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from product_radar.models import SafetyError, digest
-from product_radar.research_memory import ResearchMemory
+from product_radar.research_memory import ResearchMemory, key
 from product_radar.source_coverage import execute_source_run, prepare_source_tasks, route_registry
 from product_radar.storage import Journal, atomic_json, load_json
 from product_radar.supplier_effort import VERSION as EFFORT_VERSION
-from product_radar.supplier_route_acquisition import (PARSER_VERSION, ROUTES, SEARCH_ROUTES, acquire_supplier_search,
-    collect_supplier_company_pages, collect_supplier_search, create_supplier_handlers, replay_supplier_search,
-    supplier_route_url)
+from product_radar.supplier_route_acquisition import (PARSER_VERSION, ROUTES, SEARCH_ROUTES, _result, acquire_supplier_search,
+    collect_supplier_company_pages, collect_supplier_search, create_supplier_handlers, parse_supplier_route_receipt,
+    replay_supplier_search, supplier_route_url)
 from test_supplier_discovery import CONCEPT, NOW
 from test_supplier_route_acquisition import QUERY, Reader, receipt
 
@@ -211,6 +211,11 @@ class SupplierReconciliationTests(unittest.TestCase):
         original = self.acquire()
         old = deepcopy(original["record"])
         old["request"]["parser_version"] = 1
+        # An honest version 1 record: its own parser's decisions on the same bytes.
+        for row in old["records"]:
+            item = {"id": key("supplier-route-request", ["saved-acquisition", row["transport"]]), "url": old["request"]["url"]}
+            row["parsed"] = parse_supplier_route_receipt("indiamart", QUERY, item, row["receipt"], _parser_version=1)
+        old["result"] = _result(old["records"])
         old["content_hash"] = digest([old["request"], old["records"], old["result"]])
         atomic_json(Path(original["reference"]), old)
         atomic_json(Path(original["reference"]).parent / "progress.json", {

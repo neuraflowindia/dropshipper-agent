@@ -876,7 +876,7 @@ def candidate_summary(memory, *, as_of=None):
         from .fit_description import FUNCTIONAL_CONTRACT
         functional_fit = concept_id in functional_ids or bool(assessment and assessment.get("contract_version") == FUNCTIONAL_CONTRACT)
         # The common reader dispatches the saved contract and current semantic
-        # input. A legacy raw-title comparison cannot decide a functional v4.
+        # input. A legacy raw-title comparison cannot decide a functional fit.
         fit = current_assessment_fit(state, concept_id, indexes=(by_concept, by_semantic)) if assessment else None
         if assessment and fit is None:
             assessment = None

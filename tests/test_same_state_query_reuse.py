@@ -31,8 +31,8 @@ class SameStateQueryReuseTests(unittest.TestCase):
         fixture = supplier_fixture.SharedSupplierTests()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
-        handlers = fixture.handlers(routes=("indiamart", "tradeindia"))
-        for route in ("indiamart", "tradeindia"):
+        handlers = fixture.handlers(routes=("google-maps", "tradeindia"))
+        for route in ("google-maps", "tradeindia"):
             fixture.prepare(handlers, route=route, run="synthetic-reuse-" + route)
             fixture.checks(handlers)
         return fixture

@@ -829,6 +829,7 @@ class EssentialBackupSelectionTests(unittest.TestCase):
 
     def test_private_registry_profile_and_backup_references_never_read(self):
         for reference in ("config/local/apify_accounts.json", "data/research/captured/direct_meta/one/native-profile/auth.json",
+                          "data/research/captured/direct_meta/one/research-browser-profile/local_state.json",
                           "data/backups/old/manifest.json", "data/operations/backup_controls/control.json"):
             with self.subTest(reference=reference):
                 secret = self.json(reference, {"api_key": "not a real secret fixture"})
@@ -841,6 +842,18 @@ class EssentialBackupSelectionTests(unittest.TestCase):
                     selected = self.select()
                 self.assertEqual(selected["files"], [])
                 self.assertTrue(selected["unsafe"])
+
+    def test_sign_in_command_is_application_code_but_the_research_profile_never_is(self):
+        script = self.root / "scripts/research_sign_in.py"
+        script.parent.mkdir(parents=True, exist_ok=True); script.write_text("# fixture\n")
+        row = validate_essential_backup_reference({"path": str(script), "relative_path": "scripts/research_sign_in.py",
+            "kind": "application_code", "required": False, "expected_sha256": sha256(b"# fixture\n").hexdigest(),
+            "expected_json_digest": None, "bytes": 10, "origins": ["public_application/scripts/research_sign_in.py"]}, root=self.root)
+        self.assertEqual(row["relative_path"], "scripts/research_sign_in.py")
+        with self.assertRaisesRegex(SafetyError, "PRIVATE_OR_RECURSIVE"):
+            validate_essential_backup_reference({"path": str(self.root / "data/research/captured/trends_browser/research-browser-profile/x.json"),
+                "relative_path": "data/research/captured/trends_browser/research-browser-profile/x.json", "kind": "source_capture",
+                "required": False, "expected_sha256": "0" * 64, "expected_json_digest": None, "bytes": 1, "origins": ["fixture"]}, root=self.root)
 
     def test_symlink_leaf_and_directory_are_refused(self):
         original = self.json("data/research/captured/direct_meta/original/receipt.json", {"public": True})

@@ -9,7 +9,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from product_radar.models import SafetyError, timestamp, utc_now
-from product_radar.research_ai import CodexRunner, Jobs, MODEL, current_attempt, prompt_version
+from product_radar.research_ai import Jobs, MODEL, current_attempt, prompt_version
+from product_radar.spend_watch_ai import research_codex_runner
 from product_radar.research_memory import ResearchMemory, key
 from product_radar.runtime_storage import logical_path, runtime_path
 from product_radar.storage import Journal, atomic_json, load_json
@@ -89,7 +90,7 @@ def run_probe():
         memory = ResearchMemory(runtime_path(ROOT, "data/research/captured"), Journal(runtime_path(ROOT, "data/benchmarks/state/apify")))
         prepared = prepare_probe(memory.snapshot(), [load_json(path) for path in RECEIPTS], media_root=PHOTOS)
         payload = prepared["request"]["payload"]
-        runner = CodexRunner(load_json(CONFIG))
+        runner = research_codex_runner(load_json(CONFIG), root=ROOT)
         report["job_id"] = key("job", {"role": "D", "payload": payload, "model": MODEL,
                                       "prompt_version": prompt_version("D"), "runner": runner.identity})
         job_id, result = Jobs(memory, runner).run("D", payload)

@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "kind": "signed-in-read-pacing-v1",
+  "sites": {
+    "indiamart": {"min_interval_seconds": 30, "daily_ceiling": 150}
+  }
+}

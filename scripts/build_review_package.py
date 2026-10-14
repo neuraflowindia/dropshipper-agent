@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from product_radar.models import SafetyError, digest, identifier
 from product_radar.report_workflow import prepare_review_package
-from product_radar.research_ai import CodexRunner
+from product_radar.spend_watch_ai import research_codex_runner
 from product_radar.research_memory import ResearchMemory
 from product_radar.service import load_policy
 from product_radar.runtime_storage import runtime_path
@@ -46,7 +46,7 @@ def main(argv=None):
         policy = load_policy()
         choice = policy["ongoing_pdf_language"]
         can_write = issue.get("ready_for_review") is True and (issue["projected_ordinal"] <= 2 or choice is not None)
-        runner = CodexRunner(load_json(ROOT / "config/ai/codex_luna.json")) if can_write and args.live_model else None
+        runner = research_codex_runner(load_json(ROOT / "config/ai/codex_luna.json"), root=ROOT) if can_write and args.live_model else None
         result = prepare_review_package(memory, issue, facts, root=ROOT, runner=runner,
                                         render_pdf=render, inspect_pdf=inspect_pdf, selected_language=choice,
                                         presentation_source_revision=args.presentation_source_revision)

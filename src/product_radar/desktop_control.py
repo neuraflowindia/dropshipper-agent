@@ -5,22 +5,19 @@ Stop persists the existing owner pause before interrupting only identified
 programme processes. Original attempts and spending allowances stay intact.
 """
 
-from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
-import json
 import os
 from pathlib import Path
 import signal
 import subprocess
 import sys
-import time
 from types import SimpleNamespace
 
 from .models import SafetyError, canonical, utc_now
 from .programme import programme_service_state, set_programme_service_state
 from .runtime_storage import runtime_path
-from .storage import atomic_json, safe_path
+from .storage import safe_path
 
 
 def process_info(pid, *, proc=Path("/proc")):
@@ -97,29 +94,71 @@ def status(root):
         message += " " + activity["message"]
         if activity.get("last_useful_result_at") is None:
             message += " No completed result has been recorded in this run yet."
-    return {"schema_version": 1, "state": state, "enabled": enabled,
-            "active_processes": len(processes), "message": message, "checked_at": utc_now(), "activity": activity}
+    spend = spend_summary(root)
+    return {"schema_version": 2, "state": state, "enabled": enabled,
+            "active_processes": len(processes), "message": message, "checked_at": utc_now(), "activity": activity,
+            "sign_in": sign_in_summary(root), "spend": spend["lines"], "spend_alerts": spend["alerts"]}
 
 
-@contextmanager
-def command_lock(root):
-    path = safe_path(runtime_path(root, "data/operations"), "desktop") / "commands.lock"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+b") as handle:
-        # Commands are short. A stuck command must not freeze the graphical UI.
-        deadline = time.monotonic() + 5
-        while True:
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                if time.monotonic() >= deadline:
-                    raise SafetyError("DESKTOP_CONTROL_BUSY") from None
-                time.sleep(.05)
+def spend_summary(root, *, alert_hours=24):
+    """Spend-watch lines and the last day's alerts, from saved records only.
+
+    The window shows one line per item and one Windows notification for the
+    alerts it has not shown yet (it remembers their ``alert_id``).
+    """
+    from datetime import timedelta
+    from .spend_watch import allowance_summary
+    try:
+        since = (datetime.now(timezone.utc) - timedelta(hours=alert_hours)).isoformat()
+        summary = allowance_summary(root, alerts_after=since, alert_limit=20)
+    except (SafetyError, OSError):
+        return {"lines": [{"item": "spend-watch", "text": "The spending records could not be read. See the project log.",
+                           "percent": None, "flags": []}], "alerts": []}
+    lines = []
+    for line in summary["lines"]:
+        text = line["text"]
+        if line["percent"] is not None and "%" not in text:
+            text = text.rstrip(".") + f" ({line['percent']}% used)."
+        lines.append({"item": line["item"], "text": text, "percent": line["percent"], "flags": line["flags"]})
+    return {"lines": lines, "alerts": [{"alert_id": row["alert_id"], "kind": row["kind"], "message": row["message"]}
+                                       for row in summary["alerts"]]}
+
+
+def sign_in_summary(root, *, runner=subprocess.run, recheck_seconds=30):
+    """Saved sign-in needs for the window. Only an open sign-in window is
+    re-verified (local processes, no site visit), at most every 30 seconds."""
+    from .signed_in_browser import check_sign_in_window, sign_in_line, sign_in_needs, sign_in_window
+    try:
+        window = sign_in_window(root)
+        if window["open"] and (datetime.now(timezone.utc) - datetime.fromisoformat(window["checked_at"])).total_seconds() >= recheck_seconds:
+            window = check_sign_in_window(root, runner=runner)
+        return {"window_open": window["open"], "line": sign_in_line(root), "needs": sign_in_needs(root)}
+    except (SafetyError, OSError):
+        return {"window_open": False, "line": "The sign-in records could not be read. See the project log.", "needs": []}
+
+
+def open_sign_in(root):
+    """The owner's "Sign in to research sites" button."""
+    from .signed_in_browser import open_sign_in_window
+    with command_lock(root):
         try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            opened = open_sign_in_window(root)
+        except SafetyError as error:
+            if str(error) != "SIGNED_IN_BROWSER_BUSY":
+                raise
+            record_action(root, "sign_in_busy")
+            result = status(root)
+            # Shown until the owner's next action, not replaced by the next refresh.
+            result["sign_in"]["notice"] = "A research read is using the browser. Try again in a minute."
+            return result
+        record_action(root, "sign_in_window_" + opened)
+    return status(root)
+
+
+def command_lock(root):
+    from .signed_in_browser import _file_lock
+    # Commands are short. A stuck command must not freeze the graphical UI.
+    return _file_lock(safe_path(runtime_path(root, "data/operations"), "desktop") / "commands.lock", 5, "DESKTOP_CONTROL_BUSY")
 
 
 def record_action(root, action, **fields):

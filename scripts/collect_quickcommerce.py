@@ -15,10 +15,9 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from check_quickcommerce_connection import load_key
 from product_radar.models import SafetyError
 from product_radar.product_queries import ensure_query_profiles, product_query_terms
-from product_radar.quickcommerce import PLATFORMS, QuickCommerceClient, adapter
+from product_radar.quickcommerce import PLATFORMS, QuickCommerceClient, adapter, load_key
 from product_radar.research_memory import ResearchMemory
 from product_radar.source_coverage import execute_source_run, prepare_source_tasks
 from product_radar.runtime_storage import runtime_path

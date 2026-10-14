@@ -1,5 +1,6 @@
 """Local-only desktop lifecycle tests; no providers, real pools or Windows tasks."""
 
+import io
 import json
 from pathlib import Path
 import shutil
@@ -125,6 +126,80 @@ class DesktopControlTests(unittest.TestCase):
         with patch.object(controls, "process_info", side_effect=lambda pid, **_: next(row for row in rows if row["pid"] == int(pid))), \
                 patch.object(controls.Path, "resolve", lambda self, *a, **k: self if "link" in self.parts else real(self, *a, **k)):
             self.assertEqual([row["pid"] for row in controls.owned_programmes(self.root, proc=proc)], [7])
+
+    def test_status_carries_sign_in_needs_and_spend_lines(self):
+        with patch.object(controls, "owned_programmes", return_value=[]):
+            result = controls.status(self.root)
+        self.assertEqual(result["schema_version"], 2)
+        self.assertEqual([line["item"] for line in result["spend"]], ["hosting"])  # nothing recorded yet
+        self.assertEqual(result["spend_alerts"], [])
+        self.assertFalse(result["sign_in"]["window_open"])
+        self.assertEqual([row["site"] for row in result["sign_in"]["needs"]],
+                         ["google", "google-trends", "indiamart", "dropship-india", "dropdash"])
+        self.assertTrue(all(set(row) == {"id", "site", "label", "state"} for row in result["sign_in"]["needs"]))
+        self.assertTrue(result["sign_in"]["line"].startswith("Sign-in needed: Google account"))
+
+    def test_open_sign_in_window_is_rechecked_at_most_every_thirty_seconds(self):
+        from product_radar import signed_in_browser
+        signed_in_browser.note_sign_in_window(self.root, True, opened=True)
+        with patch.object(signed_in_browser, "check_sign_in_window") as check:
+            fresh = controls.sign_in_summary(self.root)
+        check.assert_not_called()
+        self.assertTrue(fresh["window_open"]); self.assertIn("sign-in window is open", fresh["line"])
+        signed_in_browser.note_sign_in_window(self.root, True, at="2026-01-01T10:00:00+00:00")
+        closed = {"open": False}
+        with patch.object(signed_in_browser, "check_sign_in_window", return_value=closed) as check:
+            stale = controls.sign_in_summary(self.root)
+        check.assert_called_once()
+        self.assertFalse(stale["window_open"])
+
+    def test_unreadable_sign_in_records_do_not_break_the_research_controls(self):
+        folder = self.root / "data/operations/signed-in-browser"; folder.mkdir(parents=True)
+        (folder / "site-states.json").write_text("{not json")
+        with patch.object(controls, "owned_programmes", return_value=[]):
+            result = controls.status(self.root)
+        self.assertEqual(result["state"], "ready")
+        self.assertEqual(result["sign_in"], {"window_open": False, "needs": [],
+                                             "line": "The sign-in records could not be read. See the project log."})
+
+    def test_sign_in_action_opens_the_window_and_returns_research_status(self):
+        from product_radar import signed_in_browser
+        with patch.object(controls, "owned_programmes", return_value=[]), \
+                patch.object(signed_in_browser, "open_sign_in_window", return_value="opened") as opened:
+            result = controls.open_sign_in(self.root)
+        opened.assert_called_once_with(self.root)
+        self.assertEqual(result["state"], "ready")
+        actions = [json.loads(line)["action"] for path in (self.root / "data/operations/desktop").glob("*.jsonl")
+                   for line in path.read_text().splitlines()]
+        self.assertEqual(actions, ["sign_in_window_opened"])
+
+    def test_sign_in_action_while_a_read_runs_says_try_again(self):
+        from product_radar import signed_in_browser
+        with patch.object(controls, "owned_programmes", return_value=[]), \
+                patch.object(signed_in_browser, "open_sign_in_window", side_effect=SafetyError("SIGNED_IN_BROWSER_BUSY")):
+            result = controls.open_sign_in(self.root)
+        self.assertEqual(result["sign_in"]["notice"], "A research read is using the browser. Try again in a minute.")
+        self.assertTrue(result["sign_in"]["line"].startswith("Sign-in needed"))
+        with patch.object(signed_in_browser, "open_sign_in_window", side_effect=SafetyError("SIGNED_IN_BROWSER_NOT_INSTALLED")), \
+                self.assertRaisesRegex(SafetyError, "NOT_INSTALLED"):
+            controls.open_sign_in(self.root)
+
+    def test_control_script_allows_the_sign_in_action_only(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+        import desktop_research_control as script
+        output = io.StringIO()
+        with patch.object(script, "open_sign_in", return_value={"state": "ready"}) as opened, patch("sys.stdout", output):
+            self.assertEqual(script.main(["sign-in"]), 0)
+        opened.assert_called_once_with(script.ROOT)
+        self.assertEqual(json.loads(output.getvalue()), {"state": "ready"})
+        output = io.StringIO()
+        with patch.object(script, "open_sign_in", side_effect=SafetyError("SIGNED_IN_BROWSER_NOT_INSTALLED")), \
+                patch("sys.stdout", output):
+            self.assertEqual(script.main(["sign-in"]), 1)
+        self.assertEqual(json.loads(output.getvalue())["reason"], "SIGNED_IN_BROWSER_NOT_INSTALLED")
+        for arguments in (["sign-in", "--tick"], ["sign-out"]):
+            with self.subTest(arguments=arguments), self.assertRaises(SystemExit), patch("sys.stderr", io.StringIO()):
+                script.main(arguments)
 
     def test_stopped_worker_does_not_start_research(self):
         set_programme_service_state(self.memory, enabled=False)

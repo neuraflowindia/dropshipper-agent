@@ -245,6 +245,10 @@ def _changed_prefix(memory, snapshot, control, *, subject_limit, event_limit):
     return sorted(ids), cursor, relevant
 
 
+# Pool decision codes meaning the type does not pass the checklist right now.
+_CHECKLIST_GAPS = frozenset(("checklist_review_required", "fit_information_pending", "below_checklist_threshold"))
+
+
 def _new_work(state, client, cid, purpose, needed, origin, at, *, source=None):
     subject = {"kind": "concept", "concept_id": cid, "definition_hash": _meaning(state, cid)}
     from .research_flow import assessment_item
@@ -304,6 +308,8 @@ def refresh_inventory_intake(memory, record, *, as_of, pool=None, subject_limit=
             facts.setdefault(row["concept_id"], []).append((field, row))
     from .source_interpretation import _questions
     pending = _questions(state, as_of=as_of) if pool.get("needed_market_work") else []
+    unpassed = {row["concept_id"] for row in pool.get("decisions", [])
+                if set(row.get("codes", [])) & _CHECKLIST_GAPS}
     for ref, row in list(state["batch_runs"].items()):
         if (row.get("kind") != WORK_KIND or row.get("binding", {}).get("client_id") != client
                 or row.get("progress", {}).get("state") in {"complete", "superseded"}):
@@ -315,6 +321,15 @@ def refresh_inventory_intake(memory, record, *, as_of, pool=None, subject_limit=
             revised = deepcopy(row)
             revised["progress"].update(state="superseded", next_retry_at=None,
                 reason="The accepted product meaning changed; original source and model owners are retained.")
+            changes.append(change("batch_runs", ref, revised, row)); state["batch_runs"][ref] = revised
+        elif (cid in ids and cid in unpassed and row["binding"]["needed"][0]["code"] == "supplier_search_required"
+                and "checklist_hash" in row["binding"]["needed"][0]):
+            # An early supplier search belongs to the passing checklist that
+            # queued it. A later failing or pending checklist closes it; a new
+            # passing checklist queues a new obligation with its own binding.
+            revised = deepcopy(row)
+            revised["progress"].update(state="superseded", next_retry_at=None,
+                reason="The type no longer passes the ten-point checklist; its early supplier search is closed.")
             changes.append(change("batch_runs", ref, revised, row)); state["batch_runs"][ref] = revised
     def admit(cid):
         nonlocal created_intake

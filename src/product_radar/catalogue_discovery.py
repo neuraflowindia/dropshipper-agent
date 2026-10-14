@@ -689,7 +689,9 @@ def advance_discovery_cycle(memory, cycle_id, *, handlers, runner=None, max_acti
                         if wave:
                             record["actions"][question["id"]].update(state="waiting", next_trigger="saved_input_reply_or_connection_change")
                         break
-                    if resolution["action"] == "wait":
+                    if resolution["action"] in {"wait", "not_connected"}:
+                        # A closed supplier question (replaced transport or retired
+                        # route) sends nothing; its direction waits for a new one.
                         record["actions"][question["id"]] = dict(old, updated_at=at,
                             reason=resolution["reason"], acquisition_owner_ref=resolution.get("acquisition_id"))
                         if wave:

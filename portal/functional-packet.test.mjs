@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { webcrypto, createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { validateFitPacket, validateFunctionalPacket, canonical, handleAdminRequest } from './release-admin.mjs';
-import { currentSupplierOutcome, retiredSupplierRoutes } from './functional-packet.mjs';
+import { currentSupplierOutcome, retiredSupplierRoutes, supersedingRule, supplierFirstTransport } from './functional-packet.mjs';
 
 globalThis.crypto ??= webcrypto;
 // The actual offline Python producers generate this fixture. No handwritten
@@ -272,6 +272,30 @@ test('fit explanation and copied scores must match their actual saved assessment
   await assert.rejects(validateFunctionalPacket(f.facts,f.manifest),/FIT_ASSESSMENT_CHANGED/);
 });
 
+function withChecklistContract(contract) {
+  // Rebuild one product's frozen checklist question and answer under another
+  // prompt version, with every original byte hash recomputed consistently.
+  const f=fresh(), p=f.facts.products[0];
+  const input=JSON.parse(p.functional_fit_input.canonical_json); input.functional_contract=contract;
+  const inputRaw=canonical(input);
+  p.functional_fit_input={...p.functional_fit_input,canonical_json:inputRaw,sha256:sha(encoder.encode(inputRaw))};
+  p.functional_fit_input_hash=p.functional_fit_input.sha256;
+  const a=JSON.parse(p.functional_fit_assessment.canonical_json);
+  Object.assign(a,{contract_version:contract,input,input_hash:p.functional_fit_input_hash}); delete a.record_hash;
+  a.record_hash=sha(encoder.encode(canonical(a)));
+  const raw=canonical(a);
+  p.functional_fit_assessment={...p.functional_fit_assessment,canonical_json:raw,sha256:sha(encoder.encode(raw))};
+  p.source_revisions.assessments[p.concept_id]=p.functional_fit_assessment.sha256;
+  return f;
+}
+
+test('a checklist answered under the earlier v4 prompt is refused; the v5 rebuild validates', async () => {
+  const current=withChecklistContract('research-e-fit10-functional-v5');
+  assert.equal(await validateFunctionalPacket(current.facts,current.manifest,{asOf:'2026-10-07T03:30:00Z'}),current.facts);
+  const earlier=withChecklistContract('research-e-fit10-functional-v4');
+  await assert.rejects(validateFunctionalPacket(earlier.facts,earlier.manifest,{asOf:'2026-10-07T03:30:00Z'}),/ADMIN_FUNCTIONAL_FIT_ASSESSMENT_CHANGED/);
+});
+
 test('market displays and source counts cannot be inflated', async () => {
   const f=fresh();f.facts.products[0].market_checks[0].detail='Five hundred buyers';
   await assert.rejects(validateFunctionalPacket(f.facts,f.manifest),/MARKET_DISPLAY_CHANGED/);
@@ -411,4 +435,31 @@ print(json.dumps({'retired':sorted(RETIRED_SUPPLIER_ROUTES),'outcomes':[_current
   assert.deepEqual(cases.map(rows=>currentSupplierOutcome(rows,fail)),expected.outcomes);
   assert.deepEqual(expected.outcomes,['not_attempted','interpretation_pending','blocked','blocked','failed','blocked',
     'interpretation_pending','completed_empty','failed']);
+});
+
+test('superseded old questions follow the Python owner exactly',()=>{
+  // The undefined Amazon home department, and a supplier route's old queued
+  // read replaced by its own first read (IndiaMART signed in, Maps in the browser).
+  const cases=[
+    ['amazon-bestsellers',{department:'home'},{department:'kitchen/1380374031'}],
+    ['amazon-search',{department:'home'},{department:'kitchen/1380374031'}],
+    ['indiamart',{query:'q',transport:'public-http'},{query:'q',transport:'signed-in-browser'}],
+    ['indiamart',{query:'q',transport:'public-browser'},{query:'q',transport:'signed-in-browser'}],
+    ['indiamart',{query:'q',country:'IN'},{query:'q',transport:'signed-in-browser'}],
+    ['indiamart',{query:'q',transport:'signed-in-browser'},{query:'q',transport:'signed-in-browser'}],
+    ['google-maps',{query:'q',transport:'public-http'},{query:'q',transport:'public-browser'}],
+    ['google-maps',{query:'q',transport:'public-http'},{query:'q',transport:'public-http'}],
+    ['tradeindia',{query:'q',transport:'public-http'},{query:'q',transport:'public-browser'}],
+  ];
+  const python=spawnSync('.venv/bin/python',['-c',`
+import json,sys
+from product_radar.source_coverage import SUPPLIER_FIRST_TRANSPORT,_superseding_reason
+cases=json.load(sys.stdin)
+print(json.dumps({'first':SUPPLIER_FIRST_TRANSPORT,'rules':[_superseding_reason(*row) is not None for row in cases]}))
+`],{encoding:'utf8',input:JSON.stringify(cases),env:{...process.env,PYTHONPATH:'src:tests'}});
+  assert.equal(python.status,0,python.stderr);
+  const expected=JSON.parse(python.stdout);
+  assert.deepEqual(supplierFirstTransport,expected.first);
+  assert.deepEqual(cases.map(row=>supersedingRule(...row)),expected.rules);
+  assert.deepEqual(expected.rules,[true,false,true,true,false,false,true,false,false]);
 });

@@ -14,12 +14,16 @@ DESCRIPTION_INFERENCE_KIND = "product-description-inference-v1"
 DESCRIPTION_CONTRACT = "research-e-fit10-description-v3"
 DESCRIPTION_STYLE = "practical-description-estimates-v3"
 DESCRIPTION_FIELDS = ("label", "function", "mechanism", "features", "audience")
-FUNCTIONAL_CONTRACT = "research-e-fit10-functional-v4"
+# v5 (R10 W9): a known form and use gets a labelled practical estimate, not
+# Unclear. The new identity re-assesses every accepted type once; unchanged
+# inputs then reuse their v5 answer.
+FUNCTIONAL_CONTRACT = "research-e-fit10-functional-v5"
 FUNCTIONAL_INFERENCE_KIND = "functional-type-inference-v1"
-FUNCTIONAL_STYLE = "practical-functional-estimates-v4"
+FUNCTIONAL_STYLE = "practical-functional-estimates-v5"
+FUNCTIONAL_REVIEW_REASON = "functional_type_estimates_v5_review"
 FUNCTIONAL_RESPONSE_VERSION = "code-owned-functional-fields-v5"
 FUNCTIONAL_SELECTION_KIND = "functional-field-selection-v1"
-FIT_ESTIMATE_VALIDATION_VERSION = "practical-estimate-validation-v2"
+FIT_ESTIMATE_VALIDATION_VERSION = "practical-estimate-validation-v3"
 FUNCTIONAL_FIELDS = ("primary_use", "mechanism", "use_context", "compatibility_constraints",
                      "included_distinctions", "excluded_distinctions", "example_features", "example_audiences")
 _HASH = re.compile(r"[a-f0-9]{64}\Z")
@@ -35,10 +39,14 @@ _COMMERCIAL_NUMBER = re.compile(
     r"\d[^.;!?\n]{0,35}\b(?:sales|orders|profit|margin|revenue|demand|growth)\b)", re.I)
 _APPROXIMATE = re.compile(r"\b(?:estimat(?:ed|e)|about|around|roughly|approximately|approx|likely|typical|projected|ballpark)\b", re.I)
 _MEASURED = re.compile(r"\b(?:measured|verified|guaranteed|exactly|tested|confirmed)\b", re.I)
+# Contract ID7: a time saving or a share is never invented, even as "about".
+# Approximate size and weight (ID1/ID2) remain allowed when labelled.
+_TIME_OR_SHARE = re.compile(r"%|percent|per\s+cent|minute|min\b|mins\b|second|sec\b|secs\b|hour", re.I)
 
 
 def _valid_estimate_numbers(reason, description, fields, functional):
-    """Allow described specifications and practical estimates, not sales math.
+    """Allow described specifications and practical size estimates, not sales
+    math or invented times and percentages (v3).
 
     This is an output-quality check, not a measurement or semantic proof.
     The structured inferred basis owns the displayed estimate label.
@@ -57,6 +65,8 @@ def _valid_estimate_numbers(reason, description, fields, functional):
         clause = reason[clause_start:min(ends) if ends else len(reason)]
         stated = re.sub(r"\s+", "", match.group().casefold()) in compact_supplied
         if _MEASURED.search(clause) and not stated:
+            return False
+        if not stated and _TIME_OR_SHARE.search(match.group()):
             return False
         if not stated and not _APPROXIMATE.search(clause):
             return False

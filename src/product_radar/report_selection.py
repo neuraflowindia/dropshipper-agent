@@ -1245,8 +1245,14 @@ def _build_report_pool(memory, as_of, client_id, *, fit_policy_id, recommendatio
             codes.append("weak_market_signal"); reasons.append("Two assessable source families exist, but neither supplies a positive signal.")
         if not suppliers["effort_satisfied"]:
             codes.append("supplier_search_required"); reasons.append("No accepted cursory supplier search is linked to this product yet.")
-            if not codes[:-1] and concept_id not in published:
+            # A passing checklist queues its supplier search at once, beside
+            # any market work, rather than after every other gap has closed.
+            if (concept_id in assessments and fit["eligible"] and "weak_market_signal" not in codes
+                    and concept_id not in published):
+                # Bound to the passing checklist that queued it: a later
+                # failing re-assessment closes this obligation (inventory).
                 supplier_work.append({"concept_id": concept_id, "code": "supplier_search_required", "reason": reasons[-1], "blocking": True,
+                                      "checklist_hash": digest(assessments[concept_id]),
                                       **(opportunity_fields(opportunity) if opportunity else {})})
         update = None
         snapshot = material_snapshot(fact, product["market"])

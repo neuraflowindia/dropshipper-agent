@@ -34,6 +34,13 @@ def _source_identity(row):
     return identity
 
 
+def _priority_ids(values):
+    """Ordering hint only: it never widens a scope or skips a due question."""
+    if not isinstance(values, (list, tuple, set, frozenset)) or any(not isinstance(cid, str) for cid in values):
+        raise SafetyError("SOURCE_REVIEW_PRIORITY_INVALID")
+    return frozenset(values)
+
+
 def _review_task_scope(state, task_ids, run_id):
     if task_ids is None:
         return None
@@ -449,11 +456,12 @@ def _accept_functional_answer(memory, question, item, answer, *, job_id, as_of):
 
 
 def _review_functional_source_results(memory, runner, *, run_id, limit, per_product, as_of, skipped,
-                                      task_ids=None, concept_ids=None):
+                                      task_ids=None, concept_ids=None, priority=frozenset()):
     from .research_ai import FUNCTIONAL_SOURCE_PROMPT_VERSION, FUNCTIONAL_SOURCE_STYLE
     state = memory.snapshot()
     questions = [row for row in functional_source_questions(state, run_id=run_id, as_of=as_of,
         task_ids=task_ids, concept_ids=concept_ids) if row["unknown_ids"]]
+    questions.sort(key=lambda row: row["concept_id"] not in priority)
     selected, chosen, outcomes = [], set(), []
     for question in questions:
         if (len(selected) >= limit or question["concept_id"] in chosen
@@ -507,16 +515,18 @@ def _review_functional_source_results(memory, runner, *, run_id, limit, per_prod
 
 
 def review_source_results(memory, runner=None, *, run_id=None, limit=5, per_product=30, as_of=None,
-                          skip_targets=(), task_ids=None, concept_ids=None):
+                          skip_targets=(), task_ids=None, concept_ids=None, priority_concept_ids=()):
     """Advance a bounded slice and report remaining work; no source/model retry loop.
 
     The next programme pass continues returned remaining questions. A confirmed
     relevant result completes that source probe; no matching result is claimed
     until every returned observation has an accepted judgment. No fuzzy lexical
-    absence or checklist score becomes a source confirmation.
+    absence or checklist score becomes a source confirmation. Priority types
+    (nearly report-ready) are selected first; it only orders this slice.
     """
     if type(limit) is not int or not 1 <= limit <= 20 or type(per_product) is not int or not 1 <= per_product <= 50:
         raise SafetyError("SOURCE_REVIEW_LIMIT_INVALID")
+    priority = _priority_ids(priority_concept_ids)
     if (not isinstance(skip_targets, (list, tuple, set))
             or any(not isinstance(row, (tuple, list)) or len(row) != 2
                    or any(not isinstance(value, str) for value in row) for row in skip_targets)):
@@ -528,11 +538,13 @@ def review_source_results(memory, runner=None, *, run_id=None, limit=5, per_prod
             or len(set(concept_ids)) != len(concept_ids))):
         raise SafetyError("SOURCE_REVIEW_CONCEPT_SCOPE_INVALID")
     functional_outcomes, functional_selected = _review_functional_source_results(memory, runner, run_id=run_id,
-        limit=limit, per_product=per_product, as_of=at, skipped=skipped, task_ids=task_ids, concept_ids=concept_ids)
+        limit=limit, per_product=per_product, as_of=at, skipped=skipped, task_ids=task_ids, concept_ids=concept_ids,
+        priority=priority)
     limit -= functional_selected
     state = memory.snapshot(); questions = [row for row in _questions(state, run_id=run_id, as_of=at,
         task_ids=task_ids, concept_ids=concept_ids)
                                           if row.get("kind") != "functional_source_scope"]
+    questions.sort(key=lambda row: row["concept_id"] not in priority)
     reused, outcomes, selected, chosen = [], functional_outcomes, [], set()
     for question in questions:
         if question.get("kind") != "saved_source_support" and (question["relevant_ids"] or not question["unknown_ids"]):
@@ -826,20 +838,22 @@ def _bind_supplier_tasks(memory, captured, *, as_of, failed_captures=None, skipp
 
 
 def review_supplier_results(memory, runner=None, *, limit=5, as_of=None, skip_capture_ids=(), concept_ids=None,
-                            scoped_concept_ids=()):
+                            scoped_concept_ids=(), priority_concept_ids=()):
     """Interpret current captured supplier pages without another page request.
 
     The trusted supplier loader validates each original receipt and current
     product scope. Commercial terms use existing exact quotes; missing terms
     are not invented. Failed/corrupt/stale bundles are reported individually.
     Live calls use the completion clock for final saved-only binding; an
-    explicit historical cutoff stays fixed throughout the call.
+    explicit historical cutoff stays fixed throughout the call. Captures of
+    priority (nearly report-ready) types are selected first.
     """
     from .supplier_capture_store import load_saved_supplier_capture
     from .suppliers import extract_supplier_terms
     from .storage import safe_path
     if type(limit) is not int or not 1 <= limit <= 50:
         raise SafetyError("SOURCE_REVIEW_LIMIT_INVALID")
+    priority = _priority_ids(priority_concept_ids)
     if not isinstance(skip_capture_ids, (list, tuple, set)) or any(not isinstance(row, str) for row in skip_capture_ids):
         raise SafetyError("SOURCE_REVIEW_TARGETS_INVALID")
     state = memory.snapshot()
@@ -857,6 +871,7 @@ def review_supplier_results(memory, runner=None, *, limit=5, as_of=None, skip_ca
             raise SafetyError("SUPPLIER_FUNCTIONAL_DEFINITION_REQUIRED")
     at = utc_now() if as_of is None else as_of; timestamp(at)
     pending, scoped_pending, skipped, reused, captured, failed_captures = [], [], [], [], {}, {}
+    owners = {}
     terminal_inputs = {}
     # Each named directory is a previously captured supplier, not a nominated
     # result heading. Loading it is read-only and cannot fetch a missing page.
@@ -893,6 +908,7 @@ def review_supplier_results(memory, runner=None, *, limit=5, as_of=None, skip_ca
                  "capture_path": str(path), "capture_hash": digest(capture)}
         if scope_ids is not None and item["product"]["concept_id"] not in scope_ids:
             continue
+        owners[capture["capture_id"]] = capture["product"]["concept_id"]
         if capture["product"]["concept_id"] in scoped_concept_ids:
             from .supplier_checks import prepare_supplier_candidates, current_supplier_capture_review
             try:
@@ -934,7 +950,14 @@ def review_supplier_results(memory, runner=None, *, limit=5, as_of=None, skip_ca
             else:
                 pending.append(saved)
     initial_terminal_ids = set(terminal_inputs)
-    selected = [row for row in pending if row["capture_id"] not in set(skip_capture_ids)][:limit]
+    # One shared slice: priority captures from either contract come first;
+    # otherwise legacy captures keep their place before scoped page items.
+    open_rows = [(scoped, row) for scoped, rows in ((False, pending), (True, scoped_pending)) for row in rows
+                 if row["capture_id"] not in set(skip_capture_ids)]
+    open_rows.sort(key=lambda pair: owners[pair[1]["capture_id"]] not in priority)
+    chosen = open_rows[:limit]
+    selected = [row for scoped, row in chosen if not scoped]
+    selected_scoped = [row for scoped, row in chosen if scoped]
     result = {"accepted": {}, "failures": {}, "failure_job_ids": {}, "reused": []}
     if selected:
         # Only the small selected legacy group is execution input. One fresh
@@ -967,7 +990,6 @@ def review_supplier_results(memory, runner=None, *, limit=5, as_of=None, skip_ca
         skipped.extend(_supplier_capture_failures(failures))
         for path in failures:
             captured.pop(path, None)
-    selected_scoped = [row for row in scoped_pending if row["capture_id"] not in set(skip_capture_ids)][:max(0, limit - len(selected))]
     if selected_scoped:
         from .supplier_checks import extract_supplier_candidates
         scoped_result = extract_supplier_candidates(memory, selected_scoped, runner)

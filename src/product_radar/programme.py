@@ -25,7 +25,8 @@ VERSION = "research-programme-v1"
 STAGES = ("profiles", "fit", "acquire", "match", "suppliers", "photos", "reports", "private_staging")
 MODEL_ROUTE_FAILURES = {"AI_SUBSCRIPTION_LIMIT", "AI_RATE_LIMITED", "AI_MODEL_UNAVAILABLE",
     "AI_CHATGPT_SIGN_IN_REQUIRED", "AI_CODEX_NOT_INSTALLED", "AI_LOCAL_PERMISSION_DENIED",
-    "AI_NETWORK_UNAVAILABLE", "AI_CLI_CONFIGURATION_REJECTED"}
+    "AI_NETWORK_UNAVAILABLE", "AI_CLI_CONFIGURATION_REJECTED",
+    "AI_PAID_CREDITS_USED", "AI_PLAN_LIMIT_CREDITS_PROTECTED", "AI_USAGE_READ_FAILED", "AI_SPEND_WATCH_UNAVAILABLE"}
 INTEGRITY_FAILURES = {"RESEARCH_EVENTS_INVALID", "RESEARCH_CAPTURE_CONFLICT", "RESEARCH_CHANGE_INVALID",
     "RESEARCH_CHANGES_INVALID", "SYMLINK_PATH_REFUSED", "PROGRAMME_CONTROL_INVALID",
     "PROGRAMME_BINDING_CHANGED", "PROGRAMME_CONTROL_CONFLICT", "PROGRAMME_SERVICE_CONTROL_INVALID"}
@@ -303,6 +304,21 @@ def _acquisition_scopes(record, limit):
     return [(record, (limit + 1) // 2), *follow_on, (record, None)]
 
 
+def _priority_acquisition_plan(plan, record, priority):
+    """Serve follow-on groups holding priority types first, keeping every share.
+
+    The parent's capped first pass and its final remaining-allowance pass stay
+    in their own places; only follow-on groups (each with no fixed share) are
+    reordered among themselves, so no group borrows another's read quota.
+    """
+    if not priority:
+        return plan
+    children = sorted((pair for pair in plan if pair[0] is not record),
+                      key=lambda pair: not bool(priority.intersection(pair[0]["concept_ids"])))
+    ordered = iter(children)
+    return [pair if pair[0] is record else next(ordered) for pair in plan]
+
+
 def _preserve_review_scopes(old, record):
     previous = {row["programme_id"]: _binding(row) for row in _review_scopes(old)[1:]}
     current = {row["programme_id"]: _binding(row) for row in _review_scopes(record)[1:]}
@@ -411,6 +427,8 @@ def _refresh_inventory_boundary(memory, record, *, as_of):
         # A malformed optional stock projection cannot grant report access,
         # but also cannot cancel independent discovery/source work.
         record["inventory_preparation_wait"] = str(error) if isinstance(error, SafetyError) else "INVENTORY_LOCAL_FILE_WAIT"
+        # A stale "no shortfall" must not stop nearly-ready types finishing.
+        record.pop("inventory_release_need", None)
     if record != before:
         _save(memory, record)
     return record
@@ -886,6 +904,11 @@ def _refresh_owner_measurements(memory, record, context, *, state):
     failures = {}
     checkpoint = _owner_measurement_input(lambda: refresh_model_effort_checkpoint(
         memory, state, job_limit=25, as_of=at, minimum_interval_seconds=300), failures, "model_effort_checkpoint")
+    if context.get("root") is not None:
+        # Apify allowance and monthly money flags, from the local ledger only.
+        from .spend_watch import refresh_ledger_allowances
+        _owner_measurement_input(lambda: refresh_ledger_allowances(context["root"], memory.journal, as_of=at),
+                                 failures, "spend_watch")
     refresh = checkpoint.get("refresh", {}) if isinstance(checkpoint, dict) else {}
     record["owner_measurement_refresh"] = {"at": at, "measurement": _owner_effort_projection(checkpoint),
         "refresh": {name: refresh[name] for name in ("probed_jobs", "reduced_jobs", "reused_jobs",
@@ -1179,6 +1202,19 @@ class _ProgrammeRunner:
         pause = self.record.get("model_pause")
         if pause and timestamp(pause["next_retry_at"]) > timestamp(_context_time(self.context)):
             raise SafetyError(pause["reason"])
+        guard = getattr(self.runner, "check_new_execution", None)
+        if guard is not None:
+            try:
+                guard()  # the wrapped runner's own guard (the paid-credits watch)
+            except SafetyError as error:
+                self._pause_model_route(error)
+                raise
+
+    def _pause_model_route(self, error):
+        if str(error) in MODEL_ROUTE_FAILURES:
+            at = _context_time(self.context)
+            self.record["model_pause"] = {"reason": str(error), "at": at,
+                "next_retry_at": (timestamp(at) + timedelta(seconds=self.context["retry_seconds"])).isoformat()}
 
     def __call__(self, role, payload, folder):
         self.check_new_execution()
@@ -1187,10 +1223,7 @@ class _ProgrammeRunner:
         try:
             value = self.runner(role, payload, folder)
         except SafetyError as error:
-            if str(error) in MODEL_ROUTE_FAILURES:
-                at = _context_time(self.context)
-                self.record["model_pause"] = {"reason": str(error), "at": at,
-                    "next_retry_at": (timestamp(at) + timedelta(seconds=self.context["retry_seconds"])).isoformat()}
+            self._pause_model_route(error)
             _observe(self.record, self.context, phase_state="runner_call_failed", role=role,
                      supplied_items=count, reason=str(error))
             raise
@@ -1733,7 +1766,8 @@ def _match(memory, record, context):
         skip = [pair for pair, binding in bindings.items()
                 if not _due(record, "match", ":".join(pair), binding, context["at"])]
         result = review_source_results(memory, context["runner"], run_id=record["source_run_id"],
-                                      limit=context["match_limit"], as_of=context["at"], skip_targets=skip)
+                                      limit=context["match_limit"], as_of=context["at"], skip_targets=skip,
+                                      priority_concept_ids=context.get("priority_concept_ids", {}).get("match", []))
         for row in result["outcomes"]:
             target = row["task_id"] + ":" + row["concept_id"]
             if row["state"] == "waiting":
@@ -1922,7 +1956,8 @@ def _suppliers(memory, record, context):
     scoped_ids = [cid for cid in supplier_ids if effective_functional_definition(state, cid)["accepted"]]
     scoped_options = {"scoped_concept_ids": scoped_ids} if scoped_ids else {}
     result = review_supplier_results(memory, context["runner"], limit=context["supplier_limit"],
-                                     as_of=cutoff, skip_capture_ids=skip, concept_ids=supplier_ids, **scoped_options)
+                                     as_of=cutoff, skip_capture_ids=skip, concept_ids=supplier_ids, **scoped_options,
+                                     priority_concept_ids=context.get("priority_concept_ids", {}).get("suppliers", []))
     grouped = {}
     for row in result["selected_inputs"]:
         grouped.setdefault(row["capture_id"], []).append(row["item_id"])
@@ -2967,13 +3002,16 @@ def _programme_stage_plan(state, record, turn, *, at, inputs, model_available):
     existing dependencies before their consumers, once, on this same state.
     All other stages keep their fair rotated order, and genuine future waits
     remain intact. Discovery follows only the promoted prefix on odd turns.
+    While the coming report sets are short of eligible types, a passing type
+    that is not yet report stock also promotes its finishing stages (market
+    review, crowding check, supplier work) ahead of new discovery.
     """
     start = ((turn["programme_turn_sequence"] - 1) // 2) % len(STAGES) if turn else 0
     rotated = list(STAGES[start:] + STAGES[:start])
     discovery = "before" if turn is None or turn["programme_turn_sequence"] % 2 else "after"
     plan = {"stage_start": start, "stage_order": rotated,
         "discovery_position": discovery, "discovery_after_stage": None,
-        "priority_concept_ids": {}, "planning_waits": []}
+        "priority_concept_ids": {}, "planning_waits": [], "report_supply_short": False}
     if turn is None or not model_available:
         return plan
     from .fit_description import FUNCTIONAL_CONTRACT
@@ -2983,10 +3021,26 @@ def _programme_stage_plan(state, record, turn, *, at, inputs, model_available):
     from .research_flow import assessment_item, current_assessment_fit, evidence_indexes
     from .research_records import iter_functional_definitions
     from .source_coverage import _product_context
+    from .nearly_ready import (NEARLY_READY_STAGES, finishing_work, passing_checklist, report_stock_ids,
+                               report_supply_short)
     accepted_ids = {row.get("concept_id") for _, row in iter_functional_definitions(state)}
     indexes = evidence_indexes(state)
-    priorities = {"profiles": [], "fit": []}
+    priorities = {"profiles": [], "fit": [], **{stage: [] for stage in NEARLY_READY_STAGES}}
+    short = report_supply_short(record)
+    plan["report_supply_short"] = short
+    stock = set()
+    if short:
+        try:
+            stock = report_stock_ids(state, record, as_of=at)
+        except SafetyError as error:
+            if str(error) in INTEGRITY_FAILURES:
+                raise
+            # Unreadable stock only loses this exclusion; promotion is ordering.
+            plan["planning_waits"].append({"concept_id": None, "reason": str(error)})
     for scope in _review_scopes(record):
+        def lane_due(stage):
+            return _due(scope, "lane", stage, digest({"stage": stage, "inputs": inputs}), at)
+        passing = []
         for cid in scope["concept_ids"]:
             if cid not in accepted_ids:
                 continue
@@ -2994,26 +3048,38 @@ def _programme_stage_plan(state, record, turn, *, at, inputs, model_available):
                 _, excluded = _product_context(state, cid)
                 if excluded or functional_role_context(state, cid, role="C") is None:
                     continue
-                for stage in priorities:
-                    lane = digest({"stage": stage, "inputs": inputs})
-                    if not _due(scope, "lane", stage, lane, at):
-                        continue
-                    if stage == "profiles":
-                        missing = current_query_profile(state, cid) is None
-                        binding = query_profile_scope_hash(state, cid) if missing else None
-                    else:
-                        current = current_assessment_fit(state, cid, expected_policy_id=FIT_POLICY_ID, indexes=indexes)
-                        missing = (current is None or state["assessments"][cid].get("contract_version") != FUNCTIONAL_CONTRACT)
-                        binding = digest(assessment_item(state, cid, indexes=indexes,
-                            contract_version=FUNCTIONAL_CONTRACT)) if missing else None
-                    if missing and _due(scope, stage, cid, binding, at):
-                        priorities[stage].append(cid)
+                if lane_due("profiles") and current_query_profile(state, cid) is None:
+                    if _due(scope, "profiles", cid, query_profile_scope_hash(state, cid), at):
+                        priorities["profiles"].append(cid)
+                fit_due = lane_due("fit")
+                if not fit_due and not short:
+                    continue
+                current = current_assessment_fit(state, cid, expected_policy_id=FIT_POLICY_ID, indexes=indexes)
+                missing = (current is None or state["assessments"][cid].get("contract_version") != FUNCTIONAL_CONTRACT)
+                if fit_due and missing and _due(scope, "fit", cid, digest(assessment_item(state, cid, indexes=indexes,
+                        contract_version=FUNCTIONAL_CONTRACT)), at):
+                    priorities["fit"].append(cid)
+                if short and cid not in stock and passing_checklist(state, cid, current):
+                    passing.append(cid)
             except SafetyError as error:
                 if str(error) in INTEGRITY_FAILURES:
                     raise
                 # The ordinary stage records the precise local failure too;
                 # it must not keep a healthy sibling from being considered.
                 plan["planning_waits"].append({"concept_id": cid, "reason": str(error)})
+        if not passing:
+            continue
+        try:
+            # Promote a stage only where it holds actual pending work.
+            work = finishing_work(state, scope, passing, as_of=at)
+        except SafetyError as error:
+            if str(error) in INTEGRITY_FAILURES:
+                raise
+            plan["planning_waits"].append({"concept_id": None, "reason": str(error)})
+            continue
+        for stage in NEARLY_READY_STAGES:
+            if lane_due(stage):
+                priorities[stage].extend(cid for cid in passing if cid in work[stage])
     plan["priority_concept_ids"] = {stage: ids for stage, ids in priorities.items() if ids}
     prefix = list(plan["priority_concept_ids"])
     plan["stage_order"] = prefix + [stage for stage in rotated if stage not in prefix]
@@ -3056,7 +3122,7 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
             or any(not isinstance(value, str) or not value or len(value) > 200 for value in setup_failures.values()))):
         raise SafetyError("PROGRAMME_SETUP_RESULT_INVALID")
     # Factories prepare callbacks, never navigate/charge on construction.
-    from .work_turns import active_work_turn
+    from .work_turns import DISCOVERY_RESERVED_EXECUTIONS, active_work_turn, hold_for_discovery
     shared_mode = active_work_turn(memory) is not None
     if handlers is None:
         shared_options = {"marketplace_options": {"shared_acquisitions": True},
@@ -3122,6 +3188,7 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
             if discovery_step is None or not _due(record, "lane", "discovery", before, context["at"]):
                 return
             execution_order["discovery_attempted"] = True
+            hold_for_discovery(memory, 0)  # Discovery's own questions use the held share.
             context["stage"] = "discovery"; context["review_scope_id"] = record["programme_id"]
             _observe(record, context, phase_state="started", frozen_products=len(record["concept_ids"]))
             try:
@@ -3141,6 +3208,10 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
             record["last_results"]["discovery"] = discovery
             last_save = _save(memory, record, cache=cache)
             _observe(record, context, phase_state="finished", result=deepcopy(discovery), control_save=last_save)
+        # While short, finishing stages before discovery leave it two calls.
+        hold_for_discovery(memory, DISCOVERY_RESERVED_EXECUTIONS if (
+            active_turn is not None and discovery_step is not None and execution_order["report_supply_short"]
+            and _due(record, "lane", "discovery", before, context["at"])) else 0)
         if execution_order["discovery_position"] == "before":
             run_discovery()
         for stage in execution_order["stage_order"]:
@@ -3151,11 +3222,12 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
             if inventory_first:
                 context["stage"] = stage
                 _run_inventory_stage(memory, record, context, stage)
-            acquire_plan = _acquisition_scopes(record, source_limit) if stage == "acquire" else []
+            priority = set(execution_order["priority_concept_ids"].get(stage, []))
+            acquire_plan = (_priority_acquisition_plan(_acquisition_scopes(record, source_limit), record, priority)
+                            if stage == "acquire" else [])
             scopes = ([scope for scope, _ in acquire_plan] if stage == "acquire" else
                       [record] if stage in {"reports", "private_staging"} else _review_scopes(record))
-            priority = set(execution_order["priority_concept_ids"].get(stage, []))
-            if priority:
+            if priority and stage != "acquire":
                 scopes.sort(key=lambda scope: not bool(priority.intersection(scope["concept_ids"])))
             source_used, callback_counts, fresh_counts = 0, [], []
             acquisition_results, acquisition_limits, served_sources = {}, {}, []
@@ -3275,6 +3347,7 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
         if execution_order["discovery_position"] == "after" and not owner_paused:
             context["at"] = as_of or clock(); timestamp(context["at"])
             run_discovery()
+        hold_for_discovery(memory, 0)
         cycles += 1; record["cycles"] += 1
         cycle_state = memory.snapshot()
         after = _signature(cycle_state, record)
@@ -3401,7 +3474,7 @@ def _advance_programme_turn_locked(memory, programme_id, *, root, turn_policy=No
     callback and photo stage using this memory. An interrupted turn stays open;
     a later call resumes its counters rather than granting a fresh allowance.
     """
-    from .work_turns import bind_work_turn, close_work_turn, open_work_turn
+    from .work_turns import bind_work_turn, close_work_turn, discovery_reserve_scope, open_work_turn
     if "max_cycles" in options:
         raise SafetyError("PROGRAMME_TURN_IS_ONE_ROUND")
     at = as_of or clock(); timestamp(at)
@@ -3417,7 +3490,7 @@ def _advance_programme_turn_locked(memory, programme_id, *, root, turn_policy=No
                           ready_lanes=ready_lanes, report_ready=report_ready,
                           preserve_open_policy=True, review_ready=review_ready)
     with bind_work_turn(memory, turn["id"], before_model=owner_allows_launch,
-                        before_source=owner_allows_launch):
+                        before_source=owner_allows_launch), discovery_reserve_scope(memory):
         result = _advance_programme_locked(memory, programme_id, root=root, max_cycles=1,
                                             as_of=as_of, clock=clock, **options)
     latest = load_programme(memory, programme_id)
@@ -4147,6 +4220,7 @@ def _closed_model_allowance_continuation(memory, state, record, *, runner, at, r
     from .fit_review import (PRACTICAL_CONTRACT, _facts, _review_base, _current_base, _bound_jobs,
                              _payload as fit_payload)
     from .fit_description import (DESCRIPTION_CONTRACT, FUNCTIONAL_CONTRACT, FUNCTIONAL_RESPONSE_VERSION,
+                                  FUNCTIONAL_REVIEW_REASON,
                                   functional_changed_criteria)
     from .fit_policy import ACTIVE_CRITERION_IDS, FIT_POLICY_ID
     from .functional_types import functional_role_context, effective_functional_definition
@@ -4214,7 +4288,7 @@ def _closed_model_allowance_continuation(memory, state, record, *, runner, at, r
                 requested = (functional_changed_criteria(parent, item) if contract == FUNCTIONAL_CONTRACT
                              else list(ACTIVE_CRITERION_IDS)) or list(ACTIVE_CRITERION_IDS)
                 base = _review_base(state, cid, item, parent, requested,
-                    "functional_type_estimates_v4_review" if contract == FUNCTIONAL_CONTRACT
+                    FUNCTIONAL_REVIEW_REASON if contract == FUNCTIONAL_CONTRACT
                     else "full_practical_description_estimates_v3_review", at, contract_version=contract)
                 if fit_ready(base):
                     return witness("E:fit")
@@ -4934,5 +5008,7 @@ def programme_meter(memory, *, root, as_of=None):
     result = owner_meter(baseline=baseline, state=state, financial_state=financial_state, report_pool=pool,
         programmes=programmes, activity=read_operation_status(root, as_of=at), run_log=run_log, as_of=at,
         project_root=runtime_root(root), recommendation_contract=contract)
+    from .spend_watch import allowance_summary
+    result["allowances"] = _summary_input(lambda: allowance_summary(root, as_of=at), failures, "allowances")
     result["optional_input_failures"] = failures
     return result

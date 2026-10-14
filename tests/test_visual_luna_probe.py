@@ -103,7 +103,7 @@ class VisualLunaProbeTests(unittest.TestCase):
         with patch.object(check, "ROOT", self.root), patch.object(check, "PHOTOS", self.photos), \
              patch.object(check, "RECEIPTS", paths), patch.object(check, "OUTPUT", output), \
              patch.object(check, "ResearchMemory", return_value=Mock(snapshot=Mock(return_value=self.state))), \
-             patch.object(check, "CodexRunner") as runner, patch.object(check, "Jobs") as jobs:
+             patch.object(check, "research_codex_runner") as runner, patch.object(check, "Jobs") as jobs:
             report = check.run_probe()
         runner.assert_not_called(); jobs.assert_not_called()
         self.assertEqual(report["error_code"], "VISUAL_PROBE_DESCRIPTION_MISSING")
@@ -129,7 +129,7 @@ class VisualLunaProbeTests(unittest.TestCase):
             with patch.object(check, "ROOT", self.root), patch.object(check, "PHOTOS", self.photos), \
                  patch.object(check, "RECEIPTS", paths), patch.object(check, "OUTPUT", output), \
                  patch.object(check, "CONFIG", configuration), patch.object(check, "ResearchMemory", return_value=memory), \
-                 patch.object(check, "CodexRunner", return_value=Mock(identity="synthetic-runner")), \
+                 patch.object(check, "research_codex_runner", return_value=Mock(identity="synthetic-runner")), \
                  patch.object(check, "Jobs", return_value=jobs):
                 report = check.run_probe()
             self.assertEqual(report["status"], expected_status)

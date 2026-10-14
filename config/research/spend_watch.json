@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "spend-watch-settings-v1",
+  "money": {
+    "monthly_target_inr": "750",
+    "review_above_inr": "1000",
+    "usd_inr_rate": "100",
+    "rate_note": "US$1 = ₹100 is the owner's planning convention, not a checked exchange rate.",
+    "timezone": "Asia/Kolkata"
+  },
+  "quickcommerce": {
+    "packs": [
+      {"price_inr": "500", "credits": 2500},
+      {"price_inr": "1800", "credits": 10000},
+      {"price_inr": "7500", "credits": 50000}
+    ],
+    "expiry_warning_days": 3,
+    "prices_checked_on": "2026-10-14"
+  },
+  "hosting": {
+    "provider": "Cloudflare",
+    "plan": "Free plan (Workers, R2 storage and Access sign-in)",
+    "budget_alert": "Account-wide US$1 Cloudflare Budget Alert email",
+    "provider_polling": false
+  }
+}

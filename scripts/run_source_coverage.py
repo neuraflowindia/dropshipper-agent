@@ -49,8 +49,7 @@ def main(argv=None, *, memory=None, handlers=None):
         if handlers is None:
             client = None
             if args.execute and args.funded_quickcommerce_fallback:
-                from check_quickcommerce_connection import load_key
-                from product_radar.quickcommerce import QuickCommerceClient
+                from product_radar.quickcommerce import QuickCommerceClient, load_key
                 client = QuickCommerceClient(load_key())
             handlers = installed_source_handlers(memory, quickcommerce_client=client)
         if args.prepare:

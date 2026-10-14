@@ -202,16 +202,17 @@ def _main(argv=None, *, memory=None, runner=None, handlers=None, steps=None, dis
         setup_failures = {}
         if runner is None and args.live_model:
             try:
-                from product_radar.research_ai import CodexRunner
-                runner = CodexRunner(load_json(root / "config/ai/codex_luna.json"), stop_on_interrupt=True)
+                from product_radar.spend_watch_ai import research_codex_runner
+                # Usage windows are flagged only; the money guards keep paid Codex credits unspent.
+                runner = research_codex_runner(load_json(root / "config/ai/codex_luna.json"), root=root,
+                                               stop_on_interrupt=True)
             except (SafetyError, OSError) as error:
                 setup_failures["model"] = str(error) if isinstance(error, SafetyError) else "AI_CONFIGURATION_UNREADABLE"
         if handlers is None:
             client = None
             if args.funded_quickcommerce_fallback:
                 try:
-                    from check_quickcommerce_connection import load_key
-                    from product_radar.quickcommerce import QuickCommerceClient
+                    from product_radar.quickcommerce import QuickCommerceClient, load_key
                     client = QuickCommerceClient(load_key())
                 except (SafetyError, OSError) as error:
                     setup_failures["funded_quickcommerce"] = str(error) if isinstance(error, SafetyError) else "QUICKCOMMERCE_KEY_UNREADABLE"

@@ -8,6 +8,7 @@ leads for the existing company-page/F review, never a market vote.
 from copy import deepcopy
 from datetime import timedelta
 from hashlib import sha256
+import os
 from pathlib import Path
 import stat
 
@@ -19,20 +20,29 @@ from .supplier_effort import RETIRED_SUPPLIER_ROUTES
 from .supplier_route_acquisition import (MAX_RECORD_BYTES, MAX_RESULTS, PARSER_VERSION, SEARCH_ROUTES,
     VERSION, _actual, _product, _query, fetch_supplier_native_page, parse_supplier_route_receipt,
     supplier_route_url, replay_supplier_search, _supplier_native_output_receipt, _deadline_page_receipt)
+from .source_coverage import SIGNED_IN_TRANSPORT, SUPPLIER_FIRST_TRANSPORT as FIRST_TRANSPORT
 from .source_deadline import SourceActionDeadline, source_phase
 
 BRIDGE = "verified-supplier-search-response-v1"
 CAPTURE_CONTRACT = "supplier-single-search-v1"
 APPLICATION_KIND = "supplier-search-application-v1"
 LEGACY_CONTRACT = "supplier-legacy-transport-v1"
+# Each route's own first read is ``FIRST_TRANSPORT`` (owner decisions D6 and
+# D11); other routes read plainly first and use the browser only after
+# ``_fallback`` proof. Any other saved transport is history: it may finish
+# from its saved files but never sends a new read, and its queued question is
+# closed (or superseded when asked again on the route's own first read).
+_BROWSER_TRANSPORTS = {"public-browser", SIGNED_IN_TRANSPORT}
+NOT_STARTED = "not-started.json"
 
 
 def prepare_supplier_request(context):
     route, request = context["route"], context["request"]
     if route not in SEARCH_ROUTES or not isinstance(request, dict):
         raise SafetyError("SUPPLIER_SHARED_REQUEST_INVALID")
-    query = _query(request.get("query")); transport = request.get("transport", "public-http")
-    if transport not in {"public-http", "public-browser"}:
+    query = _query(request.get("query")); transport = request.get("transport", FIRST_TRANSPORT.get(route, "public-http"))
+    if (transport not in {"public-http", "public-browser", SIGNED_IN_TRANSPORT}
+            or transport == SIGNED_IN_TRANSPORT and route != "indiamart"):
         raise SafetyError("SUPPLIER_SHARED_TRANSPORT_INVALID")
     wanted = {"query": query, "country": "IN", "url": supplier_route_url(route, query),
               "transport": transport, "limit": MAX_RESULTS}
@@ -46,13 +56,11 @@ def _fallback(state, route, request):
 
     That is a readable page with an unrecognised layout - still unrecognised
     by the current parser, so a page later understood as an access wall never
-    authorises a browser read - or, for Google Maps only, under the owner's
-    recorded Maps browser permission, Maps' complete script-only application
-    shell (HTTP 200 HTML with no readable text) served at exactly the
-    requested address, without any redirect. A parser exception, access
-    refusal or challenge, redirect, absent or partial body and uncertain
-    original do not authorise another request. Browser is a separately frozen
-    question with the same bounded, no-click read.
+    authorises a browser read. A parser exception, access refusal or
+    challenge, absent or partial body and uncertain original do not authorise
+    another request. Browser is a separately frozen question with the same
+    bounded, no-click read. Google Maps and IndiaMART need no such proof: their
+    first read is already a browser read (``FIRST_TRANSPORT``).
     """
     from .source_acquisitions import _owners, _response
     from .source_coverage import source_response_closed
@@ -65,21 +73,13 @@ def _fallback(state, route, request):
             and response["coverage"]["body_complete"] and not response["coverage"]["byte_truncated"]
             and source_response_closed(response)):
         return None
-    unreadable_layout = (response["source_state"] == "insufficient"
-                         and response.get("parse_reason") == "SUPPLIER_ROUTE_LAYOUT_UNRECOGNISED")
-    maps_application_shell = (route == "google-maps" and response["source_state"] == "failed"
-                              and response.get("parse_reason") == "PUBLIC_TEXT_UNAVAILABLE")
-    if not (unreadable_layout or maps_application_shell):
+    if response["source_state"] != "insufficient" or response.get("parse_reason") != "SUPPLIER_ROUTE_LAYOUT_UNRECOGNISED":
         return None
     receipt = _saved_http_receipt(owner, response)
     if receipt is None:
         return None
-    if unreadable_layout:
-        current = parse_supplier_route_receipt(route, http["query"], _item(aid, http), receipt)
-        if current["reason"] != "SUPPLIER_ROUTE_LAYOUT_UNRECOGNISED":
-            return None
-    # A redirected read answered a different address than the one asked.
-    elif not (receipt.get("requested_url") == http["url"] and receipt.get("final_url") == http["url"]):
+    current = parse_supplier_route_receipt(route, http["query"], _item(aid, http), receipt)
+    if current["reason"] != "SUPPLIER_ROUTE_LAYOUT_UNRECOGNISED":
         return None
     return {"acquisition_id": aid, "response_id": owner["active_response_id"], "response_hash": digest(response)}
 
@@ -102,10 +102,16 @@ def _saved_http_receipt(owner, response):
 
 
 def supplier_request_for_state(state, route, query):
-    """The next public request a planner may ask; never one for a retired route."""
+    """The next request a planner may ask; never one for a retired route.
+
+    IndiaMART and Google Maps start in their own browser read; the others
+    read plainly, then in the browser only after proof (``_fallback``).
+    """
     if route in RETIRED_SUPPLIER_ROUTES:
         raise SafetyError("SUPPLIER_ROUTE_RETIRED")
     request = prepare_supplier_request({"route": route, "request": {"query": query, "country": "IN"}})
+    if request["transport"] != "public-http":
+        return request
     # A genuinely retained old browser result is not another browser launch.
     from .source_acquisitions import _owners, _response
     browser = dict(request, transport="public-browser")
@@ -117,16 +123,131 @@ def supplier_request_for_state(state, route, query):
     return dict(request, transport="public-browser") if _fallback(state, route, request) else request
 
 
+def _collectable(state, owner):
+    """A reserved owner that has never been sent, or whose every earlier start
+    proved it never navigated (``_reopen_not_started``)."""
+    from .source_acquisitions import _stage
+    if owner["state"] != "reserved":
+        return False
+    kinds = [_stage(state, owner, stage_id)["stage_type"] for stage_id in owner["stage_ids"]]
+    return not kinds or kinds[-1] == "prelaunch_zero" and set(kinds) <= {"dispatch_intent", "prelaunch_zero"}
+
+
+def _note_not_started(folder, error):
+    """Keep why and when a signed-in read did not start until its owner is reopened."""
+    atomic_json(folder / NOT_STARTED, {"reason": str(error), "started_at": error.started_at,
+                                       "finished_at": error.finished_at})
+
+
+def _reopen_not_started(memory, acquisition_id, folder, as_of):
+    """Return a signed-in acquisition to "reserved" after a start that never navigated.
+
+    ``recover_source_prelaunch`` reopens only the same acquisition, and only
+    from a hash-bound "owned-source-process-exit-v1" proof. Here the owned
+    process is this research process (``os.getpid()``): the read adapter runs
+    inside it and had returned (``owned_process_exited`` refers to that
+    finished attempt, including any PowerShell child it ran), and the signed-in
+    browser proved no page was requested. The attempt's native files are moved
+    beside the acquisition first, so the next read starts in a fresh folder.
+    The note written by ``_note_not_started`` is removed only on success, so a
+    failed reopening is retried by the next resolution.
+    """
+    from .source_acquisitions import _record, _stage, recover_source_prelaunch
+    note_path = safe_path(folder / NOT_STARTED)
+    note = load_json(note_path, 16384)
+    if (not isinstance(note, dict) or set(note) != {"reason", "started_at", "finished_at"}
+            or not isinstance(note["reason"], str)):
+        raise SafetyError("SIGNED_IN_NOT_STARTED_NOTE_INVALID")
+    timestamp(note["started_at"]); timestamp(note["finished_at"])
+    state = memory.snapshot(); owner = _record(state, acquisition_id); binding = owner["binding"]
+    if owner["state"] == "dispatching":
+        intent_id = owner.get("active_dispatch_intent_id")
+        intent = _stage(state, owner, intent_id)
+        sequence = str(intent["intent_sequence"])
+        native = safe_path(folder / "native")
+        if native.exists():
+            native.rename(folder / ("native-not-started-" + sequence + "-" + note["finished_at"].replace(":", "")))
+        target = safe_path(folder / ("not-started-" + sequence))
+        proof = {"contract": "owned-source-process-exit-v1", "acquisition_id": acquisition_id,
+                 "attempt_id": binding["original_attempt_id"], "physical_request_fingerprint": binding["physical_request_fingerprint"],
+                 "owned_process_exited": True, "request_sent": False, "process_id": os.getpid(),
+                 "dispatch_intent_id": intent_id, "intent_sequence": intent["intent_sequence"],
+                 "ownership_token_hash": intent["process_ownership_token_hash"],
+                 "started_at": note["started_at"], "exited_at": note["finished_at"], "reason": note["reason"]}
+        atomic_json(target / "process-exit.json", proof)
+        receipt = {"route": binding["route"], "request": binding["request"], "acquisition_id": acquisition_id,
+                   "attempt_id": binding["original_attempt_id"], "dispatch_started": False, "observed_at": note["finished_at"],
+                   "state": "failed", "reason": note["reason"],
+                   "artifacts": {"process-exit.json": sha256((target / "process-exit.json").read_bytes()).hexdigest()}}
+        atomic_json(target / "receipt.json", receipt)
+        recover_source_prelaunch(memory, acquisition_id, receipt_path=target / "receipt.json",
+                                 as_of=max(as_of, note["finished_at"], key=timestamp))
+    elif owner["state"] != "reserved":
+        raise SafetyError("SIGNED_IN_NOT_STARTED_OWNER_CHANGED")
+    note_path.unlink()
+
+
+def _uncount(root, site, counted):
+    """Give back a counted signed-in read that never navigated; a busy record
+    keeps it counted (pacing only errs on the side of fewer reads)."""
+    if counted is None:
+        return
+    from .signed_in_pacing import release_signed_in_read
+    try:
+        release_signed_in_read(root, site, counted)
+    except SafetyError as error:
+        if str(error) != "SIGNED_IN_RECORD_BUSY":
+            raise
+
+
+def _held(acquisition_id, hold):
+    if hold["reason"] == "SUPPLIER_ROUTE_TRANSPORT_REPLACED":
+        return {"action": "not_connected", "acquisition_id": acquisition_id, "reason": hold["reason"]}
+    return {"action": "wait", "acquisition_id": acquisition_id, **hold}
+
+
+def replaced_supplier_request(route, request):
+    """A queued read on a transport this route no longer starts with."""
+    first = FIRST_TRANSPORT.get(route, "public-http")
+    transport = request["transport"]
+    return transport != first and not (transport == "public-browser" and first == "public-http")
+
+
 def _item(acquisition_id, request):
     transport = "http" if request["transport"] == "public-http" else "browser"
     return {"id": key("supplier-route-request", [acquisition_id, transport]), "url": request["url"]}
 
 
+def _launch_hold(state, route, request, *, as_of, signed_in_root):
+    """Why a new read of this request may not start now, or None.
+
+    A replaced transport is saved history only; a plain-first route's browser
+    read needs ``_fallback`` proof; a signed-in read waits calmly for the
+    owner's sign-in, a closed sign-in window, the desktop and pacing.
+    """
+    first = FIRST_TRANSPORT.get(route, "public-http")
+    transport = request["transport"]
+    if replaced_supplier_request(route, request):
+        return {"reason": "SUPPLIER_ROUTE_TRANSPORT_REPLACED", "next_retry_at": None}
+    if transport == "public-browser" and first == "public-http" and not _fallback(state, route, request):
+        return {"reason": "SUPPLIER_BROWSER_FALLBACK_PROOF_REQUIRED", "next_retry_at": None}
+    if transport == SIGNED_IN_TRANSPORT:
+        from .indiamart_signed_in import signed_in_hold
+        return signed_in_hold(signed_in_root, as_of=as_of)
+    return None
+
+
 def _native_original(folder, request, acquisition_id):
     """Read a late original closed child, never start native browser recovery."""
-    if request["transport"] != "public-browser": raise SafetyError("SOURCE_ORIGINAL_RECEIPT_PENDING")
+    if request["transport"] not in _BROWSER_TRANSPORTS: raise SafetyError("SOURCE_ORIGINAL_RECEIPT_PENDING")
     folder = safe_path(folder); native = safe_path(folder / "native")
     paths = [folder / "intent.json", native / "native_result.json", native / "native_dispatch.json"]
+    if request["transport"] == SIGNED_IN_TRANSPORT and paths[1].is_file():
+        # A signed-in result left by an interrupted read may still hold the
+        # account's details: cleaned before it is read; one that cannot be
+        # cleaned is quarantined and never read (the original stays pending).
+        from .indiamart_redaction import protect_saved
+        protect_saved(paths[1])
     if not all(path.is_file() for path in paths): raise SafetyError("SOURCE_ORIGINAL_RECEIPT_PENDING")
     from .source_acquisitions import _file
     originals = []
@@ -147,6 +268,9 @@ def _native_original(folder, request, acquisition_id):
             or timestamp(output.get("navigation_started_at")) > timestamp(output.get("completed_at"))):
         raise SafetyError("SUPPLIER_SHARED_NATIVE_ORIGINAL_INVALID")
     receipt = _supplier_native_output_receipt(_item(acquisition_id, request), native, output, None)
+    if request["transport"] == SIGNED_IN_TRANSPORT:
+        from .indiamart_signed_in import PROFILE
+        receipt["profile"] = PROFILE
     if receipt["checked_at"] != output["completed_at"]: raise SafetyError("SUPPLIER_SHARED_NATIVE_ORIGINAL_INVALID")
     page = folder / "page.json"
     if page.is_file(): retained(page, MAX_RECORD_BYTES)
@@ -185,7 +309,7 @@ def _load_leaf(folder, route, request, acquisition_id):
         else:
             original = load_json(page_path, MAX_RECORD_BYTES)
             if (isinstance(original, dict) and isinstance(original.get("receipt"), dict)
-                    and original["receipt"].get("outer_deadline") is True and request["transport"] == "public-browser"):
+                    and original["receipt"].get("outer_deadline") is True and request["transport"] in _BROWSER_TRANSPORTS):
                 try: original = _native_original(folder, request, acquisition_id)
                 except SafetyError as error:
                     if str(error) != "SOURCE_ORIGINAL_RECEIPT_PENDING": raise
@@ -710,8 +834,11 @@ def _unchanged_pending_caller(memory, context, receipt):
         and _applied_supplier_targets(state, task_id, task, value, as_of=context["as_of"]))
 
 
-def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reader=None):
+def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reader=None, signed_in_root=None):
+    """``signed_in_root`` holds the signed-in browser's records (the project by default)."""
     from .public_pages import fetch_public_page
+    from .signed_in_browser import PROJECT_ROOT
+    signed_in_root = PROJECT_ROOT if signed_in_root is None else signed_in_root
     from .source_acquisitions import _owners, _record, _response, _install_legacy_origin, claim_source_acquisition
     from .source_coverage import (guard_shared_source_launch, marketplace_access_admission, acquisition_access_scope,
                                   source_access_wait, _record_marketplace_access, source_response_closed)
@@ -722,12 +849,19 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
 
         def collect(context, *, reconcile=False, route=route, prepare=prepare):
             request = prepare(context); aid = identifier(context["acquisition_id"]); folder = safe_path(root / aid)
+            signed_in = request["transport"] == SIGNED_IN_TRANSPORT
+            counted = None
             if not reconcile:
-                expected = _fallback(memory.snapshot(), route, request) if request["transport"] == "public-browser" else None
-                if request["transport"] == "public-browser" and expected is None:
-                    raise SafetyError("SUPPLIER_BROWSER_FALLBACK_PROOF_REQUIRED")
+                hold = _launch_hold(memory.snapshot(), route, request, as_of=context["as_of"], signed_in_root=signed_in_root)
+                if hold and signed_in:
+                    from .indiamart_signed_in import SignedInWait
+                    raise SignedInWait(hold["reason"], next_retry_at=hold["next_retry_at"])
+                if hold:
+                    raise SafetyError(hold["reason"])
+                proved = request["transport"] == "public-browser" and FIRST_TRANSPORT.get(route, "public-http") == "public-http"
+                expected = _fallback(memory.snapshot(), route, request) if proved else None
                 def fallback_current(state):
-                    if request["transport"] == "public-browser" and _fallback(state, route, request) != expected:
+                    if proved and _fallback(state, route, request) != expected:
                         raise SafetyError("SUPPLIER_BROWSER_FALLBACK_PROOF_CHANGED")
                     # A concurrently active old composite caller cannot be
                     # ignored just because this new owner was reserved first.
@@ -750,7 +884,20 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
                             _legacy_task(rid, task, route, request)
                             if task["acquisition_id"] not in owned_origins:
                                 raise SafetyError("SUPPLIER_LEGACY_ORIGINAL_NEEDS_RECONCILIATION")
-                guard_shared_source_launch(memory, context, request, validate=fallback_current)
+                if signed_in:
+                    # Counted before the launch guard: no second read can slip in
+                    # between the hold above and this read starting.
+                    from .indiamart_signed_in import SignedInWait
+                    from .signed_in_pacing import reserve_signed_in_read
+                    try:
+                        counted = reserve_signed_in_read(signed_in_root, route)
+                    except SafetyError as error:
+                        raise SignedInWait(str(error)) from None
+                try:
+                    guard_shared_source_launch(memory, context, request, validate=fallback_current)
+                except BaseException:
+                    _uncount(signed_in_root, route, counted)
+                    raise
             page_path = folder / "page.json"
             if not page_path.is_file() and not reconcile:
                 intent = {"contract": CAPTURE_CONTRACT, "acquisition_id": aid, "request": request}
@@ -765,11 +912,26 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
                         if request["transport"] == "public-http":
                             value = (http_reader(item, on_dispatch=context.get("record_dispatch"), retain_transport=True)
                                      if http_reader is fetch_public_page else http_reader(item))
+                        elif signed_in:
+                            from .indiamart_signed_in import SignedInWait, fetch_indiamart_signed_in_page
+                            try:
+                                value = fetch_indiamart_signed_in_page(item, folder=folder / "native", root=signed_in_root)
+                            except SignedInWait as error:
+                                _uncount(signed_in_root, route, counted)
+                                try:
+                                    _note_not_started(folder, error)
+                                    _reopen_not_started(memory, aid, folder, context["as_of"])
+                                except (SafetyError, OSError):
+                                    # Retried by the next resolution, still without a read.
+                                    raise SignedInWait("SIGNED_IN_START_RECOVERY_PENDING") from None
+                                raise
                         else:
                             value = (browser_reader(item) if browser_reader is not None else
                                 fetch_supplier_native_page(item, route=route, folder=folder / "native"))
                 except SourceActionDeadline as error:
                     value = _deadline_page_receipt(item, error)
+                    if value.get("execution_stage") == "not_dispatched":
+                        _uncount(signed_in_root, route, counted)
                     atomic_json(page_path, {**intent, "receipt": value, "hash": digest(value)})
                     raise
                 if context.get("record_dispatch") and _actual([value], str(page_path)) is True:
@@ -795,6 +957,9 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
         def resolve(context, route=route, prepare=prepare, collect=collect):
             request = prepare(context); state = memory.snapshot()
             owners = _owners(state, physical_request_fingerprint(route, request))
+            if replaced_supplier_request(route, request) and not any(row.get("active_response_id") for _, row in owners):
+                # Never sent and never to be sent: the old queued question is closed.
+                return {"action": "not_connected", "reason": "SUPPLIER_ROUTE_TRANSPORT_REPLACED"}
             # Even an installed uncertain legacy owner can later receive its
             # original file. Saved-only adoption does not start any transport.
             if not owners or not owners[-1][1].get("active_response_id"):
@@ -807,9 +972,17 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
                 refresh_due_at=context.get("refresh_due_at"), refresh_reason=context.get("refresh_reason"))
             aid = claim["acquisition_id"]; owner = _record(memory.snapshot(), aid); scope = acquisition_access_scope(owner)
             if claim["action"] == "refresh_due": return {"action": "wait", "acquisition_id": aid, "reason": "SUPPLIER_SEARCH_REFRESH_DUE"}
-            if owner["state"] == "reserved" and not owner["stage_ids"]:
-                if request["transport"] == "public-browser" and not _fallback(memory.snapshot(), route, request):
-                    return {"action": "wait", "acquisition_id": aid, "reason": "SUPPLIER_BROWSER_FALLBACK_PROOF_REQUIRED"}
+            if owner["state"] == "dispatching" and (root / aid / NOT_STARTED).is_file():
+                # A signed-in start that never navigated, not yet reopened.
+                try:
+                    _reopen_not_started(memory, aid, safe_path(root / aid), context["as_of"])
+                except (SafetyError, OSError):
+                    return {"action": "wait", "acquisition_id": aid, "reason": "SIGNED_IN_START_RECOVERY_PENDING"}
+                owner = _record(memory.snapshot(), aid)
+            if _collectable(memory.snapshot(), owner):
+                hold = _launch_hold(memory.snapshot(), route, request, as_of=context["as_of"], signed_in_root=signed_in_root)
+                if hold:
+                    return _held(aid, hold)
                 return {"action": "collect", "acquisition_id": aid, "request": request, "access_scope": scope}
             try:
                 receipt = collect(dict(context, acquisition_id=aid, request=request, record_dispatch=None), reconcile=True)
@@ -818,6 +991,9 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
                 return {"action": "wait", "acquisition_id": aid, "reason": "SUPPLIER_ORIGINAL_SEARCH_PENDING"}
             wait = source_access_wait(memory.snapshot(), scope, as_of=context["as_of"])
             if not context.get("reconciling") and wait and wait["phase"] == "due" and wait["acquisition_id"] == aid:
+                hold = _launch_hold(memory.snapshot(), route, request, as_of=context["as_of"], signed_in_root=signed_in_root)
+                if hold:
+                    return _held(aid, hold)
                 recovery = {name: wait[name] for name in ("failure_id", "failure_hash", "response_id", "response_hash", "next_retry_at")}
                 renewed = claim_source_acquisition(memory, route, request, owner_id=context["task_id"], as_of=context["as_of"],
                     artifact_roots=[root], collection_channel="direct_local", incremental_collection_fee="known_zero", access_recovery=recovery)
@@ -842,7 +1018,7 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
             if response and not response["complete"] and (caller.get("supplier_original_pending")
                     or caller.get("progress", {}).get("supplier_original_pending")):
                 local = False  # Already applied partial bytes are not new work.
-            if owner and not local and request["transport"] == "public-browser":
+            if owner and not local and request["transport"] in _BROWSER_TRANSPORTS:
                 try:
                     candidate = _native_original(root / aid, request, aid)
                     parsed_candidate = parse_supplier_route_receipt(route, request["query"], _item(aid, request), candidate["receipt"])
@@ -850,12 +1026,12 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
                         and timestamp(candidate["receipt"]["checked_at"]) <= timestamp(context["as_of"]))
                 except SafetyError as error:
                     if str(error) not in {"SOURCE_ORIGINAL_RECEIPT_PENDING", "JSON_RESPONSE_INVALID", "SAVED_FILE_UNAVAILABLE"}: raise
-            ready = owner is None or owner["state"] == "reserved" and not owner["stage_ids"]
-            if request["transport"] == "public-browser" and not _fallback(state, route, request): ready = False
+            ready = owner is None or _collectable(state, owner)
             if wait: ready = wait["phase"] == "due" and (ready or wait["acquisition_id"] == aid)
-            return {"ready": bool(ready or local), "local_saved": local,
-                "next_retry_at": wait["next_retry_at"] if wait and wait["phase"] == "waiting" else None,
-                "reason": wait["reason"] if wait else None,
+            hold = _launch_hold(state, route, request, as_of=context["as_of"], signed_in_root=signed_in_root) if ready else None
+            return {"ready": bool(ready and not hold or local), "local_saved": local,
+                "next_retry_at": wait["next_retry_at"] if wait and wait["phase"] == "waiting" else hold["next_retry_at"] if hold else None,
+                "reason": hold["reason"] if hold else wait["reason"] if wait else None,
                 "signal": {"acquisition_id": aid, "state": owner["state"] if owner else None,
                            "response_id": owner.get("active_response_id") if owner else None,
                            "complete": response["complete"] if response else False,
@@ -894,10 +1070,11 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
             # original is not re-applied). Nothing can plan or send a new read.
             def retired_resolve(context, resolve=resolve):
                 if context.get("reconciling") is not True:
-                    return {"action": "wait", "reason": "SUPPLIER_ROUTE_RETIRED"}
+                    return {"action": "not_connected", "reason": "SUPPLIER_ROUTE_RETIRED"}
                 resolution = resolve(context)
                 if resolution["action"] == "collect":
-                    return {"action": "wait", "acquisition_id": resolution["acquisition_id"],
+                    # Nothing was ever sent: the question is closed, not left waiting.
+                    return {"action": "not_connected", "acquisition_id": resolution["acquisition_id"],
                             "reason": "SUPPLIER_ROUTE_RETIRED"}
                 return resolution
             handlers[route] = {"reconcile": handlers[route]["reconcile"], "resolve_source": retired_resolve}

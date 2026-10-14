@@ -33,7 +33,11 @@ VERSION = "supplier-public-routes-v1"
 # challenges, not an unreadable layout; a rendered Maps search URL rewritten to
 # /maps/search/<query>/@... is matched on its decoded query segment. Earlier
 # versions replay unchanged.
-PARSER_VERSION = 5
+# Version 6: IndiaMART result cards give the listing link, product title,
+# supplier name and page, location and the price/minimum-order text as shown
+# (``indiamart_results``), and IndiaMART's sign-in wall seen in the owner's
+# signed-in profile means that sign-in expired (``OWNER_SIGN_IN_REQUIRED``).
+PARSER_VERSION = 6
 # Every supplier search route whose saved original reads can still be replayed.
 SEARCH_ROUTES = ("google-suppliers", "google-maps", "indiamart", "tradeindia")
 # The searches the programme may prepare and send. A retired route
@@ -54,7 +58,7 @@ _GOOGLE_SITE_HOSTS = {"google.com", "www.google.com", "google.co.in", "www.googl
 _GOOGLE_CONSENT_HOSTS = {"consent.google.com", "consent.google.co.in"}
 _GOOGLE_SIGN_IN_HOSTS = {"accounts.google.com", "accounts.google.co.in"}
 _GOOGLE_GATE_TEXT = "having trouble accessing google search"
-_NEXT_DATA = re.compile(r"<script\b[^>]*\bid=[\"']__NEXT_DATA__[\"'][^>]*>(.*?)</script>", re.I | re.S)
+NEXT_DATA = re.compile(r"<script\b[^>]*\bid=[\"']__NEXT_DATA__[\"'][^>]*>(.*?)</script>", re.I | re.S)
 _ROBOTS_NOINDEX = re.compile(r"<meta\b[^>]*\bname=[\"']robots[\"'][^>]*\bcontent=[\"'][^\"']*\bnoindex\b", re.I)
 _INDIAMART_LOGIN_PROMPTS = ("login to connect with suppliers", "get otp")
 _NO_RESULTS = {"google-maps": ("google maps can't find", "no results found"),
@@ -217,7 +221,7 @@ def _google_javascript_gate(receipt):
     return False
 
 
-def _indiamart_login_wall(receipt):
+def indiamart_login_wall(receipt):
     """IndiaMART's sign-in (OTP) wall, served instead of results since October 2026.
 
     Every part is required, so a real results page is never misread: the
@@ -228,7 +232,7 @@ def _indiamart_login_wall(receipt):
     reached only when no real result card was found. Nothing is ever entered.
     """
     html = receipt["html"]
-    data = _NEXT_DATA.search(html)
+    data = NEXT_DATA.search(html)
     if not data or not _ROBOTS_NOINDEX.search(html):
         return False
     try:
@@ -320,9 +324,17 @@ def parse_supplier_route_receipt(route, query, item, receipt, *, _legacy_service
                               and normalise(requested_text) in normalise(unquote(final.path)))
             if not same_query:
                 raise ValueError
+        if route == "indiamart" and parser_version >= 6:
+            from .indiamart_results import FIELDS, result_cards
+            cards = result_cards(receipt["html"], receipt["final_url"], lambda url: _lead_url(route, url), MAX_RESULTS)
+            if cards:
+                return {"state": "complete", "reason": "Actual public result cards nominate pages; supplier relevance is not yet reviewed.", "results": cards}
         parser = _PublicCards(route, receipt["final_url"], parser_version=parser_version)
         parser.feed(receipt["html"])
         parser.close()
+        if route == "indiamart" and parser_version >= 6:
+            # A page without listing cards keeps its supplier page links, in the same row shape.
+            parser.rows = [dict(dict.fromkeys(FIELDS), **row) for row in parser.rows]
         rows, seen = [], set()
         for row in parser.rows:
             if row["url"] not in seen:
@@ -332,11 +344,15 @@ def parse_supplier_route_receipt(route, query, item, receipt, *, _legacy_service
                 break
         if rows:
             return {"state": "complete", "reason": "Actual public result cards nominate pages; supplier relevance is not yet reviewed.", "results": rows}
-        if parser_version >= 5 and route == "indiamart" and _indiamart_login_wall(receipt):
+        if parser_version >= 5 and route == "indiamart" and indiamart_login_wall(receipt):
             # Version 5: IndiaMART refused results to this reader. It is an
             # access challenge for the shared wait, never an unreadable layout
             # that would justify a browser read, and never "no suppliers".
-            return {"state": "blocked", "reason": "SUPPLIER_ROUTE_CHALLENGE", "results": []}
+            # Version 6: in the owner's signed-in profile it means the
+            # sign-in expired; the route waits for the owner to sign in again.
+            signed_in = parser_version >= 6 and receipt.get("profile") == "signed-in"
+            return {"state": "blocked", "reason": "OWNER_SIGN_IN_REQUIRED" if signed_in else "SUPPLIER_ROUTE_CHALLENGE",
+                    "results": []}
         if any(marker in text for marker in _NO_RESULTS[route]):
             return {"state": "complete", "reason": "The readable bounded search explicitly reported no results.", "results": []}
         return {"state": "extraction_pending", "reason": "SUPPLIER_ROUTE_LAYOUT_UNRECOGNISED", "results": []}
@@ -1310,8 +1326,12 @@ def collect_supplier_company_pages(memory, *, concept_ids, acquisition_id=None, 
 
 
 def create_supplier_handlers(memory, *, http_reader=fetch_public_page, browser_reader=None, page_reader=fetch_public_page,
-                             respect_access_waits=False, shared_acquisitions=False):
-    """Bridge the shared source controller; no second paid collection queue."""
+                             respect_access_waits=False, shared_acquisitions=False, signed_in_root=None):
+    """Bridge the shared source controller; no second paid collection queue.
+
+    ``signed_in_root`` holds the signed-in browser's records for IndiaMART
+    (the project by default); only the shared supplier searches use it.
+    """
     if type(respect_access_waits) is not bool or type(shared_acquisitions) is not bool:
         raise SafetyError("SUPPLIER_ROUTE_INPUT_INVALID")
     handlers = {}
@@ -1371,7 +1391,8 @@ def create_supplier_handlers(memory, *, http_reader=fetch_public_page, browser_r
             handlers[route]["recover_terminal"] = handlers[route]["reconcile"]
     if shared_acquisitions:
         from .supplier_search import create_shared_supplier_search_handlers
-        handlers.update(create_shared_supplier_search_handlers(memory, http_reader=http_reader, browser_reader=browser_reader))
+        handlers.update(create_shared_supplier_search_handlers(memory, http_reader=http_reader, browser_reader=browser_reader,
+                                                               signed_in_root=signed_in_root))
         from .company_pages import company_source_hints, company_unstarted_continuation
         due_hint, saved_hint = company_source_hints(memory)
         handlers["company-pages"].update(source_due_hint=due_hint, source_saved_hint=saved_hint,
