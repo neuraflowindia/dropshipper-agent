@@ -1,7 +1,7 @@
 # Plan R10 — sources, crowding check, larger product map and spend watch (14 October 2026)
 
 **Project stage: Development and testing** (no real users; precautions that only protect real users are not planned).
-**Status: planned, waiting for the owner's approval of the whole programme (question A1 at the end). No code in this plan is built yet.**
+**Status: approved by the owner on 14 October 2026 (A1), building wave by wave.** One part is being redesigned with the owner: how products are ranked (a weighted opportunity score instead of the four priority tiers; see "Owner answers" in section 6). W6's selection step and W7's market rules wait for that design; everything else proceeds.
 
 This document replaces the 14 October morning proposal. The owner answered its eleven questions on 14 October; the answers are recorded below as decisions. Facts come from read-only inspection of the code and the live store on 14 October (about 10:40 UTC) and from providers' own pages checked the same day. Estimates are labelled.
 
@@ -10,7 +10,7 @@ This document replaces the 14 October morning proposal. The owner answered its e
 | # | Decision |
 |---|---|
 | D1 | **Dropshipping platforms:** the owner confirmed permission from all four platforms (DeoDap, BaapStore, Dropship India, Dropdash). Use them fully: catalogue, new arrivals, bestseller/trending lists, prices, supplier details. |
-| D2 | **Logins:** the owner will create accounts on Dropship India and Dropdash, and sign in to IndiaMART with the business Google account. The program reads these sites in a browser while signed in. |
+| D2 | **Logins:** the owner signs in once with a separate research Gmail (chosen 14 October; the address is kept out of the public repository) to Google, Trends, IndiaMART and the four platforms. The program reads these sites in a browser while signed in. |
 | D3 | **Apify** is not a paid subscription: the free plan gives USD 5 of usage every month (renews monthly, no card). Use that free monthly allowance automatically for deeper Meta reads. No paid Apify plan. |
 | D4 | **Amazon India and Flipkart are turned around:** they stop being discovery sources and stop being positive market votes. They become a **crowding check** ("how crowded is this product already?"). Low presence is good; crowded products go later in the queue. |
 | D5 | **Google Trends:** the owner reports permission from Google (Google India's Trends team, approved up their chain) to use Trends; Google will not build a special API for us. Read Trends in the program's browser. |
@@ -76,7 +76,7 @@ An independent review (14 October, read-only, extra-high effort) checked this pl
 - **Profile:** Windows folder `%LOCALAPPDATA%\NeuraFlowDropshipper\research-browser-profile` (path resolved through PowerShell, not hard-coded). `native_public_browser.native_snapshot` gains `profile="signed-in"`; all other routes keep the throwaway profile.
 - **Changes the lasting profile needs** (`native_public_browser.py:72-75,123,254`): delete any old `DevToolsActivePort` file before each start; close Chrome with the browser's own close command first and force-kill only as a fallback (protects saved sign-ins); one signed-in Chrome at a time through a lock that also covers the owner's sign-in window.
 - **Visible but out of the way:** Google refuses hidden browsers, so signed-in reads use a real visible window, started minimised **without taking focus** (SW_SHOWMINNOACTIVE) and with `--disable-renderer-backgrounding --disable-backgrounding-occluded-windows --disable-background-timer-throttling` so pages render fully while minimised. No disguise and no fake browser identity. Reads need the owner's Windows session to be signed in (the scheduled task already runs in it); while Windows is locked or signed out, signed-in routes wait with `OWNER_DESKTOP_UNAVAILABLE`.
-- **Sign-in window:** new `scripts/research_sign_in.py open|status`. `open` starts **plain Chrome without the remote-control flag** (Google refuses sign-in in automation-controlled browsers) and with `--disable-sync`, on the same profile, with tabs for Google sign-in, Google Trends, IndiaMART, Dropship India and Dropdash. While it is open, signed-in reads wait with `OWNER_SIGN_IN_WINDOW_OPEN` and never close it. `status` reports each site as signed in / sign-in needed / expired, from the markers seen on the latest reads (no extra visits).
+- **Sign-in window:** new `scripts/research_sign_in.py open|status`. `open` starts **plain Chrome without the remote-control flag** (Google refuses sign-in in automation-controlled browsers) and with `--disable-sync`, on the same profile, with tabs for Google sign-in, Google Trends, IndiaMART, DeoDap, BaapStore, Dropship India and Dropdash (DeoDap and BaapStore are still read through their public feeds; signing in there only helps if signed-in pages show more, such as dropshipper prices). While it is open, signed-in reads wait with `OWNER_SIGN_IN_WINDOW_OPEN` and never close it. `status` reports each site as signed in / sign-in needed / expired, from the markers seen on the latest reads (no extra visits).
 - **Without sign-in:** affected routes wait with `OWNER_SIGN_IN_REQUIRED` (a calm wait, not repeated failures). Everything else keeps running.
 - **Desktop app:** `desktop_research_control.py` gains a `sign-in` action (its allowed actions list, line 18). `DropshipperDesktop.cs` gains a "Sign in to research sites" button, one text line for sign-in needs and the spend lines (W12), and a Windows notification (`NotifyIcon.ShowBalloonTip`) per new need. Text-only additions inside the existing window style, so no mock-up is needed (CLAUDE.md 3.8). Rebuild with `Build-Dropshipper.ps1`, reinstall with `Install-Dropshipper.ps1`, run `Test-Dropshipper.ps1`, restart the tray app.
 - **Security:** the program never stores, reads or prints passwords or cookies; Chrome keeps them encrypted in the profile under the owner's Windows account. The profile is excluded from daily backups and from Git. Access waits use a separate identity (`owner-signed-in`) so old refusals of the hidden browser do not hold the signed-in route. While a signed-in Chrome is being driven, other programs on the computer could in principle reach it through its local control port; the port is random, local-only and closed after each read (see question A3 on which Google account to use).
@@ -171,7 +171,7 @@ An independent review (14 October, read-only, extra-high effort) checked this pl
 | Hosting (Cloudflare) | free plan; existing USD 1 budget email | recorded plan facts; no extra polling |
 | Money in rupees | ₹750/month target, review above ₹1,000 | Apify charges plus quick-commerce packs (pack price recorded by the agent from the owner's purchase message or the detected balance jump at the published price) |
 
-- **Flags:** 50%, 75% and 90% of each allowance, once per crossing per period; at 100% that route pauses cleanly while free work continues. **AI pauses** before a round at 80% of the weekly window (question A4) or 85% of the 5-hour window, and resumes after the reset.
+- **Flags:** 50%, 75% and 90% of each allowance, once per crossing per period; at 100% a money route (Apify, quick-commerce credits) pauses cleanly while free work continues. **AI never pauses for allowance use** (owner, A4): it only flags at 50/75/90/100% of whatever usage windows Codex reports (the owner notes Codex has no 5-hour limit), with a desktop notification. The paid-credits guard (`AI_PAID_CREDITS_USED`) still pauses, because that would be spending money.
 - **Where the owner sees it:** `--meter` gains an "allowances" section read from the saved records (no provider calls); the desktop app shows one line per item with percent used and a Windows notification for each new flag; a dated alert log keeps every flag. Spend-watch records are added to daily backups (`operational_backup_selection.py`).
 - **Tests:** thresholds, rollover, once-only flags, pause and resume, rate-limit reading (both methods), paid-credit guard, desktop fields, secret-safe output. Tests that pin `--ephemeral` (`tests/test_codex_executable.py`, `tests/test_visual_runner.py`, `scripts/check_codex_luna_connection.py:155`) change only if the fallback is needed.
 
@@ -187,7 +187,7 @@ An independent review (14 October, read-only, extra-high effort) checked this pl
 - Update the product contract (§2 Apify and longevity rows, §5 sources and the "fourteen routes" audit line, §6 market sites and crowding, §7 suppliers with dropship platforms and IndiaMART), execution specification, implementation record (R10), cost plan, operator guide, Windows launcher guide, how-it-works, tracker, brief, index and platform research.
 - Fix the known failing tests (`test_supplier_unchanged_original…`, `test_company_reconciliation_readiness…`, `test_quickcommerce_access_controller…uncertain_due_recovery…`, the timing-sensitive deadline test, the two order-dependent `test_suppliers` tests) and update `test_documentation_layout` to accept the owner's `CLAUDE.md`/`AGENTS.md` at the project root.
 - Whole local Python suite and portal suite once at the end (question A1).
-- Commits and pushes (approved). Git author rewrite and force push, then the repository made private (questions A5, A6, in that order).
+- Commits and pushes (approved). Git author rewrite and force push (approved, A5; blocked once by the computer's safety check on 14 October, so it needs the owner's one-time permission click). The repository stays **public** (owner, A6).
 
 ### When the programme is done, and what follows
 
@@ -241,6 +241,18 @@ Already approved: ordinary research; focused tests; commits and pushes; clean st
 | A5 | GitHub author fix: rewriting the one commit also changes every commit made after it (three today) on GitHub (a "force push"). The old commit can still be opened by its exact code until the repository is private. Go ahead? | Yes |
 | A6 | The GitHub repository is **public**: anyone can read the code and documents (including the client price and business rules). Make it private (after A5)? | Yes |
 | A7 | Quick-commerce credits: 44 free credits are left (enough for about 5–15 products). Buy the ₹500 pack (2,500 credits, valid 30 days) when the desktop app says they are low, and again each month if needed? You make the purchase; the agent cannot pay. | Yes, ₹500 pack |
+
+### Owner answers (14 October 2026, afternoon)
+
+| # | Answer |
+|---|---|
+| A1 | **Yes**: the whole programme, including both whole test suites once at the end. |
+| A2 | Crowding rules **yes as written** (High crowding fills an issue only when fewer than ten others are ready; reports show crowding; temporary drop accepted). The proof-of-demand rule is **reopened**: the owner does not want a simple "bestseller list or nothing" rule (bestsellers may already be crowded; plain listings may have no demand) and asked for a weighted score across platforms, bestseller presence and crowding. Design under discussion; W6 selection and W7 wait for it. |
+| A3 | A separate research Gmail (the owner offered two; the chosen one is recorded only in the private handoff). |
+| A4 | **No AI pause.** Flag usage only (see W12). |
+| A5 | **Yes.** |
+| A6 | **No**: the repository stays public. Consequence: personal details (such as Gmail addresses) are never written into committed files. |
+| A7 | Yes, when the credits run low (the owner buys). Everything must behave exactly as it will for the client: full production behaviour, no shortcuts. |
 
 Defaults the agent will use without asking: spend alerts in the desktop app, meter and alert log only (no email); the official Google Trends API application is an optional owner to-do (section 7), not a dependency.
 
