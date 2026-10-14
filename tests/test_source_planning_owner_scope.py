@@ -260,9 +260,9 @@ class SourcePlanningOwnerScopeTests(unittest.TestCase):
                 return {"not_applicable_reason": "Synthetic location outside scope."}
             return {"query": "Synthetic custom question", "country": "IN"}
         prepared = self.prepare(builder)
-        # 13 planned routes, less the pending company page and blinkit.
-        self.assertEqual(prepared["physical_questions"], 11)
-        self.assertEqual(prepared["product_questions"], 22)
+        # Every planned route, less the pending company page and blinkit.
+        self.assertEqual(prepared["physical_questions"], len(coverage.PLANNED_ROUTES) - 2)
+        self.assertEqual(prepared["product_questions"], 2 * (len(coverage.PLANNED_ROUTES) - 2))
         self.assertEqual(len(prepared["pending_preparation"]), 2)
         self.assertEqual({row["route"] for row in prepared["pending_preparation"]}, {"company-pages"})
         self.assertEqual(prepared["source_attempts_created"], 0)
@@ -277,7 +277,7 @@ class SourcePlanningOwnerScopeTests(unittest.TestCase):
                     return {"query": "Synthetic custom question", "country": "IN"}
                 builder._pure_source_planning = marker
                 self.prepare(builder)
-                self.assertEqual(len(visits), 26)
+                self.assertEqual(len(visits), 2 * len(coverage.PLANNED_ROUTES))
                 self.assertNotIn("google-suppliers", {route for _, route in visits})
                 self.assertIsNone(acquisitions._READINESS_OWNERS.get())
 

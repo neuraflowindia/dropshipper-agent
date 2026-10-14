@@ -9,6 +9,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
+from product_radar.crowding import refresh_crowding
 from product_radar.fit_description import FUNCTIONAL_CONTRACT
 from product_radar.fit_policy import FIT_POLICY_ID
 from product_radar.fit_review import prepare_practical_fit_reviews, run_fit_reviews
@@ -106,6 +107,9 @@ def functional_pool_fixture(root, *, count=1, at=NOW, with_market=True, with_ima
     results = run_fit_reviews(memory, FunctionalFitRunner(), [row["review_id"] for row in reviews])
     if len(ids) != count or any(row["status"] != "accepted" for row in results):
         raise AssertionError((ids, results))
+    # The free crowding check (W6) through its real writer: the fixture's
+    # relevant bestseller listing makes each market type High, never assumed.
+    refresh_crowding(memory, ids, as_of=at, limit=max(1, min(500, len(ids))))
     return memory, ids
 
 

@@ -54,7 +54,7 @@ class NearlyReadyRuleTests(unittest.TestCase):
         self.assertFalse(passing_checklist(state, "c", {"eligible": True}))
 
     def test_crowding_check_has_one_reserved_place_between_review_and_suppliers(self):
-        self.assertEqual(NEARLY_READY_STAGES, ("acquire", "match", "suppliers"))
+        self.assertEqual(NEARLY_READY_STAGES, ("acquire", "match", "crowding", "suppliers"))
         self.assertTrue(set(NEARLY_READY_STAGES) <= set(programme.STAGES))
 
 
@@ -112,8 +112,9 @@ class FinishingWorkTests(unittest.TestCase):
     def state(self, *tasks):
         return {"query_tasks": {"task-" + str(n): row for n, row in enumerate(tasks)}}
 
-    def work(self, state, candidates=("a", "b"), questions=()):
-        with patch("product_radar.source_interpretation.functional_source_questions", return_value=list(questions)) as asked:
+    def work(self, state, candidates=("a", "b"), questions=(), crowding=()):
+        with patch("product_radar.source_interpretation.functional_source_questions", return_value=list(questions)) as asked, \
+                patch("product_radar.crowding.crowding_due", side_effect=lambda _state, cid, **_: cid in crowding):
             value = finishing_work(state, {"source_run_id": "run"}, list(candidates), as_of=NOW)
         if candidates:
             self.assertEqual(asked.call_args.kwargs["concept_ids"], sorted(candidates))
@@ -125,22 +126,68 @@ class FinishingWorkTests(unittest.TestCase):
     def test_each_stage_needs_its_own_actual_pending_work(self):
         later = (timestamp(NOW) + timedelta(hours=1)).isoformat()
         state = self.state(
-            {"kind": "all_source_task_v1", "run_id": "run", "targets": {"a": "h"}, "status": "acquired"},
-            {"kind": "all_source_task_v1", "run_id": "run", "targets": {"b": "h"}, "status": "failed", "next_retry_at": later},
-            {"kind": "all_source_task_v1", "run_id": "run", "targets": {"c": "h"}, "status": "prepared"},
-            {"kind": "all_source_task_v1", "run_id": "other", "source": "supplier", "targets": {"a": "h"},
+            {"kind": "all_source_task_v1", "run_id": "run", "route": "amazon-search", "targets": {"a": "h"}, "status": "acquired"},
+            {"kind": "all_source_task_v1", "run_id": "run", "route": "flipkart-search", "targets": {"b": "h"},
+             "status": "failed", "next_retry_at": later},
+            # A deleted route's saved question (Movers & Shakers) is history, not work.
+            {"kind": "all_source_task_v1", "run_id": "run", "route": "amazon-movers-and-shakers", "targets": {"b": "h"},
+             "status": "prepared"},
+            {"kind": "all_source_task_v1", "run_id": "run", "route": "meta-ads", "targets": {"c": "h"}, "status": "prepared"},
+            {"kind": "all_source_task_v1", "run_id": "other", "route": "indiamart", "source": "supplier", "targets": {"a": "h"},
              "status": "acquired", "target_results": {"a": {"state": "interpretation_pending"}}},
-            {"kind": "all_source_task_v1", "run_id": "run", "source": "supplier", "targets": {"b": "h"},
+            {"kind": "all_source_task_v1", "run_id": "run", "route": "indiamart", "source": "supplier", "targets": {"b": "h"},
              "status": "acquired", "target_results": {"b": {"state": "completed_relevant"}}},
             {"kind": "other-kind", "targets": {"a": "h"}})
         value = self.work(state, candidates=("a", "b", "c", "d"),
-                          questions=[{"concept_id": "a", "unknown_ids": ["x"]}, {"concept_id": "b", "unknown_ids": []}])
+                          questions=[{"concept_id": "a", "unknown_ids": ["x"]}, {"concept_id": "b", "unknown_ids": []}],
+                          crowding=("b",))
         self.assertEqual(value["acquire"], {"c", "d"})  # Open task; none prepared yet for d.
         self.assertEqual(value["match"], {"a"})
+        self.assertEqual(value["crowding"], {"b"})  # Saved reads its crowding answer has not taken in.
         self.assertEqual(value["suppliers"], {"a"})
-        reconcile = self.state({"kind": "all_source_task_v1", "run_id": "run", "targets": {"a": "h"},
+        reconcile = self.state({"kind": "all_source_task_v1", "run_id": "run", "route": "amazon-search", "targets": {"a": "h"},
                                 "status": "acquired", "reconcile_required": True})
         self.assertEqual(self.work(reconcile, candidates=("a",))["acquire"], {"a"})
+
+    def test_waits_closed_reads_and_replaced_targets_are_not_pending_work(self):
+        from product_radar.research_memory import key
+        later = (timestamp(NOW) + timedelta(minutes=2)).isoformat()
+        earlier = (timestamp(NOW) - timedelta(minutes=2)).isoformat()
+        base = {"kind": "all_source_task_v1", "run_id": "run", "route": "indiamart", "source": "supplier"}
+        old = {"query": "q", "country": "IN", "transport": "supplier-public"}
+        new = {"query": "q", "country": "IN", "transport": "signed-in-browser"}
+        tasks = {
+            # Calm signed-in waits keep their recheck time; a pacing hold its own.
+            "sign-in-wait": dict(base, targets={"a": "h"}, status="prepared", reason="OWNER_SIGN_IN_REQUIRED", next_retry_at=later),
+            "paced": dict(base, targets={"g": "h"}, status="prepared", reason="SIGNED_IN_READ_SPACING", next_retry_at=later),
+            # A replaced read is closed for good; its replacement already acquired.
+            "not-connected": dict(base, targets={"b": "h"}, status="blocked", retryable=False,
+                                  reason="SUPPLIER_ROUTE_TRANSPORT_REPLACED", next_retry_at=None),
+            "replacement-b": dict(base, targets={"b": "h"}, status="acquired"),
+            "final-fail": dict(base, targets={"c": "h"}, status="failed", retryable=False, next_retry_at=None),
+            "ok-c": dict(base, targets={"c": "h"}, status="acquired"),
+            "superseded-d": dict(base, targets={"d": "h"}, status="prepared", next_retry_at=None, request=old,
+                                 superseded_targets={"d": {"task_id": "new-d", "request_hash": "rh"}}),
+            "new-d": dict(base, targets={"d": "h"}, status="acquired", request=new, request_hash="rh"),
+            "used-up": dict(base, targets={"e": "h"}, status="failed", retryable=True, tries=2, next_retry_at=earlier),
+            "not-applicable": dict(base, targets={"f": "h"}, status="not_applicable"),
+            "pending-reading": dict(base, targets={"i": "h"}, status="acquired",
+                                    target_results={"i": {"state": "interpretation_pending"}}),
+            # Real work: a due retry, an open dispatch, a due pacing hold.
+            "due-retry": dict(base, targets={"h": "h"}, status="blocked", retryable=True, next_retry_at=earlier),
+            "dispatching": dict(base, targets={"j": "h"}, status="dispatching", next_retry_at=later),
+            "due-hold": dict(base, targets={"k": "h"}, status="prepared", next_retry_at=earlier),
+            "not-yet": dict(base, targets={"l": "h"}, status="failed", retryable=True, next_retry_at=later),
+            "no-time": dict(base, targets={"m": "h"}, status="failed", retryable=True, next_retry_at=None),
+        }
+        state = {"query_tasks": tasks, "batch_runs": {key("source-run", "run"): {"max_attempts": 2}}}
+        value = self.work(state, candidates=tuple("abcdefghijklm"))
+        self.assertEqual(value["acquire"], {"h", "j", "k"})
+        self.assertEqual(value["suppliers"], {"i"})
+        # A superseded marker that no longer matches its replacement is an integrity fault, not quiet work.
+        tasks["new-d"] = dict(tasks["new-d"], request_hash="other")
+        with self.assertRaisesRegex(SafetyError, "SOURCE_SUPERSEDED_BINDING_INVALID"):
+            self.work(state, candidates=("d",))
 
 
 class NearlyReadyStagePlanTests(unittest.TestCase):
@@ -155,6 +202,10 @@ class NearlyReadyStagePlanTests(unittest.TestCase):
         self.fixture.accept(); self.fixture.complete()
         ensure_query_profiles(self.memory, query_fixtures.Runner(), concept_ids=[self.cid], as_of=NOW)
 
+    def report_pool(self, state):
+        self.pools = getattr(self, "pools", 0) + 1
+        return programme._programme_report_pool(self.memory, self.record, as_of=NOW, state=state, functional_packets=True)
+
     def with_need(self, shortfall):
         return dict(deepcopy(self.record), inventory_release_need={"shortfall": shortfall, "upcoming_issue_ids": []})
 
@@ -164,7 +215,7 @@ class NearlyReadyStagePlanTests(unittest.TestCase):
         with patch.object(self.memory, "snapshot", side_effect=AssertionError("No extra history replay")), \
                 patch("product_radar.nearly_ready.finishing_work", side_effect=work):
             value = programme._programme_stage_plan(state, control, {"programme_turn_sequence": sequence}, at=NOW,
-                inputs=programme._signature(state, control), model_available=True)
+                inputs=programme._signature(state, control), model_available=True, report_pool=lambda: self.report_pool(state))
         self.assertEqual(state, saved)
         return value
 
@@ -173,7 +224,7 @@ class NearlyReadyStagePlanTests(unittest.TestCase):
         for record in (None, self.with_need(7)):
             value = self.plan(record=record)
             self.assertEqual(value["priority_concept_ids"], {stage: [self.cid] for stage in FINISHING})
-            self.assertEqual(value["stage_order"][:3], ["acquire", "match", "suppliers"])
+            self.assertEqual(value["stage_order"][:4], ["acquire", "match", "crowding", "suppliers"])
             self.assertEqual(len(value["stage_order"]), len(programme.STAGES))
             self.assertEqual(value["discovery_position"], "after_prerequisites")
             self.assertEqual(value["discovery_after_stage"], "suppliers")
@@ -182,14 +233,32 @@ class NearlyReadyStagePlanTests(unittest.TestCase):
     def test_only_stages_with_actual_pending_work_are_promoted(self):
         self.passing()
         # The real reader: no source task is prepared yet, no question or capture.
-        value = programme._programme_stage_plan(self.memory.snapshot(), self.record, {"programme_turn_sequence": 5},
-            at=NOW, inputs=programme._signature(self.memory.snapshot(), self.record), model_available=True)
-        self.assertEqual(value["priority_concept_ids"], {"acquire": [self.cid]})
-        self.assertEqual(value["discovery_after_stage"], "acquire")
+        state = self.memory.snapshot()
+        value = programme._programme_stage_plan(state, self.record, {"programme_turn_sequence": 5},
+            at=NOW, inputs=programme._signature(state, self.record), model_available=True,
+            report_pool=lambda: self.report_pool(state))
+        # No saved crowding answer yet: the free check is worked out once, early.
+        self.assertEqual(value["priority_concept_ids"], {"acquire": [self.cid], "crowding": [self.cid]})
+        self.assertEqual(value["discovery_after_stage"], "crowding")
         nothing = lambda state, scope, candidates, *, as_of: {stage: set() for stage in NEARLY_READY_STAGES}
         value = self.plan(work=nothing)
         self.assertEqual(value["priority_concept_ids"], {})
         self.assertEqual(value["discovery_position"], "before")
+
+    def test_planning_reads_its_one_state_inside_one_shared_read_scope(self):
+        from product_radar import read_memo
+        self.passing()
+        scopes = []
+        def work(state, scope, candidates, *, as_of):
+            scopes.append(read_memo._ACTIVE.get())
+            return all_work(state, scope, candidates, as_of=as_of)
+        pools = []
+        real = self.report_pool
+        with patch.object(self, "report_pool", side_effect=lambda state: pools.append(read_memo._ACTIVE.get()) or real(state)):
+            self.plan(work=work)
+        self.assertTrue(scopes and scopes[0] is not None)
+        self.assertIs(pools[0], scopes[0])  # the report pool shares the plan's answers
+        self.assertIsNone(read_memo._ACTIVE.get())
 
     def test_enough_eligible_types_restore_the_normal_order(self):
         self.passing()
@@ -206,7 +275,9 @@ class NearlyReadyStagePlanTests(unittest.TestCase):
 
     def test_failing_checklist_is_not_promoted(self):
         self.passing()
-        with patch("product_radar.research_flow.current_assessment_fit", return_value={"eligible": False}):
+        pool = self.report_pool(self.memory.snapshot())  # the real pool of this state, read before the patch
+        with patch("product_radar.research_flow.current_assessment_fit", return_value={"eligible": False}), \
+                patch.object(self, "report_pool", return_value=pool):
             self.assertEqual(self.plan()["priority_concept_ids"], {})
 
     def test_current_report_stock_is_not_promoted_but_expired_stock_is(self):
@@ -217,6 +288,26 @@ class NearlyReadyStagePlanTests(unittest.TestCase):
             rows = [{"binding": {"concept_id": self.cid, "usable_until": until}}]
             with patch("product_radar.inventory_intake.current_intake_records", return_value=rows):
                 self.assertEqual(self.plan()["priority_concept_ids"], expected, until)
+
+    def test_report_stock_is_judged_against_the_current_report_pool(self):
+        self.passing()
+        pools = []
+        def intake(state, record, *, pool=None):
+            # The intake owner keeps only rows still eligible in the given pool.
+            pools.append(pool)
+            eligible = {row["concept_id"] for row in pool["eligible"]}
+            return [{"binding": {"concept_id": self.cid, "usable_until": None}}] if self.cid in eligible else []
+        with patch("product_radar.inventory_intake.current_intake_records", side_effect=intake):
+            value = self.plan()
+        # Admitted earlier, but now gated again (its crowding check is pending): finished, not skipped.
+        decision = next(row for row in pools[0]["decisions"] if row["concept_id"] == self.cid)
+        self.assertIn("crowding_check_pending", decision["codes"])
+        self.assertEqual(value["priority_concept_ids"], {stage: [self.cid] for stage in FINISHING})
+        self.assertEqual(self.pools, 1)  # built once per plan, from the plan's own state
+        eligible = dict(pools[0], eligible=[{"concept_id": self.cid}])
+        with patch("product_radar.inventory_intake.current_intake_records", side_effect=intake), \
+                patch.object(self, "report_pool", return_value=eligible):
+            self.assertEqual(self.plan()["priority_concept_ids"], {})
 
     def test_unreadable_stock_or_work_is_a_visible_wait(self):
         self.passing()
@@ -243,8 +334,8 @@ class NearlyReadyStagePlanTests(unittest.TestCase):
         record["deferrals"]["lane:acquire"] = {"stage": "lane", "target": "acquire", "binding": lane,
             "reason": "SOURCE_ACCESS_WAIT", "at": NOW, "next_retry_at": (timestamp(NOW) + timedelta(hours=1)).isoformat()}
         value = self.plan(record=record)
-        self.assertEqual(value["priority_concept_ids"], {"match": [self.cid], "suppliers": [self.cid]})
-        self.assertEqual(value["stage_order"][:2], ["match", "suppliers"])
+        self.assertEqual(value["priority_concept_ids"], {"match": [self.cid], "crowding": [self.cid], "suppliers": [self.cid]})
+        self.assertEqual(value["stage_order"][:3], ["match", "crowding", "suppliers"])
 
     def test_enough_supply_and_a_waiting_fit_lane_read_no_checklist(self):
         self.passing()
@@ -276,7 +367,7 @@ class NearlyReadyStagePlanTests(unittest.TestCase):
         with patch("product_radar.nearly_ready.finishing_work", side_effect=all_work):
             value = programme.advance_programme_turn(self.memory, self.record["programme_id"], root=self.root,
                 runner=FakeRunner(), as_of=NOW, handlers={}, steps=steps, discovery_step=discovery)
-        self.assertEqual(order[:4], ["acquire", "match", "suppliers", "discovery"])
+        self.assertEqual(order[:5], ["acquire", "match", "crowding", "suppliers", "discovery"])
         self.assertEqual({stage: seen[stage] for stage in FINISHING}, {stage: [self.cid] for stage in FINISHING})
         self.assertEqual(value["execution_order"]["discovery_after_stage"], "suppliers")
 

@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 import test_programme as fixtures
 from product_radar.models import SafetyError
-from product_radar.programme import (_refresh_owner_backup, _save, _signature, load_programme, run_programme_housekeeping,
-                                    set_programme_service_state)
+from product_radar.programme import (STAGES, _refresh_owner_backup, _save, _signature, load_programme,
+                                    run_programme_housekeeping, set_programme_service_state)
 from product_radar.research_memory import key
 from product_radar.storage import Journal
 from product_radar.work_turns import (bind_work_turn, close_work_turn, open_work_turn,
@@ -49,7 +49,7 @@ class ProgrammeBackupTests(unittest.TestCase):
         def broken(*_args):
             raise RuntimeError("Do not expose private exception body")
         result = self.advance(steps=steps, backup_step=broken)
-        self.assertEqual(len(done), 8)
+        self.assertEqual(len(done), len(STAGES))
         self.assertEqual(result["cycles_this_tick"], 1)
         self.assertEqual(result["owner_summary"]["local_backup"]["reason"], "PROGRAMME_LOCAL_BACKUP_FAILED")
         self.assertNotIn("private", json.dumps(result["owner_summary"]["local_backup"]))

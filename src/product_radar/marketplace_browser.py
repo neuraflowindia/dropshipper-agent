@@ -22,7 +22,7 @@ from .runtime_storage import runtime_path
 from .storage import load_json, safe_path
 
 VERSION = "direct-marketplace-v1"
-ROUTES = ("amazon-bestsellers", "amazon-movers-and-shakers", "amazon-search", "flipkart-search")
+ROUTES = ("amazon-bestsellers", "amazon-search", "flipkart-search")
 DATA_ROOT = runtime_path(Path(__file__).resolve().parents[2], "data/research/direct-marketplace")
 MAX_HTML = 8 * 1024 * 1024
 MAX_JSON = 2 * 1024 * 1024
@@ -37,13 +37,13 @@ def safe_source_retry_after(value):
 
 _BLOCKED = re.compile(r"captcha|robot check|not a robot|verify (?:you are|that you are) human|"
                       r"automated access|enter the characters you see|access denied|too many requests", re.I)
-_LISTS = {"amazon-bestsellers": "bestsellers", "amazon-movers-and-shakers": "movers-and-shakers"}
+_LISTS = {"amazon-bestsellers": "bestsellers"}
 
 SNAPSHOT_JS = r"""() => {
  const text=document.body?.innerText || '';
  const html=document.documentElement.outerHTML;
  const amazon=location.hostname==='www.amazon.in';
- const list=amazon && /\/(?:gp\/(?:bestsellers|movers-and-shakers)|zgbs)\//.test(location.pathname);
+ const list=amazon && /\/(?:gp\/bestsellers|zgbs)\//.test(location.pathname);
  let roots=[];
  if(list) roots=Array.from(document.querySelectorAll('.zg-bdg-text')).map(r=>r.closest('.zg-grid-general-faceout,.zg-item-immersion,#gridItemRoot')).filter(Boolean);
  else if(amazon) roots=Array.from(document.querySelectorAll('.s-result-item[data-asin]')).filter(e=>e.getAttribute('data-asin'));
@@ -73,8 +73,7 @@ SNAPSHOT_JS = r"""() => {
  });
  const heading=Array.from(document.querySelectorAll('h1,.zg-selected,#zg_banner_text')).map(e=>e.innerText.trim()).filter(Boolean).join('\n').slice(0,8000);
  const query=document.querySelector(amazon?'#twotabsearchtextbox':'input[name=q]')?.value || null;
- const empty=(!list && /no results for|did not match any products|sorry, no results found|no products found/i.test(text))
-   || (list && /there are no movers and shakers available in this category/i.test(text));
+ const empty=!list && /no results for|did not match any products|sorry, no results found|no products found/i.test(text);
  return {url:location.href,title:document.title.slice(0,2000),heading,query,
   text:text.slice(0,75000),text_truncated:text.length>75000,card_count:roots.length,cards,empty,
   html:html.length<=8388608?html:null,html_characters:html.length};
@@ -197,7 +196,7 @@ def parse_marketplace_snapshot(snapshot, request, *, navigation_status=200):
     if not _same_scope(snapshot.get("url"), request):
         return result
     heading = str(snapshot.get("heading", "")) + "\n" + str(snapshot.get("title", ""))
-    if list_type != "product_search" and not re.search("best\\s*sell(?:er|ers|ing)" if list_type == "bestsellers" else "movers\\s*(?:&|and)\\s*shakers", heading, re.I):
+    if list_type != "product_search" and not re.search(r"best\s*sell(?:er|ers|ing)", heading, re.I):
         return result
     if list_type == "product_search" and snapshot.get("query") and " ".join(str(snapshot["query"]).split()).casefold() != request["term"].casefold():
         return result
@@ -205,9 +204,7 @@ def parse_marketplace_snapshot(snapshot, request, *, navigation_status=200):
     if type(navigation_status) is not int or navigation_status != 200:
         return dict(result, reason="MARKETPLACE_HTTP_STATUS_UNVERIFIED")
     if not snapshot["cards"]:
-        explicit_empty = (list_type == "product_search" or list_type == "movers-and-shakers"
-                          and re.search(r"there are no movers and shakers available in this category", snapshot.get("text", ""), re.I))
-        if explicit_empty and snapshot.get("empty") is True:
+        if list_type == "product_search" and snapshot.get("empty") is True:
             return dict(result, state="empty", reason="MARKETPLACE_EXPLICIT_NO_RESULTS")
         return dict(result, reason="MARKETPLACE_CARDS_UNRECOGNISED")
     seen, conflicts = {}, set()
@@ -259,7 +256,7 @@ def verified_list_observation(observation):
     """Preserve the old paid contract; verify the additive direct-list marker."""
     facts = observation.get("facts", {})
     if (observation.get("source") != "amazon" or facts.get("limitations")
-            or facts.get("list_type") not in ("bestsellers", "movers-and-shakers")):
+            or facts.get("list_type") != "bestsellers"):
         return False
     if "direct_capture" in facts:
         return (facts.get("scope_verified") is True and type(facts.get("position")) is int

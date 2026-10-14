@@ -64,10 +64,10 @@ class SeedDiscoveryTests(unittest.TestCase):
 
     def handler(self, context):
         self.calls.append(deepcopy({k: v for k, v in context.items() if k != "record_dispatch"}))
-        aid = context["acquisition_id"]; capture_id = key("capture", ["amazon", aid])
+        aid = context["acquisition_id"]; capture_id = key("capture", ["meta", aid])
         raw = {"route": context["route"], "acquisition_id": aid, "state": "empty"}
         path = self.memory.root / "public-fixture" / aid / "receipt.json"; atomic_json(path, raw)
-        self.memory.put("captures", capture_id, {"source": "amazon", "acquisition_id": aid,
+        self.memory.put("captures", capture_id, {"source": "meta", "acquisition_id": aid,
             "observed_at": NOW, "capture_hash": digest(raw), "mapping_status": "empty",
             "reference": {"route": context["route"], "request": context["request"]}},
             previous=self.memory.snapshot()["captures"].get(capture_id))
@@ -77,10 +77,10 @@ class SeedDiscoveryTests(unittest.TestCase):
             "capture_ids": [capture_id], "observation_ids": [], "target_results": [], "reason": "Synthetic completed empty page."}
 
     def step(self, manifest, **options):
-        return create_catalogue_discovery_step(self.base, include_lists=False, seed_manifest=manifest, **options)
+        return create_catalogue_discovery_step(self.base, seed_manifest=manifest, **options)
 
     def call(self, step, runner=None, *, at=NOW):
-        return step(self.memory, self.owner, {"at": at, "runner": runner, "handlers": {"amazon-search": self.handler}, "fit_limit": 10})
+        return step(self.memory, self.owner, {"at": at, "runner": runner, "handlers": {"meta-ads": self.handler}, "fit_limit": 10})
 
     def test_constructor_only_prepares_callback_and_final_manifest_structure_is_accepted(self):
         manifest = self.manifest(self.prepared()); before = self.memory.snapshot()
@@ -174,7 +174,7 @@ class SeedDiscoveryTests(unittest.TestCase):
 
     def test_existing_frozen_discovery_requests_are_not_rewritten_by_admission(self):
         old = prepare_discovery_cycle(self.memory, self.owner["programme_id"], self.base,
-            handlers={"amazon-search": self.handler}, include_lists=False, as_of=NOW)
+            handlers={"meta-ads": self.handler}, as_of=NOW)
         row = self.prepared(); result = self.call(self.step(self.manifest(row)), SeedRunner())
         saved = self.memory.snapshot()["batch_runs"][old["id"]]
         self.assertEqual(saved["planned_actions"], old["planned_actions"])
@@ -267,7 +267,7 @@ class SeedDiscoveryTests(unittest.TestCase):
                 return {"state": "nothing_new"}
             return perform
         result = advance_programme(self.memory, self.owner["programme_id"], root=self.root, runner=runner,
-            handlers={"amazon-search": self.handler}, steps={name: lane(name) for name in STAGES},
+            handlers={"meta-ads": self.handler}, steps={name: lane(name) for name in STAGES},
             discovery_step=step, as_of=NOW, max_cycles=4)
         seed = load_programme(self.memory, self.owner["programme_id"])["last_results"]["discovery"]["seed"]
         self.assertEqual(seed["counts"]["completed_examples"], 2)
@@ -283,7 +283,7 @@ class SeedDiscoveryTests(unittest.TestCase):
         step = self.step(self.manifest(bad, good)); runner = SeedRunner()
         prepare_programme(self.memory, self.owner["programme_id"], source_run_id=self.owner["source_run_id"], as_of=NOW)
         result = advance_programme(self.memory, self.owner["programme_id"], root=self.root, runner=runner,
-            handlers={"amazon-search": self.handler}, steps={name: (lambda *_args: {"state": "nothing_new"}) for name in STAGES},
+            handlers={"meta-ads": self.handler}, steps={name: (lambda *_args: {"state": "nothing_new"}) for name in STAGES},
             discovery_step=step, as_of=NOW, max_cycles=4)
         seed = load_programme(self.memory, self.owner["programme_id"])["last_results"]["discovery"]["seed"]
         self.assertTrue(seed["first_pass_done"])

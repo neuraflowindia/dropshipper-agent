@@ -43,7 +43,7 @@ class ResearchCohortTests(unittest.TestCase):
                                       as_of=NOW, **kwargs)
 
     def collect(self):
-        self.mode["amazon-search"] = "usable"
+        self.mode["meta-ads"] = "usable"
         with patch("product_radar.research_ai.utc_now", return_value=NOW):
             result = self.advance(max_actions=3, runner=FakeRunner(), admission=None)
         self.cid = result["new_concept_ids"][0]
@@ -53,21 +53,22 @@ class ResearchCohortTests(unittest.TestCase):
         return result
 
     def test_prepared_questions_are_not_started_searches(self):
-        prepare_next_discovery_wave(self.memory, "programme", self.catalogue, handlers=self.handlers(), include_lists=False, as_of=NOW)
+        prepare_next_discovery_wave(self.memory, "programme", self.catalogue, handlers=self.handlers(), as_of=NOW)
         rows = discovery_questions(self.memory.snapshot())
-        self.assertEqual(len(rows), 3)
+        self.assertEqual(len(rows), 1)  # One Meta direction; Amazon/Flipkart are not discovery (D4).
         counts = discovery_counts(rows)
-        self.assertEqual(counts["prepared_questions"], 3)
+        self.assertEqual(counts["prepared_questions"], 1)
         self.assertEqual(counts["physical_discovery_reads"], 0)
         self.assertEqual(self.calls, [])
 
     def test_actual_two_callbacks_are_not_zero_and_same_original_counts_once(self):
-        self.advance(max_actions=3)
+        self.catalogue = wave_fixtures.catalogue(2)
+        self.advance(max_actions=3); self.advance(max_actions=3)  # One fresh Meta read per round.
         saved = self.memory.snapshot(); rows = discovery_questions(saved)
         self.assertEqual(len(self.calls), 2)
         counts = discovery_counts(rows + rows)
         self.assertEqual(counts["physical_discovery_reads"], 2)
-        self.assertEqual(counts["prepared_questions"], 3)
+        self.assertEqual(counts["prepared_questions"], 2)
         matrix = catalogue_matrix(self.catalogue, saved)
         self.assertEqual(matrix["totals"]["actual_public_discovery_queries"], 2)
         self.assertFalse(any(row["kind"] == "query_task" and row["id"] in {r["question_id"] for r in rows}
@@ -80,7 +81,7 @@ class ResearchCohortTests(unittest.TestCase):
         self.assertEqual(value["discovery_waves"], 1)
         self.assertEqual(value["discovery_new_distinct_concepts"], 1)
         self.assertEqual(value["discovery_unique_source_items"], 1)
-        self.assertEqual(value["direct_discovery"]["physical_discovery_reads"], 2)
+        self.assertEqual(value["direct_discovery"]["physical_discovery_reads"], 1)
 
     def test_fresh_known_zero_collection_is_separate_from_unknown_AI_invoice(self):
         self.collect(); before = self.memory.snapshot()
@@ -91,14 +92,14 @@ class ResearchCohortTests(unittest.TestCase):
         self.assertEqual(result["never_shown_unreserved_new_types"], 1)
         self.assertEqual(Decimal(result["measured_current_useful_new_yield"]), Decimal(1))
         self.assertEqual(result["costs"]["provider_collection_usd"], "0")
-        self.assertEqual(result["costs"]["known_zero_originals"], 2)
+        self.assertEqual(result["costs"]["known_zero_originals"], 1)
         self.assertGreater(result["model"]["saved_response_receipts"], 0)
         self.assertGreater(result["model"]["recorded_tokens"]["input_tokens"], 0)
         self.assertIsNone(result["model"]["incremental_invoice_usd"])
         self.assertEqual(before, self.memory.snapshot())
 
     def test_unfinished_real_capture_keeps_yield_and_cash_forecast_unknown(self):
-        self.mode["amazon-search"] = "usable"; self.advance(max_actions=3)
+        self.mode["meta-ads"] = "usable"; self.advance(max_actions=3)
         value = self.cohort()
         self.assertEqual(value["state"], "insufficient_sample")
         self.assertIn("COHORT_ASSESSMENT_OR_IDENTITY_UNFINISHED", value["reasons"])
@@ -113,7 +114,7 @@ class ResearchCohortTests(unittest.TestCase):
         second = deepcopy(rows[0]); second["question_id"] = "another-semantic-question"
         second["action"]["reused_acquisition"] = True
         counts = discovery_counts(rows + [second])
-        self.assertEqual(counts["physical_discovery_reads"], 2)
+        self.assertEqual(counts["physical_discovery_reads"], 1)
         self.assertEqual(counts["questions_reusing_original_reads"], 1)
 
     def test_new_uncertain_original_is_not_hidden_by_earlier_answer_to_same_question(self):
@@ -122,7 +123,7 @@ class ResearchCohortTests(unittest.TestCase):
         later = deepcopy(earlier); later["cycle_id"] = "later-renewal-wave"
         later["action"] = {"state": "execution_uncertain", "acquisition_id": "later-original", "dispatch_started": False}
         counts = discovery_counts(rows + [later])
-        self.assertEqual(counts["physical_discovery_reads"], 2)
+        self.assertEqual(counts["physical_discovery_reads"], 1)
         self.assertEqual(counts["uncertain_questions"], 1)
         self.assertEqual(counts["uncertain_originals"], 1)
 
@@ -138,7 +139,7 @@ class ResearchCohortTests(unittest.TestCase):
         self.assertEqual(counts["uncertain_originals"], 1)
 
     def test_uncertain_original_is_not_free_or_a_new_cost_baseline(self):
-        self.mode["amazon-search"] = TimeoutError("Synthetic no confirmed reply")
+        self.mode["meta-ads"] = TimeoutError("Synthetic no confirmed reply")
         self.advance(max_actions=3)
         value = self.cohort()
         self.assertEqual(value["state"], "insufficient_sample")
@@ -147,17 +148,17 @@ class ResearchCohortTests(unittest.TestCase):
 
     def test_owner_reserved_earlier_but_actually_collected_now_is_current_not_saved_reuse(self):
         wave = prepare_next_discovery_wave(self.memory, "programme", self.catalogue,
-            handlers=self.handlers(), include_lists=False, as_of=NOW)
+            handlers=self.handlers(), as_of=NOW)
         question = next(q for action in wave["planned_actions"] for q in action["questions"]
-                        if q["route"] == "amazon-search")
+                        if q["route"] == "meta-ads")
         owner = claim_source_acquisition(self.memory, question["route"], question["request"],
             owner_id=question["id"], as_of="2026-10-08T10:00:00+00:00",
             collection_channel="direct_local", incremental_collection_fee="known_zero",
-            artifact_roots=[str(self.memory.root / "direct_marketplace")])
+            artifact_roots=[str(self.memory.root / "direct_meta")])
         self.collect(); value = self.cohort()
         self.assertEqual(value["state"], "known")
         self.assertEqual(value["unique_source_candidates"], 1)
-        self.assertEqual(value["costs"]["known_zero_originals"], 2)
+        self.assertEqual(value["costs"]["known_zero_originals"], 1)  # The earlier-reserved owner's own read.
         self.assertEqual(value["costs"]["saved_older_originals_reused"], 0)
         self.assertIn(owner["acquisition_id"], {aid for aid, _ in self.calls})
 

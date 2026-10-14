@@ -34,10 +34,12 @@ _FEES = frozenset(("known_zero", "reserved_paid", "unknown"))
 _READINESS_OWNERS = ContextVar("source_readiness_owners", default=None)
 _RESPONSE_NAMES = frozenset(("snapshot.json", "response.json", "raw_response.json", "rendered.html",
                              "response.html", "body.bin"))
-CAPTURE_SOURCES = {"meta-ads": "meta", "amazon-bestsellers": "amazon", "amazon-movers-and-shakers": "amazon",
+CAPTURE_SOURCES = {"meta-ads": "meta", "amazon-bestsellers": "amazon",
     "amazon-search": "amazon", "flipkart-search": "flipkart", "google-trends": "trends",
     "blinkit": "blinkit", "zepto": "zepto", "instamart": "instamart", "google-suppliers": "supplier",
-    "google-maps": "supplier", "indiamart": "supplier", "tradeindia": "supplier", "company-pages": "supplier"}
+    "google-maps": "supplier", "indiamart": "supplier", "tradeindia": "supplier", "company-pages": "supplier",
+    "deodap": "deodap", "baapstore": "baapstore", "dropship-india": "dropship-india", "dropdash": "dropdash",
+    "meta-ads-depth": "meta"}
 
 
 def _text(value, code="SOURCE_ACQUISITION_TEXT_INVALID"):
@@ -63,8 +65,8 @@ def _record(state, acquisition_id):
             or binding.get("acquisition_id") != acquisition_id
             or row.get("state") not in _STATES
             or type(binding.get("generation")) is not int or binding["generation"] < 1
-            or physical_request_fingerprint(binding["route"], binding["request"],
-                 method=binding["method"], capture_options=binding["capture_options"])
+            or physical_request_fingerprint(binding["route"], binding["request"], method=binding["method"],
+                 capture_options=binding["capture_options"], history=True)
                != binding.get("physical_request_fingerprint")):
             raise SafetyError("SOURCE_ACQUISITION_RECORD_INVALID")
         identifier(binding["owner_id"]); identifier(binding["original_attempt_id"])
@@ -108,6 +110,7 @@ def _owners(state, fingerprint):
     scoped = scope is not None and scope["state"] is state
     index = scope["index"] if scoped else None
     if index is None:
+        from .source_coverage import CLOSED_ROUTES  # Lazy: the coverage module imports this one.
         index = {}
         for record_id, value in state["batch_runs"].items():
             if value.get("kind") != ACQUISITION_KIND:
@@ -116,6 +119,8 @@ def _owners(state, fingerprint):
             # A damaged fingerprint cannot hide an original owner. In a pure
             # readiness scope, do this once, not once per queued search.
             verified = _record(state, record_id)
+            if verified["binding"]["route"] in CLOSED_ROUTES:
+                continue  # Closed history: verified, but never an owner to join or reuse.
             index.setdefault(verified["binding"]["physical_request_fingerprint"], []).append((record_id, verified))
         if scoped:
             scope["index"] = index
@@ -619,7 +624,7 @@ def adopt_marketplace_origin(memory, route, request, *, table, record_id, as_of,
     later local receipt verification may resolve it; adoption cannot launch.
     """
     from .marketplace_browser import build_marketplace_request, validate_request
-    if route not in {"amazon-bestsellers", "amazon-movers-and-shakers", "amazon-search", "flipkart-search"}:
+    if route not in {"amazon-bestsellers", "amazon-search", "flipkart-search"}:
         raise SafetyError("SOURCE_MARKETPLACE_ORIGIN_INVALID")
     _date(as_of); identifier(record_id)
     state = memory.snapshot()

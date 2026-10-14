@@ -27,8 +27,54 @@ from product_radar.research_memory import ResearchMemory, change
 from product_radar.storage import Journal
 
 
+def website_validation(facts):
+    """Run the website's own packet validator on the facts; returns its proof or raises."""
+    manifest = {"fit_policy_id": facts["fit_policy_id"], "criterion_ids": facts["criterion_ids"],
+        "kpi_total": 10, "workbook_contract": "fit-checklist-v1", "languages": ["en", "hi-Latn"],
+        "opportunity_policy_id": facts["opportunity_policy_id"]}
+    script = (
+        "import {readFileSync} from 'node:fs'; import {createHash} from 'node:crypto'; "
+        "import {canonical, validateFitPacket} from " + json.dumps((ROOT / "portal/release-admin.mjs").as_uri()) + "; "
+        "const input=JSON.parse(readFileSync(0,'utf8')); validateFitPacket(input.facts,input.manifest); "
+        "const hash=createHash('sha256').update(canonical(input.facts)).digest('hex'); "
+        "if(hash!==input.expected_hash) throw new Error('FACT_HASH_MISMATCH'); "
+        "process.stdout.write(JSON.stringify({hash, products:input.facts.products.length,"
+        "routes:input.facts.products[0].source_route_checks.length}));"
+    )
+    completed = subprocess.run([shutil.which("node"), "--input-type=module", "-e", script],
+        input=canonical({"facts": facts, "manifest": manifest, "expected_hash": digest(facts)}),
+        capture_output=True, timeout=20, check=False)
+    if completed.returncode != 0:
+        raise AssertionError(completed.stderr.decode(errors="replace"))
+    return json.loads(completed.stdout)
+
+
 @unittest.skipUnless(shutil.which("node"), "Website runtime is not installed")
 class PortalSourceContractTests(unittest.TestCase):
+    def test_a_dropshipping_platform_row_with_a_finished_check_passes_the_website_validation(self):
+        from product_radar.platform_matching import MATCH_VERSION
+        from test_report_source_facts import SavedSourceReportTests
+        with tempfile.TemporaryDirectory(prefix="neuraflow-platform-parity-") as directory:
+            memory = ResearchMemory(Path(directory) / "research", Journal(Path(directory) / "finance"), evidence_type="synthetic")
+            memory.commit("synthetic-platform-parity", [change(table, record_id, row)
+                for table, records in source_fixture().state.items() for record_id, row in records.items()])
+            question = {"route": "deodap", "concept_ids": ["c000"], "request": {"catalogue": "deodap", "catalogue_at": OBSERVED,
+                        "terms": ["fixture product"], "match_version": MATCH_VERSION, "country": "IN"}}
+            SavedSourceReportTests.collect(self, memory, [question], state="empty")
+            _, issue, facts = select(memory)
+            result = generate_report_narratives(memory, issue, facts, WritingFixture())
+            self.assertEqual(result["failures"], {})
+            facts = result["dataset"]
+            product = next(row for row in facts["products"] if row["concept_id"] == "c000")
+            row = next(row for row in product["source_route_checks"] if row["route"] == "deodap")
+            self.assertEqual((row["source"], row["source_role"], row["outcome"], row["state"], row["actual_attempt"]),
+                             ("DeoDap", "dropship-platforms", "completed_no_results", "No usable result found", True))
+            self.assertTrue(row["task_ids"] and row["receipt_ids"])
+            # A platform never read says so plainly: the contract's "Not tried" wording.
+            unread = next(row for row in product["source_route_checks"] if row["route"] == "dropdash")
+            self.assertEqual((unread["state"], unread["detail"]), ("Not tried", "No product check is saved for this route."))
+            self.assertEqual(website_validation(facts)["hash"], digest(facts))
+
     def test_real_fact_builder_fractional_chart_and_complete_writing_match_website_hash_and_validation(self):
         initial = source_fixture()
         parsed = parse_trends_csv(
@@ -65,7 +111,11 @@ class PortalSourceContractTests(unittest.TestCase):
                 capture_output=True, timeout=20, check=False)
             self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
             proof = json.loads(completed.stdout)
-            self.assertEqual(proof, {"hash": digest(facts), "products": 10, "routes": 13})
+            from product_radar.report_source_facts import CLIENT_ROUTES
+            self.assertEqual(proof, {"hash": digest(facts), "products": 10, "routes": len(CLIENT_ROUTES)})
+            # Every planned route with the dropshipping platforms; the deeper Meta read folds into the Meta row.
+            self.assertEqual(len(CLIENT_ROUTES), 16)
+            self.assertNotIn("meta-ads-depth", [row["route"] for row in facts["products"][0]["source_route_checks"]])
             chart = next(row for row in facts["products"][0]["source_route_checks"] if row["route"] == "google-trends")
             means = {metric["name"]: metric["value"] for metric in chart["measurements"]}
             self.assertEqual(means["previous_mean_bounds"], ["20.25", "20.25"])

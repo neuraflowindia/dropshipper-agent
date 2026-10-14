@@ -13,22 +13,20 @@ links and catalogue addresses are never rewritten:
   are shown - never inside a link, a file name or a longer number.
 
 The saved text and links are then rebuilt from the cleaned HTML. A saved
-browser result that cannot be read or cleaned is moved, unread, into a
-quarantine folder that is never backed up (``protect_saved``).
+browser result that cannot be read or cleaned is moved, unread, into the
+shared signed-in quarantine that is never backed up (``protect_saved``,
+``signed_in_saved``).
 """
 
-from datetime import datetime, timezone
 from html.parser import HTMLParser
 import json
 import re
 from urllib.parse import urljoin
 
-from .models import SafetyError
-from .storage import atomic_json, safe_path
+from . import signed_in_saved
+from .signed_in_saved import QUARANTINE  # where unreadable results go (shared by every signed-in route)
 
 REDACTED = "redacted"
-QUARANTINE = "signed-in-quarantine"
-MAX_SAVED = 12 * 1024 * 1024
 MAX_TEXT = 24000
 _ACCOUNT_IDS = {"remote-header-shell", "loginstrip", "sign_in", "identifiedpopuphtml", "message-center",
                 "hd_usercity", "hd_usercity_new"}
@@ -220,35 +218,7 @@ def redact_output(output):
     return output
 
 
-def _quarantine(path):
-    folder = safe_path(path.parent.parent / QUARANTINE)
-    target = folder / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "-" + path.parent.name + "-" + path.name + ".unread")
-    try:
-        folder.mkdir(parents=True, exist_ok=True)
-        path.rename(target)
-    except OSError:
-        try:
-            path.unlink()
-        except OSError:
-            raise SafetyError("SIGNED_IN_REDACTION_FAILED") from None
-
-
 def protect_saved(path):
-    """Clean a saved browser result in place; one that cannot be read or cleaned
-    is moved, unread, to the never-backed-up quarantine. Returns what happened."""
-    path = safe_path(path)
-    if not path.exists() and not path.is_symlink():
-        return "absent"
-    try:
-        if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_SAVED:
-            raise ValueError
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-        if not isinstance(value, dict):
-            raise ValueError
-        clean = redact_output(value)
-    except (OSError, ValueError, UnicodeDecodeError, RecursionError):
-        _quarantine(path)
-        return "quarantined"
-    if clean != value:
-        atomic_json(path, clean)
-    return "redacted"
+    """Clean a saved IndiaMART browser result in place (positional redaction);
+    one that cannot be read or cleaned is quarantined unread. Returns what happened."""
+    return signed_in_saved.protect_saved(path, redact_output)

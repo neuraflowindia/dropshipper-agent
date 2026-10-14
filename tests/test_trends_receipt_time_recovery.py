@@ -16,7 +16,7 @@ from product_radar.trends_controller import (
     _wrapper_utc_now, build_trends_request, capture_direct_trends,
     create_trends_handlers, replay_direct_trends,
 )
-from test_trends_controller import original, snapshot
+from test_trends_controller import original, sign_in, snapshot
 
 START = "2026-10-08T14:04:07+00:00"
 DISPATCH = "2026-10-08T14:04:08.0413087Z"
@@ -38,6 +38,7 @@ class TrendsReceiptTimeRecoveryTests(unittest.TestCase):
             "features": ["washable"], "basis": "observed", "brand": "generic_or_small",
             "reason": "Synthetic controller fixture only."}})
         self.request = build_trends_request("chair cover")
+        self.signed_root = self.root / "signed-in"; sign_in(self.signed_root)
 
     def native_capture(self, name="legacy", *, start=START, end=END,
                        dispatch=DISPATCH, observed=OBSERVED, status=429,
@@ -56,7 +57,8 @@ class TrendsReceiptTimeRecoveryTests(unittest.TestCase):
         with patch("product_radar.trends_controller._wrapper_utc_now", side_effect=[start, end]), \
                 patch("product_radar.native_public_browser.native_snapshot", side_effect=native), \
                 patch("product_radar.trends_controller._playwright", side_effect=AssertionError("No browser fallback")):
-            return capture_direct_trends(self.request, name, data_root=self.captures, transport="native")
+            return capture_direct_trends(self.request, name, data_root=self.captures, transport="signed-in",
+                                         signed_in_root=self.signed_root)
 
     def context(self, name="legacy"):
         return {"route": "google-trends", "request": deepcopy(self.request), "acquisition_id": name,
@@ -309,7 +311,9 @@ class TrendsReceiptTimeRecoveryTests(unittest.TestCase):
             return {"schema_version": 1, "route": "meta-ads", "acquisition_id": context["acquisition_id"],
                 "observed_at": LATER, "state": "empty", "dispatch_started": True, "reference": "synthetic-meta-receipt",
                 "capture_ids": [], "observation_ids": [], "target_results": [], "reason": "Readable synthetic empty search."}
-        handlers = dict(create_trends_handlers(self.memory, data_root=self.captures, capture=capture), **{"meta-ads": healthy})
+        signed_root = self.root / "signed-in"; sign_in(signed_root)
+        handlers = dict(create_trends_handlers(self.memory, data_root=self.captures, capture=capture,
+                                               signed_in_root=signed_root), **{"meta-ads": healthy})
         def execute():
             with patch("product_radar.source_coverage.utc_now", return_value=LATER):
                 return execute_source_run(self.memory, "original-run", handlers=handlers, as_of=LATER,

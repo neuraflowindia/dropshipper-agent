@@ -77,7 +77,7 @@ class SharedSupplierTests(unittest.TestCase):
         prepare_source_tasks(self.memory, [{"route": route, "request": request, "concept_ids": [self.cid]}],
                              run_id=run, as_of=self.at)
         self.wave = prepare_next_discovery_wave(self.memory, "supplier-programme", self.catalogue,
-            handlers=handlers, include_lists=False, as_of=self.at)
+            handlers=handlers, as_of=self.at)
 
     def signed_in_page(self, item, *, folder, root):
         """The signed-in IndiaMART read's receipt; test_indiamart_signed_in drives the real one."""
@@ -141,7 +141,7 @@ class SharedSupplierTests(unittest.TestCase):
         handlers = self.handlers(); self.prepare(handlers); self.discovery(handlers)
         later = "2026-10-06T10:00:00+00:00"
         waiting = prepare_next_discovery_wave(self.memory, "supplier-programme", self.catalogue,
-            handlers=handlers, include_lists=False, as_of=later)
+            handlers=handlers, as_of=later)
         self.assertEqual(waiting["state"], "waiting")
         self.assertEqual(waiting["next_retry_at"], "2026-10-12T10:00:00+00:00")
         self.assertEqual(len(self.http_calls), 1); self.assertEqual(len(self.owners()), 1)

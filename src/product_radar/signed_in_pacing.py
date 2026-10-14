@@ -1,5 +1,8 @@
 """Pacing for reads in the owner's signed-in research profile.
 
+The same per-site rules also pace the dropshipping platforms' public feeds
+(DeoDap, BaapStore), which are research sites of that profile read without it.
+
 Each paced site has a minimum gap between reads and a ceiling on reads in any
 24 hours (``config/research/signed_in_reads.json``); a site without rules is
 never read. A read is counted when its browser is about to start
@@ -21,18 +24,40 @@ WINDOW = timedelta(hours=24)
 WAIT_CODES = ("SIGNED_IN_READ_SPACING", "SIGNED_IN_DAILY_CEILING")
 
 
-def pacing_rules(site):
-    """The site's ``min_interval_seconds`` and ``daily_ceiling`` (24 hours)."""
-    value = load_json(SETTINGS, 16384)
+def validate_pacing_settings(value):
+    """The saved pacing settings' per-site rules, or ``SIGNED_IN_PACING_SETTINGS_INVALID``.
+
+    ``round`` is one programme round's share of the signed-in browser
+    (``signed_in_round``): seconds of browser time for all signed-in routes
+    together, and a per-round read cap for the sites listed.
+    """
     sites = value.get("sites") if isinstance(value, dict) else None
-    if (not isinstance(value, dict) or set(value) != {"schema_version", "kind", "sites"}
+    share = value.get("round") if isinstance(value, dict) else None
+    if (not isinstance(value, dict) or set(value) != {"schema_version", "kind", "sites", "round"}
             or type(value["schema_version"]) is not int or value["schema_version"] != 1
-            or value["kind"] != "signed-in-read-pacing-v1" or not isinstance(sites, dict) or not set(sites) <= set(SITES)
+            or value["kind"] != "signed-in-read-pacing-v2" or not isinstance(sites, dict) or not set(sites) <= set(SITES)
             or any(not isinstance(rules, dict) or set(rules) != {"min_interval_seconds", "daily_ceiling"}
                    or type(rules["min_interval_seconds"]) is not int or not 1 <= rules["min_interval_seconds"] <= 86400
                    or type(rules["daily_ceiling"]) is not int or not 1 <= rules["daily_ceiling"] <= 10000
-                   for rules in sites.values())):
+                   for rules in sites.values())
+            or not isinstance(share, dict) or set(share) != {"signed_in_seconds", "site_reads"}
+            or type(share["signed_in_seconds"]) is not int or not 60 <= share["signed_in_seconds"] <= 3600
+            or not isinstance(share["site_reads"], dict) or not set(share["site_reads"]) <= set(SITES)
+            or any(type(cap) is not int or not 1 <= cap <= 100 for cap in share["site_reads"].values())):
         raise SafetyError("SIGNED_IN_PACING_SETTINGS_INVALID")
+    return sites
+
+
+def round_settings():
+    """One programme round's share of the signed-in browser (``signed_in_round``)."""
+    value = load_json(SETTINGS, 16384)
+    validate_pacing_settings(value)
+    return value["round"]
+
+
+def pacing_rules(site):
+    """The site's ``min_interval_seconds`` and ``daily_ceiling`` (24 hours)."""
+    sites = validate_pacing_settings(load_json(SETTINGS, 16384))
     if site not in sites:
         raise SafetyError("SIGNED_IN_PACING_RULES_MISSING")
     return sites[site]
@@ -62,6 +87,14 @@ def _records(root):
     return value
 
 
+class SignedInPaced(SafetyError):
+    """A read refused by pacing; ``next_retry_at`` is when the site may be read."""
+
+    def __init__(self, reason, next_retry_at):
+        super().__init__(reason)
+        self.next_retry_at = next_retry_at
+
+
 def _hold(reason, until):
     return {"reason": reason, "next_retry_at": until.isoformat()}
 
@@ -84,7 +117,7 @@ def reserve_signed_in_read(root, site, *, at=None):
     with records_lock(root, "pacing"):
         hold = signed_in_pace(root, site, as_of=at)
         if hold:
-            raise SafetyError(hold["reason"])
+            raise SignedInPaced(hold["reason"], hold["next_retry_at"])
         value = _records(root)
         cutoff = timestamp(at) - WINDOW
         value["reads"][site] = [row for row in value["reads"].get(site, []) if timestamp(row) > cutoff] + [at]

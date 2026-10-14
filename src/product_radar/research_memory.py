@@ -434,16 +434,20 @@ def source_items(source, mapped):
         if source == "meta":
             presentation = record.get("presentation", {})
             cards = presentation.get("cards") or [dict(presentation, card_index="parent")]
+            # A deeper paid read of the same ad is its own current item, not a
+            # replacement of the free read's; the Meta count joins them by ad.
+            prefix = record["source_route"] + ":" if record.get("source_route") else ""
             for card in cards:
                 semantic = {k: card[k] for k in ("title", "body", "link_description", "link_url", "original_image_url") if k in card}
                 # Parent text can qualify every card; it is context, not an
                 # assumed product price or a separate extra recommendation.
                 semantic["parent_context"] = {k: presentation[k] for k in ("title", "body", "link_description") if k in presentation}
-                yield str(record["ad_id"]) + ":" + str(card["card_index"]), semantic, {
+                yield prefix + str(record["ad_id"]) + ":" + str(card["card_index"]), semantic, {
                     "ad_id": record["ad_id"], "advertiser_id": record["advertiser_id"],
                     **({"advertiser_url": record["advertiser_url"]} if record.get("advertiser_url") else {}),
                     "active": record["active"], "started_at": record["started_at"],
-                    "url": record["library_url"], "limitations": record["limitations"]}
+                    "url": record["library_url"], "limitations": record["limitations"],
+                    **({"source_route": record["source_route"]} if record.get("source_route") else {})}
         elif source == "amazon":
             yield record["identity"], {"title": record["title"], "product_url": record["product_url"]}, {
                 "asin": record["identity"], "list_type": record["list_type"], "position": record["position"],
@@ -489,11 +493,15 @@ def import_capture(memory, *, source, acquisition_id, observed_at, mapped, captu
     return {"new_observations": len(changes) - 1, "reused_capture": False, "capture_id": capture_id}
 
 
-def import_saved_attempt(memory, attempt_id):
-    """Read-only reuse of a committed benchmark, with no key or remote access."""
+def saved_attempt_mapping(memory, attempt_id, *, timeout=0):
+    """A committed provider capture, verified against the ledger, and its mapping.
+
+    Read-only: no key, remote access or research event. Returns (attempt,
+    prepared request, capture manifest, mapped rows, captured rows).
+    """
     identifier(attempt_id)
     journal = memory.journal
-    with journal.locked():
+    with journal.locked(timeout=timeout):
         attempt = journal.state()[1].get(attempt_id)
         if not attempt or not attempt.get("capture") or not attempt.get("dataset_id"):
             raise SafetyError("SAVED_CAPTURE_REQUIRED")
@@ -512,6 +520,12 @@ def import_saved_attempt(memory, attempt_id):
             raise SafetyError("SAVED_MAPPING_CHANGED")
     if memory.evidence_type != "captured":
         raise SafetyError("RESEARCH_NAMESPACE_INVALID")
+    return attempt, prepared, manifest, mapped, rows
+
+
+def import_saved_attempt(memory, attempt_id):
+    """Read-only reuse of a committed benchmark, with no key or remote access."""
+    attempt, prepared, manifest, mapped, _ = saved_attempt_mapping(memory, attempt_id)
     return import_capture(memory, source=request_stage(prepared), acquisition_id=attempt["dataset_id"],
                           observed_at=manifest["observed_at"], mapped=mapped, capture_hash=attempt["capture"],
                           reference={"attempt_id": attempt_id, "file": "captured_rows.json"})

@@ -24,6 +24,7 @@ from test_fit_pipeline import NOW, WritingFixture
 from test_report_source_facts import source_fixture, select
 from product_radar.fit_description import DESCRIPTION_CONTRACT, DESCRIPTION_INFERENCE_KIND
 from product_radar.fit_policy import FIT_POLICY_ID
+from product_radar.report_source_facts import CLIENT_ROUTES
 from product_radar.fit_review import PRACTICAL_CONTRACT, prepare_fit_review, run_fit_reviews
 from product_radar.live_outputs import validate_dataset, _workbook_bytes, render_html
 from product_radar.models import SafetyError, canonical, digest
@@ -87,7 +88,7 @@ class DescriptionPipelineTests(unittest.TestCase):
         for frozen, product in zip(issue["products"], dataset["products"]):
             self.assertEqual(frozen["fit_description_contract"], DESCRIPTION_INFERENCE_KIND)
             self.assertEqual(product["fit_description_contract"], DESCRIPTION_INFERENCE_KIND)
-            self.assertEqual(len(product["source_route_checks"]), 13)  # Retired Google Search has no client row.
+            self.assertEqual(len(product["source_route_checks"]), len(CLIENT_ROUTES))  # Retired Google Search has no client row.
             self.assertEqual(len(product["writing_facts"]), 6)
             self.assertTrue(all(fact["references"] == [] and fact["description_inference"]["description_hash"] ==
                 digest(product["description"]) for fact in product["writing_facts"]))

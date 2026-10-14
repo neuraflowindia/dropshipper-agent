@@ -249,16 +249,17 @@ class TrendsPlaywrightTimeRecoveryTests(unittest.TestCase):
         original = load_json(Path(result["folder"]) / "transport.json", 262144)
         interpreted = load_json(Path(result["folder"]) / "interpretation.json", 262144)
         self.assertEqual(original["fallback_receipt"]["reason_code"], "redirect_outside_public_explore")
+        # Since W2 a redirect to Google's sign-in page is the owner's sign-in
+        # wait (a short hold), never a long access-challenge refusal.
         self.assertEqual(result["state"], "blocked")
-        self.assertEqual(result["reason"], original["reason"])
-        self.assertEqual(interpreted["state"], "insufficient")
+        self.assertEqual((interpreted["state"], interpreted["reason"]), ("blocked", "OWNER_SIGN_IN_REQUIRED"))
+        self.assertEqual(result["reason"], "OWNER_SIGN_IN_REQUIRED")
         self.assertNotEqual(result["reason"], "DIRECT_TRENDS_ACCESS_CHALLENGE")
         self.assertFalse(result["scope_verified"])
         self.assertNotIn("multiTimeline.csv", result["artifacts"])
-        # Existing independent replay acceptance remains strict. The narrow
-        # paired-block correction cannot donate verification to this redirect.
-        with self.assertRaisesRegex(SafetyError, "RECEIPT_INVALID"):
-            replay_direct_trends(result["folder"])
+        # Independent replay agrees with the sign-in wait, and still verifies
+        # nothing about demand (no scope, no export).
+        self.assertEqual(replay_direct_trends(result["folder"]), result)
 
     def test_wrapper_keeps_pre_snapshot_browser_failure_and_its_proved_attempt(self):
         async def fail(*args, **kwargs):

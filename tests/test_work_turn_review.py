@@ -292,7 +292,8 @@ class WorkTurnReviewTests(unittest.TestCase):
         # A real connected collector can temporarily have no saved-reply
         # reconciliation function. Lack of that function is not proof that
         # its already recorded original dispatch never happened.
-        handlers = {"amazon-search": {"handler": lost_return},
+        # Meta is the one discovery route (D4); an installed Flipkart reader is never a fallback.
+        handlers = {"meta-ads": {"handler": lost_return},
                     "flipkart-search": fixture.handler(state="empty")}
         cycle = fixture.prepare(handlers=handlers)
         turn = self.open()
@@ -308,7 +309,7 @@ class WorkTurnReviewTests(unittest.TestCase):
         self.assertEqual(fixture.calls, [], "Uncertain is not a confirmed failure that permits the old fallback.")
         self.assertEqual(self.current(turn)["counters"]["source_callbacks"], 1)
         with bind_work_turn(self.memory, turn["id"]):
-            fixture.advance(cycle, {"amazon-search": fixture.handler(recovered=True)})
+            fixture.advance(cycle, {"meta-ads": fixture.handler(recovered=True)})
         self.assertEqual(len(calls), 1)
         self.assertEqual(len(fixture.replays), 1)
         self.assertEqual(fixture.replays[0]["acquisition_id"], calls[0])

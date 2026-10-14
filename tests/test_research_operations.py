@@ -103,7 +103,7 @@ class OperationTests(unittest.TestCase):
         self.assertEqual([task["positive_signal_needed"] for task in tasks], [False, True, True])
         self.assertIn("does not have to be positive", tasks[0]["reason"])
         self.assertIn("Another usable check alone does not qualify", tasks[1]["reason"])
-        self.assertTrue(all("bestseller or movers-and-shakers" in next(c["question"] for c in task["choices"]
+        self.assertTrue(all("bestseller list" in next(c["question"] for c in task["choices"]
                                                                      if c["source"] == "marketplace") for task in tasks))
         self.assertEqual(summary, before)
         self.assertEqual(missing_market_checks(summary, as_of=NOW), tasks)

@@ -30,16 +30,21 @@ _STEPS = {"admission": "Checking whether research can start.",
     "saved_history": "Checking the saved research records.",
     "preparation": "Preparing the next research step.", "profiles": "Choosing useful search words.",
     "fit": "Reviewing how well the products fit the checklist.", "acquire": "Checking product websites.",
-    "match": "Checking whether products repeat earlier findings.", "suppliers": "Checking possible suppliers.",
+    "match": "Checking whether products repeat earlier findings.",
+    "crowding": "Checking how crowded products already are on Amazon and Flipkart.",
+    "suppliers": "Checking possible suppliers.",
     "photos": "Collecting product photos.", "reports": "Preparing report files.",
     "private_staging": "Saving private reports and checking their downloads.",
     "discovery": "Looking for more kinds of products.", "backup": "Saving a backup copy.",
+    "platforms": "Checking the dropshipping platforms.",
     "costs": "Updating the spending record."}
-_SITES = {"amazon-bestsellers": "Amazon bestsellers", "amazon-movers-and-shakers": "Amazon movers and shakers",
+_SITES = {"amazon-bestsellers": "Amazon bestsellers",
     "amazon-search": "Amazon", "flipkart-search": "Flipkart", "meta-ads": "Facebook ads",
     "google-trends": "Google Trends", "blinkit": "Blinkit", "zepto": "Zepto", "instamart": "Instamart",
     "google-suppliers": "Google supplier results", "google-maps": "Google Maps",
-    "indiamart": "IndiaMART", "tradeindia": "TradeIndia", "company-pages": "supplier websites"}
+    "indiamart": "IndiaMART", "tradeindia": "TradeIndia", "company-pages": "supplier websites",
+    "deodap": "DeoDap", "baapstore": "BaapStore", "dropship-india": "Dropship India", "dropdash": "Dropdash",
+    "meta-ads-depth": "Facebook ads (deeper read)"}
 _DETAILS = {"catalogue_seed": "Reviewing saved ideas for future searches.",
     "discovery_questions": "Choosing the next searches and checking their saved results.",
     "discovery_saved_answers": "Reviewing products from saved search results."}
@@ -399,6 +404,10 @@ def _record_progress(row):
         elif row.get("stage") == "private_staging":
             completed += sum(item.get("state") == "private_bytes_verified"
                              for item in result.get("outcomes", []) if isinstance(item, dict))
+        elif row.get("stage") == "platforms":
+            # Products newly queued from the platforms' lists (W4).
+            queued = result.get("queued_follow_on_products")
+            completed += queued if type(queued) is int and queued >= 0 else 0
         elif row.get("stage") == "discovery":
             # Discovery's list is new relative to its original saved baseline.
             # Replaying that same cycle can return it again after the programme

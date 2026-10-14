@@ -5,8 +5,8 @@ Stop persists the existing owner pause before interrupting only identified
 programme processes. Original attempts and spending allowances stay intact.
 """
 
+from contextlib import ExitStack
 from datetime import datetime, timezone
-import fcntl
 import os
 from pathlib import Path
 import signal
@@ -17,7 +17,7 @@ from types import SimpleNamespace
 from .models import SafetyError, canonical, utc_now
 from .programme import programme_service_state, set_programme_service_state
 from .runtime_storage import runtime_path
-from .storage import safe_path
+from .storage import file_lock, safe_path
 
 
 def process_info(pid, *, proc=Path("/proc")):
@@ -132,9 +132,29 @@ def sign_in_summary(root, *, runner=subprocess.run, recheck_seconds=30):
         window = sign_in_window(root)
         if window["open"] and (datetime.now(timezone.utc) - datetime.fromisoformat(window["checked_at"])).total_seconds() >= recheck_seconds:
             window = check_sign_in_window(root, runner=runner)
-        return {"window_open": window["open"], "line": sign_in_line(root), "needs": sign_in_needs(root)}
+        summary = {"window_open": window["open"], "line": sign_in_line(root), "needs": sign_in_needs(root)}
     except (SafetyError, OSError):
-        return {"window_open": False, "line": "The sign-in records could not be read. See the project log.", "needs": []}
+        summary = {"window_open": False, "line": "The sign-in records could not be read. See the project log.", "needs": []}
+    # Under the sign-in needs: one line per dropshipping platform waiting on
+    # something the owner can see (W4), then the signed-in Trends check (W2).
+    # Their own records failing never hides the sign-in needs.
+    return dict(summary, platform_lines=_platform_lines(root), trends_line=_trends_line(root))
+
+
+def _platform_lines(root):
+    from .dropship_platforms import platform_lines
+    try:
+        return platform_lines(_memory(root).root)
+    except (SafetyError, OSError):
+        return ["The dropshipping platform records could not be read. See the project log."]
+
+
+def _trends_line(root):
+    from .trends_proof_gate import proof_gate_line
+    try:
+        return proof_gate_line(root)
+    except (SafetyError, OSError):
+        return "The Google Trends check records could not be read. See the project log."
 
 
 def open_sign_in(root):
@@ -156,9 +176,8 @@ def open_sign_in(root):
 
 
 def command_lock(root):
-    from .signed_in_browser import _file_lock
     # Commands are short. A stuck command must not freeze the graphical UI.
-    return _file_lock(safe_path(runtime_path(root, "data/operations"), "desktop") / "commands.lock", 5, "DESKTOP_CONTROL_BUSY")
+    return file_lock(safe_path(runtime_path(root, "data/operations"), "desktop") / "commands.lock", 5, "DESKTOP_CONTROL_BUSY")
 
 
 def record_action(root, action, **fields):
@@ -223,11 +242,12 @@ def run_worker(root, research_arguments):
             or not set(research_arguments) <= allowed):
         raise SafetyError("DESKTOP_RESEARCH_ARGUMENTS_INVALID")
     lock_path = safe_path(runtime_path(root, "data/operations"), "desktop") / "worker.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a+b") as lock:
+    with ExitStack() as stack:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+            stack.enter_context(file_lock(lock_path, 0, "DESKTOP_WORKER_RUNNING"))
+        except SafetyError as error:
+            if str(error) != "DESKTOP_WORKER_RUNNING":
+                raise
             return {"state": "already_running"}
         with command_lock(root):
             if not programme_service_state(_memory(root))["enabled"]:

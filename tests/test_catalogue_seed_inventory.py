@@ -56,7 +56,7 @@ class FreshStoreSeedTests(unittest.TestCase):
             snapshot_reader=lambda _request: transport(snapshot(request, text=text, text_truncated=False)))
 
     def step(self):
-        return create_catalogue_discovery_step(self.base, include_lists=False, seed_inventory=self.plan,
+        return create_catalogue_discovery_step(self.base, seed_inventory=self.plan,
             seed_source_root=self.root, shared_marketplace=True, renewable_waves=True)
 
     def call(self, step, runner=None, at=NOW):

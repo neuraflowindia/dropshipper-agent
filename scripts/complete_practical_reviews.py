@@ -11,16 +11,26 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from product_radar.fit_review import prepare_practical_fit_reviews, run_fit_reviews
-from product_radar.models import utc_now
+from product_radar.models import SafetyError, utc_now
+from product_radar.programme import MODEL_ROUTE_FAILURES
 from product_radar.spend_watch_ai import research_codex_runner
 from product_radar.research_flow import candidate_summary, write_summary
 from product_radar.research_memory import ResearchMemory, key
 from product_radar.runtime_storage import runtime_path
 from product_radar.storage import Journal, load_json
 
-MODEL_ROUTE_FAILURES = {"AI_SUBSCRIPTION_LIMIT", "AI_RATE_LIMITED", "AI_MODEL_UNAVAILABLE",
-                        "AI_CHATGPT_SIGN_IN_REQUIRED", "AI_CODEX_NOT_INSTALLED",
-                        "AI_LOCAL_PERMISSION_DENIED", "AI_NETWORK_UNAVAILABLE"}
+
+
+def route_wait(runner):
+    """The model route's own wait (a money wait included), checked before a
+    batch starts; None when the batch may run."""
+    try:
+        runner.check_new_execution()
+    except SafetyError as error:
+        if str(error) not in MODEL_ROUTE_FAILURES:
+            raise
+        return str(error)
+    return None
 
 
 def main(argv=None):
@@ -39,6 +49,9 @@ def main(argv=None):
     outcomes = []
     stopped_reason = None
     for offset in range(0, len(reviews), 5):
+        stopped_reason = route_wait(runner)
+        if stopped_reason:
+            break
         results = run_fit_reviews(memory, runner, reviews[offset:offset + 5], limit=5)
         outcomes.extend(results)
         counts = Counter(row["status"] for row in outcomes)
@@ -60,6 +73,9 @@ def main(argv=None):
                      if row["status"] in ("pending", "needs_reconciliation")
                      or row.get("reason") in {"RUNNER_ALREADY_ACTIVE", "SAVED_FILE_UNAVAILABLE"}]
         for offset in range(0, len(retry_ids), 5):
+            stopped_reason = route_wait(runner)
+            if stopped_reason:
+                break
             recovered = run_fit_reviews(memory, runner, retry_ids[offset:offset + 5], limit=5)
             by_review = {row["review_id"]: row for row in recovered}
             outcomes = [by_review.get(row["review_id"], row) for row in outcomes]

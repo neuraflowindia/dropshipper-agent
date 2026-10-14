@@ -18,16 +18,16 @@ from zoneinfo import ZoneInfo
 
 from .models import SafetyError, canonical, decode_json, digest, timestamp, usd, utc_now
 from .runtime_storage import runtime_path
-from .storage import (PERIOD_CAP, PERIOD_GRANT, PROTECTED_BUFFER, Journal, _renewed_read_commitment,
-                      atomic_json, load_json, safe_path)
+from .storage import (PERIOD_CAP, PERIOD_GRANT, PROTECTED_BUFFER, atomic_json, file_lock, load_json,
+                      renewed_read_commitment, safe_path)
 
 VERSION = "spend-watch-v1"
 SETTINGS = Path(__file__).resolve().parents[2] / "config/research/spend_watch.json"
 AREA = "data/research/captured/spend_watch"
 THRESHOLDS = (50, 75, 90, 100)
-# Saved waits. Apify has none here: its own ledger refuses a reservation past
-# the protected buffer, so the Apify line is display and flags only.
-WAIT_ROUTES = ("quickcommerce", "ai")
+# Saved waits. The Apify ledger itself refuses a reservation past the protected
+# buffer; the deeper Meta read (meta_depth) records its resulting wait here.
+WAIT_ROUTES = ("quickcommerce", "ai", "apify")
 MAX_STATE_BYTES = 1024 * 1024
 MAX_ALERT_FILE_BYTES = 2 * 1024 * 1024
 ALERT_DAYS_READ = 14
@@ -145,7 +145,8 @@ def writing(root, settings):
     two writes is recognisable, while a flag can never be saved unlogged.
     """
     folder = _folder(root)
-    with Journal(folder).locked(timeout=5):
+    # The shared local busy code: callers already treat it as "try again".
+    with file_lock(folder / "runner.lock", 5, "RUNNER_ALREADY_ACTIVE"):
         state = load_state(root) or _empty()
         alerts = []
         yield state, alerts
@@ -209,7 +210,7 @@ def clear_wait(state, alerts, route, *, at, label, message):
 
 
 def money_route_wait(root, route):
-    """Read-only: the saved wait of a money route ("quickcommerce" or "ai"), or None."""
+    """Read-only: the saved wait of a money route ("quickcommerce", "ai" or "apify"), or None."""
     if route not in WAIT_ROUTES:
         raise SafetyError("SPEND_WATCH_ROUTE_INVALID")
     state = load_state(root)
@@ -260,7 +261,7 @@ def apify_usage(events, financial_state, settings):
         budget = budgets[namespace]
         usable = max(Decimal(0), min(PERIOD_CAP, min(usd(budget["allowance"]), PERIOD_GRANT) - PROTECTED_BUFFER))
         used = sum((_attempt_commitment(a) for a in attempts.values() if a["namespace"] == namespace), Decimal(0))
-        used += _renewed_read_commitment(attempts, namespace)
+        used += renewed_read_commitment(attempts, namespace)
         current.append({"namespace": namespace, "period": namespace.split(":")[1], "used_usd": used, "usable_usd": usable})
     return {"current": current, "by_month": {month: str(value) for month, value in sorted(by_month.items())}}
 

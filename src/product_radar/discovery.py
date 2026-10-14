@@ -3,7 +3,6 @@
 from datetime import date, timedelta
 import re
 import unicodedata
-from urllib.parse import urlsplit, urlunsplit
 
 from .models import SafetyError, timestamp, digest
 
@@ -121,45 +120,25 @@ def compute_market_signals(observations, relevance, as_of, trends_evidence=(), *
     relevant = [(i, o) for i, o in latest_observations(observations, as_of).items()
                 if relevance.get(o["semantic_id"]) in ("exact_product", "relevant_family")]
     meta = [(i, o) for i, o in relevant if o["source"] == "meta"]
-    ads = {}
-    conflicts = set()
-    for obs_id, observation in meta:
-        facts = observation["facts"]
-        ad_id = facts["ad_id"]
-        advertiser = facts["advertiser_id"]
-        if advertiser is None and isinstance(facts.get("advertiser_url"), str):
-            # A visible official advertiser-page address is a usable identity
-            # even when its private numeric page ID is absent. No name guess,
-            # invented numeric ID or search-filter inference is involved.
-            try:
-                url = urlsplit(facts["advertiser_url"])
-                if (url.scheme == "https" and url.hostname in ("facebook.com", "www.facebook.com")
-                        and not url.username and not url.password and url.path.strip("/")
-                        and not url.path.startswith(("/ads/", "/login", "/help", "/privacy", "/policies"))):
-                    advertiser = "page-url:" + urlunsplit(("https", "www.facebook.com", url.path.rstrip("/").casefold(), url.query, ""))
-            except ValueError:
-                pass
-        value = (advertiser, facts["active"], facts["started_at"])
-        if ad_id in ads and ads[ad_id][0] != value:
-            conflicts.add(ad_id)
-        ads[ad_id] = (value, obs_id, observation["observed_at"])
+    # One ad seen by the free and the deeper (paid) read is one ad: a fact
+    # either read lacks is filled from the other (meta_facts); a disagreement
+    # of two known values excludes it.
+    from .meta_facts import advertiser_count, depth_facts, meta_state as state_of, relevant_ads
+    ads, conflicts = relevant_ads(meta)
     valid_ads = [v for k, v in ads.items() if k not in conflicts]
-    advertisers = {v[0][0] for v in valid_ads if v[0][0] is not None}
-    active_ads = [v for v in valid_ads if v[0][1] is True]
-    # Age is established at collection, not by ageing a cached ad on our disk.
-    aged = any(v[0][2] is not None and timestamp(v[2]) - timestamp(v[0][2]) >= timedelta(days=14) for v in active_ads)
-    positive = len(advertisers) >= 3 or (len(active_ads) >= 5 and aged)
-    complete = bool(valid_ads) and not conflicts and all(all(x is not None for x in v[0]) for v in valid_ads)
-    meta_state = "Positive" if positive else "Not-positive" if complete else "Insufficient"
+    advertisers = advertiser_count(valid_ads)  # a lower bound: one advertiser is never counted twice
+    active_ads = [v for v in valid_ads if v["active"] is True]
+    meta_state = state_of(valid_ads, conflicts)
+    positive, complete = meta_state == "Positive", meta_state != "Insufficient"
     from .marketplace_browser import verified_list_observation
     marketplace = [(i, o) for i, o in relevant if verified_list_observation(o)]
     families = {
         "meta": {"state": meta_state, "available": positive or complete, "positive": True if positive else False if complete else None,
-                 "advertisers": len(advertisers) if advertisers else None,
-                 "active_ads": len(active_ads) if any(v[0][1] is not None for v in valid_ads) else None,
-                 "missing_advertiser_ids": sum(v[0][0] is None for v in valid_ads),
-                 "unknown_active_status": sum(v[0][1] is None for v in valid_ads),
-                 "used_ids": sorted({v[1] for v in valid_ads}), "reason": "Relevant retained Meta sample; unique parent ads, seven-day freshness."},
+                 "advertisers": advertisers or None,
+                 "active_ads": len(active_ads) if any(v["active"] is not None for v in valid_ads) else None,
+                 "missing_advertiser_ids": sum(v["advertiser"] is None for v in valid_ads),
+                 "unknown_active_status": sum(v["active"] is None for v in valid_ads),
+                 "used_ids": sorted({v["id"] for v in valid_ads}), "reason": "Relevant retained Meta sample; unique parent ads, seven-day freshness."},
         "marketplace": {"state": "Positive" if marketplace else "Insufficient", "available": bool(marketplace),
                         "positive": True if marketplace else None, "used_ids": sorted(i for i, _ in marketplace),
                         "reason": "Relevant reviewed India list presence." if marketplace else "No fresh verified relevant list evidence in this slice."},
@@ -175,7 +154,7 @@ def compute_market_signals(observations, relevance, as_of, trends_evidence=(), *
     sources["meta"] = {"available": bool(valid_ads), "positive": True if positive else False if valid_ads else None,
                        "used_ids": families["meta"]["used_ids"],
                        "reason": "Relevant retained ads; missing ad metadata is not negative demand proof.",
-                       "context_only": not positive}
+                       "context_only": not positive, "depth": depth_facts(valid_ads)}
     for source in ("amazon", "flipkart", "blinkit", "zepto", "instamart"):
         rows = [(i, o) for i, o in relevant if o["source"] == source and
                 (verified_list_observation(o)

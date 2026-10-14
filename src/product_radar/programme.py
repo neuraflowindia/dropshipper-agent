@@ -22,7 +22,7 @@ from .storage import Journal, atomic_json, load_json, safe_path
 from .operations import operation_writer, record_progress, record_error, record_event
 
 VERSION = "research-programme-v1"
-STAGES = ("profiles", "fit", "acquire", "match", "suppliers", "photos", "reports", "private_staging")
+STAGES = ("profiles", "fit", "acquire", "match", "crowding", "suppliers", "photos", "reports", "private_staging")
 MODEL_ROUTE_FAILURES = {"AI_SUBSCRIPTION_LIMIT", "AI_RATE_LIMITED", "AI_MODEL_UNAVAILABLE",
     "AI_CHATGPT_SIGN_IN_REQUIRED", "AI_CODEX_NOT_INSTALLED", "AI_LOCAL_PERMISSION_DENIED",
     "AI_NETWORK_UNAVAILABLE", "AI_CLI_CONFIGURATION_REJECTED",
@@ -1936,6 +1936,22 @@ def _match(memory, record, context):
     return result
 
 
+def _crowding(memory, record, context):
+    """Free Amazon/Flipkart crowding check from saved, reviewed reads (W6).
+
+    No model call or page visit: the reads themselves are this type's ordinary
+    source questions. The root group also covers the types it carries for
+    reports (earlier programmes' inventory and intake), since every report type
+    needs a current answer; only types whose answer is due are worked out,
+    passing nearly-ready types first.
+    """
+    from .crowding import refresh_crowding
+    ids = (record["concept_ids"] if record.get("parent_programme_id")
+           else _reporting_ids(record, memory.snapshot()))
+    return refresh_crowding(memory, ids, as_of=context["at"],
+                            priority=context.get("priority_concept_ids", {}).get("crowding", []))
+
+
 def _suppliers(memory, record, context):
     from .source_interpretation import review_supplier_results
     skip = [row["target"] for row in record["deferrals"].values() if row["stage"] == "suppliers"
@@ -2990,10 +3006,10 @@ def _private_pending(record):
 
 
 DEFAULT_STEPS = {"profiles": _profiles, "fit": _fit, "acquire": _acquire, "match": _match,
-                 "suppliers": _suppliers, "photos": _photos, "reports": _reports, "private_staging": _private_staging}
+                 "crowding": _crowding, "suppliers": _suppliers, "photos": _photos, "reports": _reports, "private_staging": _private_staging}
 
 
-def _programme_stage_plan(state, record, turn, *, at, inputs, model_available):
+def _programme_stage_plan(state, record, turn, *, at, inputs, model_available, report_pool):
     """Order due accepted-type prerequisites without granting execution rights.
 
     The ordinary helpers still own exact jobs, waits and turn allowances. A
@@ -3004,8 +3020,19 @@ def _programme_stage_plan(state, record, turn, *, at, inputs, model_available):
     remain intact. Discovery follows only the promoted prefix on odd turns.
     While the coming report sets are short of eligible types, a passing type
     that is not yet report stock also promotes its finishing stages (market
-    review, crowding check, supplier work) ahead of new discovery.
+    review, crowding check, supplier work) ahead of new discovery. Report stock
+    is judged against the current report pool (``report_pool()``, built from
+    this same state), so a type now gated again is finished, not skipped.
+    Planning reads one unchanging state, so its pure readers share their
+    answers (``read_memo.pure_read_scope``).
     """
+    from .read_memo import pure_read_scope
+    with pure_read_scope():
+        return _stage_plan(state, record, turn, at=at, inputs=inputs, model_available=model_available,
+                           report_pool=report_pool)
+
+
+def _stage_plan(state, record, turn, *, at, inputs, model_available, report_pool):
     start = ((turn["programme_turn_sequence"] - 1) // 2) % len(STAGES) if turn else 0
     rotated = list(STAGES[start:] + STAGES[:start])
     discovery = "before" if turn is None or turn["programme_turn_sequence"] % 2 else "after"
@@ -3031,7 +3058,7 @@ def _programme_stage_plan(state, record, turn, *, at, inputs, model_available):
     stock = set()
     if short:
         try:
-            stock = report_stock_ids(state, record, as_of=at)
+            stock = report_stock_ids(state, record, as_of=at, pool=report_pool())
         except SafetyError as error:
             if str(error) in INTEGRITY_FAILURES:
                 raise
@@ -3093,12 +3120,16 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
                       supplier_limit=5, photo_limit=10, retry_seconds=300, as_of=None, clock=utc_now,
                       on_progress=None, steps=None, discovery_step=None, render_pdf=None, inspect_pdf=None,
                       media_root=None, photo_fetcher=None, setup_failures=None, private_staging=None,
-                      backup_step=None):
+                      backup_step=None, platform_step=None):
     """Continue dependency-ready lanes to a fixed point or explicit time slice.
 
     Only the programme leader is held over external work, not the money lock.
     Saved-only reconciliation is still allowed when a model route is paused.
     A fixed point means currently waiting work, not completion of the project.
+    ``platform_step`` (the dropshipping platforms, W4) is its own lane: it runs
+    once every round where discovery would, whatever discovery's deferral,
+    result or setup; the two take turns going first, so each in turn has first
+    use of the round's held discovery share of model calls.
     """
     from .source_coverage import installed_source_handlers, product_source_request_builder
     limits = ((profile_limit, 200), (fit_limit, 50), (match_limit, 20), (supplier_limit, 50), (photo_limit, 200))
@@ -3114,7 +3145,8 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
         functions.update(steps)
     if (discovery_step is not None and not callable(discovery_step)
             or private_staging is not None and not callable(private_staging)
-            or backup_step is not None and not callable(backup_step)):
+            or backup_step is not None and not callable(backup_step)
+            or platform_step is not None and not callable(platform_step)):
         raise SafetyError("PROGRAMME_STEPS_INVALID")
     if (setup_failures is not None and (not isinstance(setup_failures, dict)
             or not set(setup_failures) <= {"model", "funded_quickcommerce", "native_renderer", "catalogue_discovery",
@@ -3155,9 +3187,11 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
     cycles, last_save, owner_paused = 0, None, False
     from .work_turns import active_work_turn
     active_turn = active_work_turn(memory)
-    execution_order = _programme_stage_plan({}, record, active_turn, at=as_of, inputs=None, model_available=False)
+    execution_order = _programme_stage_plan({}, record, active_turn, at=as_of, inputs=None, model_available=False,
+                                            report_pool=None)
     execution_order["visited_stages"] = []
     execution_order["discovery_attempted"] = False
+    execution_order["platforms_attempted"] = False
     while max_cycles is None or cycles < max_cycles:
         if not programme_service_state(memory)["enabled"]:
             owner_paused = True; record["tick_state"] = "owner_paused"; break
@@ -3168,9 +3202,11 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
         before_state = memory.snapshot()
         before = _signature(before_state, record)
         execution_order = _programme_stage_plan(before_state, record, active_turn,
-            at=at, inputs=before, model_available=context["runner"] is not None)
+            at=at, inputs=before, model_available=context["runner"] is not None,
+            report_pool=lambda: _programme_report_pool(memory, record, as_of=at, state=before_state, functional_packets=True))
         execution_order["visited_stages"] = []
         execution_order["discovery_attempted"] = False
+        execution_order["platforms_attempted"] = False
         context["priority_concept_ids"] = execution_order["priority_concept_ids"]
         # Use the existing privacy-filtered recording vocabulary so this
         # remains visible even if an open turn is interrupted before close.
@@ -3181,6 +3217,42 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
                 "planning_waits": len(execution_order["planning_waits"])})
         at = as_of or clock(); timestamp(at); context["at"] = at
         record.update(status="running", updated_at=at)
+        def run_platforms():
+            nonlocal last_save, owner_paused
+            if platform_step is None or execution_order["platforms_attempted"]:
+                return
+            if not programme_service_state(memory)["enabled"]:
+                owner_paused = True; record["tick_state"] = "owner_paused"; return
+            execution_order["platforms_attempted"] = True
+            hold_for_discovery(memory, 0)  # Its admission questions use the held share too.
+            context["stage"] = "platforms"; context["review_scope_id"] = record["programme_id"]
+            _observe(record, context, phase_state="started", frozen_products=len(record["concept_ids"]))
+            try:
+                platforms = platform_step(memory, deepcopy(record), context)
+                found = platforms.get("discovery") if isinstance(platforms, dict) else None
+                new = found.get("new_concept_ids") if isinstance(found, dict) else None
+                if not isinstance(new, list):
+                    raise SafetyError("PROGRAMME_PLATFORM_RESULT_INVALID")
+                platforms["queued_follow_on_products"] = len(_register_discovered_products(
+                    memory, record, {"new_products_need_full_source_review": new}, context["at"]))
+            except Exception as error:
+                record_error("platforms_failed", error, stage="platforms", programme_id=record["programme_id"])
+                reason = str(error) if isinstance(error, SafetyError) else "PROGRAMME_PLATFORMS_FAILED"
+                if reason in INTEGRITY_FAILURES:
+                    raise
+                # No lane wait: each platform keeps its own saved back-off.
+                platforms = {"state": "waiting", "reason": reason, "error_type": type(error).__name__}
+            record["last_results"]["platforms"] = platforms
+            last_save = _save(memory, record, cache=cache)
+            _observe(record, context, phase_state="finished", result=deepcopy(platforms), control_save=last_save)
+
+        def run_discovery_lane():
+            # The two take turns going first each round (the first has first
+            # use of the held share); the platforms never wait on discovery.
+            for lane in ((run_platforms, run_discovery) if record["cycles"] % 2 else (run_discovery, run_platforms)):
+                if not owner_paused:
+                    lane()
+
         def run_discovery():
             nonlocal last_save, owner_paused
             if not programme_service_state(memory)["enabled"]:
@@ -3208,12 +3280,14 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
             record["last_results"]["discovery"] = discovery
             last_save = _save(memory, record, cache=cache)
             _observe(record, context, phase_state="finished", result=deepcopy(discovery), control_save=last_save)
-        # While short, finishing stages before discovery leave it two calls.
+        # While short, finishing stages before discovery leave it two calls,
+        # shared by Meta discovery and the platforms' candidate admission.
         hold_for_discovery(memory, DISCOVERY_RESERVED_EXECUTIONS if (
-            active_turn is not None and discovery_step is not None and execution_order["report_supply_short"]
-            and _due(record, "lane", "discovery", before, context["at"])) else 0)
+            active_turn is not None and execution_order["report_supply_short"]
+            and (platform_step is not None or discovery_step is not None
+                 and _due(record, "lane", "discovery", before, context["at"]))) else 0)
         if execution_order["discovery_position"] == "before":
-            run_discovery()
+            run_discovery_lane()
         for stage in execution_order["stage_order"]:
             if not programme_service_state(memory)["enabled"]:
                 owner_paused = True; record["tick_state"] = "owner_paused"; break
@@ -3343,10 +3417,10 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
                 last_save = _save(memory, record, cache=cache)
             if execution_order["discovery_after_stage"] == stage and not owner_paused:
                 context["at"] = as_of or clock(); timestamp(context["at"])
-                run_discovery()
+                run_discovery_lane()
         if execution_order["discovery_position"] == "after" and not owner_paused:
             context["at"] = as_of or clock(); timestamp(context["at"])
-            run_discovery()
+            run_discovery_lane()
         hold_for_discovery(memory, 0)
         cycles += 1; record["cycles"] += 1
         cycle_state = memory.snapshot()
@@ -3474,6 +3548,7 @@ def _advance_programme_turn_locked(memory, programme_id, *, root, turn_policy=No
     callback and photo stage using this memory. An interrupted turn stays open;
     a later call resumes its counters rather than granting a fresh allowance.
     """
+    from .signed_in_round import signed_in_round
     from .work_turns import bind_work_turn, close_work_turn, discovery_reserve_scope, open_work_turn
     if "max_cycles" in options:
         raise SafetyError("PROGRAMME_TURN_IS_ONE_ROUND")
@@ -3489,8 +3564,9 @@ def _advance_programme_turn_locked(memory, programme_id, *, root, turn_policy=No
     turn = open_work_turn(memory, programme_id, at=at, policy=turn_policy,
                           ready_lanes=ready_lanes, report_ready=report_ready,
                           preserve_open_policy=True, review_ready=review_ready)
+    # One round: its discovery hold and its share of the signed-in browser.
     with bind_work_turn(memory, turn["id"], before_model=owner_allows_launch,
-                        before_source=owner_allows_launch), discovery_reserve_scope(memory):
+                        before_source=owner_allows_launch), discovery_reserve_scope(memory), signed_in_round():
         result = _advance_programme_locked(memory, programme_id, root=root, max_cycles=1,
                                             as_of=as_of, clock=clock, **options)
     latest = load_programme(memory, programme_id)
@@ -5010,5 +5086,11 @@ def programme_meter(memory, *, root, as_of=None):
         project_root=runtime_root(root), recommendation_contract=contract)
     from .spend_watch import allowance_summary
     result["allowances"] = _summary_input(lambda: allowance_summary(root, as_of=at), failures, "allowances")
+    from .trends_proof_gate import proof_gate_line
+    result["trends_check"] = _summary_input(lambda: proof_gate_line(root), failures, "trends_check")
+    from .crowding import crowding_summary
+    result["crowding_check"] = _summary_input(lambda: crowding_summary(state), failures, "crowding_check")
+    from .dropship_platforms import platform_lines
+    result["platforms"] = _summary_input(lambda: platform_lines(memory.root), failures, "platforms")
     result["optional_input_failures"] = failures
     return result

@@ -36,7 +36,7 @@ class ProgrammeReadinessSnapshotReviewTests(TestCase):
                                    "native_capture": forbidden})
         self.rows = []
         for route in ROUTES:
-            if route in {"amazon-bestsellers", "amazon-movers-and-shakers"}:
+            if route == "amazon-bestsellers":
                 requests = [build_marketplace_request(route, department="home-and-kitchen")]
             else:
                 requests = []
@@ -44,6 +44,14 @@ class ProgrammeReadinessSnapshotReviewTests(TestCase):
                     term = "draining sink caddy " + str(index)
                     if route in {"blinkit", "zepto", "instamart"}:
                         request = {"query": term, "location": deepcopy(LOCATION)}
+                    elif ROUTES[route]["source"] == "dropship-platforms":
+                        # A local match of the platform's saved catalogue (no hooks: no saved file to inspect).
+                        request = {"catalogue": route, "catalogue_at": NOW, "terms": [term],
+                                   "match_version": "dropship-local-match-v2", "country": "IN"}
+                    elif route == "meta-ads-depth":
+                        # The paid deeper Meta read: its hooks read only the ledger and account files.
+                        request = {"query": term, "country": "IN", "limit": 10, "basis": "b" * 64,
+                                   "version": "meta-depth-v2"}
                     elif route == "company-pages":
                         # Nominations are only candidate URLs here, not confirmed
                         # supplier evidence or permission to read the page.
@@ -73,9 +81,11 @@ class ProgrammeReadinessSnapshotReviewTests(TestCase):
             expected = _source_turn_readiness(self.memory, state, self.record, self.standalone_handlers(), NOW)
         # Two standalone hooks per unfinished task previously each obtained a
         # full canonical snapshot, even though programme already supplied one.
-        # Saved questions of the retired Google Search route have no hooks.
-        self.assertEqual(standalone_reads.call_count,
-                         2 * len([row for row in self.rows if row["route"] != "google-suppliers"]))
+        # Saved questions of the retired Google Search route have no hooks; the
+        # dropshipping platforms' local catalogue matches and the deeper Meta
+        # read's money check read no research history either.
+        self.assertEqual(standalone_reads.call_count, 2 * len([row for row in self.rows if row["route"] not in {"google-suppliers", "meta-ads-depth"}
+                                                                and ROUTES[row["route"]]["source"] != "dropship-platforms"]))
         with patch.object(self.memory, "snapshot", side_effect=AssertionError("Nested whole-history read")):
             actual = _source_turn_readiness(self.memory, state, self.record, self.handlers, NOW)
         self.assertEqual(actual, expected)
@@ -84,15 +94,15 @@ class ProgrammeReadinessSnapshotReviewTests(TestCase):
         return actual
 
     def test_bulk_all_fourteen_installed_routes_reuse_verified_state_without_writes(self):
-        self.assertEqual(len(self.handlers), 14)
-        self.assertEqual(len(self.rows), 38)
+        self.assertEqual(len(self.handlers), len(ROUTES))
+        self.assertEqual(len(self.rows), 1 + 3 * (len(ROUTES) - 1))
         state = self.memory.snapshot()
         tasks = [state["query_tasks"][ref] for ref in self.prepared["task_ids"]]
         self.assertEqual({row["route"] for row in tasks}, set(ROUTES))
         self.assertTrue(all(row["status"] == "prepared" and row["tries"] == 0 for row in tasks))
         result = self.assert_readiness_parity()
         self.assertTrue(result["callback_ready"])
-        self.assertEqual(len(result["signal"]), 38)
+        self.assertEqual(len(result["signal"]), len(self.rows))
         retired = [row for row in result["signal"] if state["query_tasks"][row[0]]["route"] == "google-suppliers"]
         self.assertEqual(len(retired), 3)
         self.assertFalse(any(row[2] for row in retired))  # Never a callback for the retired route.

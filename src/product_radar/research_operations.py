@@ -312,14 +312,14 @@ def missing_market_checks(summary, *, as_of, source_checks=()):
             continue  # Weak products are set aside; usable coverage is not a signal.
         platform_policy = opportunity is not None and opportunity["opportunity_policy_id"] == CURRENT_OPPORTUNITY_POLICY_ID
         actual_sources = market["sources"] if platform_policy else market["families"]
-        questions = (("amazon", "Look for relevant India bestseller, movers-and-shakers or product listings."),
+        questions = (("amazon", "Look for relevant India bestseller or product listings."),
                      ("flipkart", "Look for relevant current Flipkart product listings."),
                      ("meta", "Check relevant product-specific advertisers and active ads."),
                      ("google-trends", "Check comparable India search interest for this product type."),
                      ("blinkit", "Check relevant Blinkit listings at the recorded location."),
                      ("zepto", "Check relevant Zepto listings at the recorded location."),
                      ("instamart", "Check relevant Instamart listings at the recorded location.")) if platform_policy else (
-                     ("marketplace", "Look for this product on a relevant India bestseller or movers-and-shakers list."),
+                     ("marketplace", "Look for this product on a relevant India bestseller list."),
                      ("meta", "Check relevant product-specific advertisers and active ads."),
                      ("trends", "Check comparable India search interest for this product."))
         choices = []
@@ -373,7 +373,9 @@ def validation_targets(memory, *, as_of, client_id="default"):
         if not fact or decisions[concept_id]["decision"] == "excluded":
             continue
         codes = decisions[concept_id]["codes"]
-        if any(code not in ("market_coverage_required", "market_support_pending", "supplier_search_required") for code in codes):
+        # The free crowding check (W6) is separate work; it never holds a market question back.
+        if any(code not in ("market_coverage_required", "market_support_pending", "supplier_search_required",
+                            "crowding_check_pending") for code in codes):
             continue
         families = {row["source"]: row for row in fact["market_checks"]}
         if fact.get("opportunity_policy_id") == CURRENT_OPPORTUNITY_POLICY_ID:

@@ -92,9 +92,10 @@ class SavedSourceReportTests(unittest.TestCase):
         pool, issue, dataset = select(memory)
         product = self.product(dataset)
         self.assertEqual(product["source_route_contract"], CONTRACT)
-        # Every route of the service; retired Google Search results are not shown.
+        # Every route of the service; retired Google Search results are not shown,
+        # and the deeper Meta read is part of the single Meta row.
         self.assertEqual([row["route"] for row in product["source_route_checks"]], list(CLIENT_ROUTES))
-        self.assertEqual(list(CLIENT_ROUTES), [route for route in ROUTES if route != "google-suppliers"])
+        self.assertEqual(list(CLIENT_ROUTES), [route for route in ROUTES if route not in ("google-suppliers", "meta-ads-depth")])
         self.assertEqual(self.route(product, "meta-ads")["outcome"], "completed_relevant")
         self.assertIs(self.route(product, "meta-ads")["actual_attempt"], True)
         self.assertEqual(self.route(product, "blinkit")["outcome"], "not_attempted")

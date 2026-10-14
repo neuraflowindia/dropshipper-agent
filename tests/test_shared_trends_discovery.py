@@ -25,7 +25,7 @@ class SharedTrendsDirectionTests(unittest.TestCase):
 
     def prepare(self, *, programme="programme"):
         self.wave = prepare_next_discovery_wave(self.memory, programme, self.catalogue,
-            handlers=self.handlers, include_lists=False, as_of=self.source.now)
+            handlers=self.handlers, as_of=self.source.now)
         return self.wave
 
     def advance(self):
@@ -58,6 +58,29 @@ class SharedTrendsDirectionTests(unittest.TestCase):
         self.assertEqual(question["progress"]["scheduling"], "settled")
         self.assertEqual(state["trends_evidence"], {}); self.assertEqual(state["observations"], {})
         self.assertEqual(list(state["concepts"]), ["chair"])
+
+    def test_a_signed_in_read_that_could_not_start_leaves_the_direction_waiting(self):
+        from product_radar.signed_in_attempts import SignedInWait
+        retry = "2026-10-06T10:02:00+00:00"
+        normal = self.source.capture
+
+        def busy(request, aid, **options):
+            self.source.calls.append((aid, request))
+            raise SignedInWait("SIGNED_IN_BROWSER_BUSY", next_retry_at=retry, started_at=self.source.now,
+                               finished_at=self.source.now)
+        self.handlers = self.source.handlers(capture=busy)
+        self.prepare(); self.advance()
+        action = next(iter(self.memory.snapshot()["batch_runs"][self.wave["id"]]["actions"].values()))
+        self.assertEqual((action["state"], action["reason"], action["next_retry_at"]),
+                         ("waiting", "SIGNED_IN_BROWSER_BUSY", retry))
+        self.assertNotIn("acquisition_id", action)
+        (owner,) = self.source.owners().values()
+        self.assertEqual(owner["state"], "reserved")  # reopened: nothing was sent
+        self.source.now = "2026-10-06T10:05:00+00:00"
+        self.handlers = self.source.handlers(capture=normal)
+        self.advance()  # the same wave, after the recheck time
+        action = next(iter(self.memory.snapshot()["batch_runs"][self.wave["id"]]["actions"].values()))
+        self.assertEqual(action["state"], "acquired"); self.assertEqual(len(self.source.calls), 2)
 
     def test_product_check_first_then_direction_reuses_original_with_zero_callback_slots(self):
         self.source.prepare(); self.source.checks(); self.prepare()
@@ -118,7 +141,7 @@ class SharedTrendsDirectionTests(unittest.TestCase):
         self.prepare(); self.advance(); original = next(iter(self.source.owners()))
         self.source.now = "2026-10-14T10:00:00+00:00"
         hint = discovery_wave_readiness(self.memory, "programme", self.catalogue,
-            handlers=self.handlers, include_lists=False, as_of=self.source.now)
+            handlers=self.handlers, as_of=self.source.now)
         self.assertTrue(hint["new_wave_ready"])
         self.prepare(); self.advance()
         owners = self.source.owners()

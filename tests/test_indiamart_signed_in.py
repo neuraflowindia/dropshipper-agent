@@ -61,6 +61,8 @@ class IndiaMartSignedInRouteTests(unittest.TestCase):
                       "stage": "browser_launch", "snapshot": None, "completed_at": self.at}
             atomic_json(folder / "native_result.json", output)
             return output
+        if self.native_state == "busy":
+            raise SafetyError("SIGNED_IN_BROWSER_BUSY")  # raised only before anything launches
         if self.native_state == "refused":
             raise SafetyError("NATIVE_PUBLIC_ARTIFACT_EXISTS")  # raised only before anything launches
         snapshot = {"url": url, "html": self.page, "text": re.sub(r"<[^>]+>", " ", self.page), "title": "IndiaMART",
@@ -126,7 +128,12 @@ class IndiaMartSignedInRouteTests(unittest.TestCase):
         for _ in range(3):
             result = self.checks(handlers)
             self.assertEqual((result["handler_calls"], result["counts"]), (0, {"waiting": 1}))
-            self.assertEqual(result["results"][0]["reason"], "OWNER_SIGN_IN_REQUIRED")
+            # The calm wait keeps a recheck time on the question; it is looked at again then.
+            recheck = (timestamp(self.at) + timedelta(seconds=120)).isoformat()
+            self.assertEqual((result["results"][0]["reason"], result["results"][0]["next_retry_at"]),
+                             ("OWNER_SIGN_IN_REQUIRED", recheck))
+            self.assertEqual((self.task(task_id)["status"], self.task(task_id)["next_retry_at"]), ("prepared", recheck))
+            self.advance(121)
         self.assertFalse(self.task(task_id).get("reconcile_required"))
         hint = handlers["indiamart"]["source_due_hint"]({"request": {"query": QUERY, "country": "IN"}, "as_of": self.at,
                                                           "task_id": "hint"})
@@ -208,6 +215,7 @@ class IndiaMartSignedInRouteTests(unittest.TestCase):
             result = self.checks(handlers)
             self.assertEqual((result["handler_calls"], result["counts"]), (0, {"waiting": 1}))
             self.assertEqual(result["results"][0]["reason"], "OWNER_SIGN_IN_REQUIRED")
+            self.advance(121)
         self.prepare(run="same-search-again")
         result = self.checks(handlers)
         self.assertEqual((result["handler_calls"], {row["reason"] for row in result["results"] if row["state"] == "waiting"}),
@@ -246,13 +254,33 @@ class IndiaMartSignedInRouteTests(unittest.TestCase):
 
     # Starts that never navigated: calm waits, never failures.
 
+    def test_a_not_started_read_reopens_when_the_round_time_has_microseconds(self):
+        # The dispatch intent keeps the round's microseconds; the not-started
+        # proof must never be dated before it (SOURCE_ACQUISITION_ZERO_PROOF_REQUIRED).
+        self.at = "2026-10-05T10:00:00.500000+00:00"
+        self.sign_in(); handlers = self.handlers(); self.native_state = "desktop-locked"
+        self.prepare(run="microseconds")
+        clock = lambda timespec="seconds": timestamp(self.at).isoformat(timespec=timespec)
+        with patch("product_radar.supplier_search.utc_now", side_effect=clock), \
+                patch("product_radar.signed_in_pacing.utc_now", side_effect=clock), \
+                patch("product_radar.signed_in_browser.utc_now", side_effect=clock), \
+                patch("product_radar.indiamart_signed_in.utc_now", side_effect=clock), \
+                patch("product_radar.native_public_browser.native_snapshot", side_effect=self.native):
+            result = execute_source_run(self.memory, self.run, handlers=handlers, as_of=self.at, shared_marketplace=True,
+                                        bounded_call=lambda callback, context, timeout: callback(context))
+        self.assertEqual(result["results"][0]["reason"], "OWNER_DESKTOP_UNAVAILABLE")
+        aid, owner = self.owner()
+        self.assertEqual(owner["state"], "reserved")
+        proof = load_json(self.memory.root / "supplier_routes" / "shared" / aid / "not-started-1" / "process-exit.json")
+        self.assertEqual(proof["started_at"], self.at)
+
     def test_a_locked_desktop_is_a_calm_wait_that_reads_later(self):
         self.sign_in(); handlers = self.handlers(); self.native_state = "desktop-locked"
         task_id = self.prepare(run="locked")[0]
         before = self.task(task_id)
         result = self.checks(handlers)
         self.assertEqual(result["results"][0], {"task_id": task_id, "state": "waiting", "actual_attempt": False,
-            "reason": "OWNER_DESKTOP_UNAVAILABLE", "next_retry_at": None, "route": "indiamart"})
+            "reason": "OWNER_DESKTOP_UNAVAILABLE", "next_retry_at": "2026-10-05T10:02:00+00:00", "route": "indiamart"})
         task = self.task(task_id)
         self.assertEqual({field: task.get(field) for field in ("status", "reconcile_required", "dispatch_started", "tries")},
                          {field: before.get(field) for field in ("status", "reconcile_required", "dispatch_started", "tries")})
@@ -269,10 +297,12 @@ class IndiaMartSignedInRouteTests(unittest.TestCase):
         aside = [path for path in folder.iterdir() if path.name.startswith("native-not-started-1-")]
         self.assertEqual(len(aside), 1)
         self.assertEqual(load_json(aside[0] / "native_result.json")["reason"], "OWNER_DESKTOP_UNAVAILABLE")
+        self.assertEqual(task["next_retry_at"], "2026-10-05T10:02:00+00:00")  # the end of the desktop recheck
         # While the desktop stays unavailable the route waits without starting anything.
         self.advance(60)
         result = self.checks(handlers)
-        self.assertEqual((result["handler_calls"], result["results"][0]["reason"]), (0, "OWNER_DESKTOP_UNAVAILABLE"))
+        self.assertEqual((result["handler_calls"], result["results"][0]["state"], result["results"][0]["next_retry_at"]),
+                         (0, "waiting", "2026-10-05T10:02:00+00:00"))
         self.assertEqual(len(self.native_calls), 1)
         # After the recheck period the same question reads into a fresh folder.
         self.native_state = "captured"; self.advance(61)
@@ -282,15 +312,18 @@ class IndiaMartSignedInRouteTests(unittest.TestCase):
         self.assertEqual(self.reads(), [self.at])
         self.assertEqual(self.owner()[0], aid)
 
-    def test_a_browser_refusal_before_launch_is_a_calm_uncounted_wait(self):
-        self.sign_in(); handlers = self.handlers(); self.native_state = "refused"
-        task_id = self.prepare(run="refused")[0]
+    def test_a_busy_browser_before_launch_is_a_calm_uncounted_wait(self):
+        self.sign_in(); handlers = self.handlers(); self.native_state = "busy"
+        task_id = self.prepare(run="busy")[0]
         result = self.checks(handlers)
         self.assertEqual((result["results"][0]["state"], result["results"][0]["reason"]),
-                         ("waiting", "NATIVE_PUBLIC_ARTIFACT_EXISTS"))
+                         ("waiting", "SIGNED_IN_BROWSER_BUSY"))
         self.assertFalse(self.task(task_id).get("reconcile_required"))
+        self.assertEqual(self.task(task_id)["next_retry_at"], (timestamp(self.at) + timedelta(seconds=120)).isoformat())
         self.assertEqual((self.owner()[1]["state"], self.reads()), ("reserved", []))
         self.native_state = "captured"
+        self.assertEqual(self.checks(handlers)["counts"], {"waiting": 1})  # not before its recheck
+        self.advance(120)
         self.assertEqual(self.checks(handlers)["counts"], {"acquired": 1})
 
     def test_a_read_counted_elsewhere_just_before_launch_waits_before_the_launch_guard(self):
@@ -308,17 +341,21 @@ class IndiaMartSignedInRouteTests(unittest.TestCase):
         self.assertEqual(self.checks(handlers)["counts"], {"acquired": 1})
         self.assertEqual(len(self.native_calls), 1)
 
-    def test_a_start_the_operating_system_refused_is_a_calm_wait(self):
-        self.sign_in(); handlers = self.handlers()
-
+    def test_other_refusals_before_launch_are_failures_not_calm_waits(self):
+        # Only the signed-in browser's own waits and a busy record are calm
+        # (signed_in_attempts.CALM_CODES); anything else must be seen.
         def refused(url, expression, folder, **options):
             raise PermissionError("Synthetic refusal before any file was written")
-        self.native = refused
-        self.prepare(run="os-refused")
-        result = self.checks(handlers)
-        self.assertEqual((result["results"][0]["state"], result["results"][0]["reason"]),
-                         ("waiting", "SIGNED_IN_BROWSER_START_FAILED"))
-        self.assertEqual((self.owner()[1]["state"], self.reads()), ("reserved", []))
+        for state, native, reason in (("refused", None, "NATIVE_PUBLIC_ARTIFACT_EXISTS"),
+                                      ("captured", refused, "SOURCE_ACTION_FAILED")):
+            with self.subTest(reason=reason):
+                self.setUp(); self.sign_in(); handlers = self.handlers(); self.native_state = state
+                if native:
+                    self.native = native
+                self.prepare(run="refused-" + state)
+                row = self.checks(handlers)["results"][0]
+                self.assertNotEqual(row["state"], "waiting")
+                self.assertEqual(row["reason"], reason)
 
     def test_a_collector_called_while_the_owner_is_signed_out_waits_without_any_intent(self):
         handlers = self.handlers(); request = supplier_request_for_state(self.memory.snapshot(), "indiamart", QUERY)
@@ -374,9 +411,11 @@ class IndiaMartSignedInRouteTests(unittest.TestCase):
             aid, owner = self.owner()
             folder = self.memory.root / "supplier_routes" / "shared" / aid
             self.assertEqual((owner["state"], (folder / NOT_STARTED).is_file()), ("dispatching", True))
-            # Still failing: the next pass waits calmly again, reading nothing.
+            # Still failing: the next pass after the recheck waits calmly again, reading nothing.
+            self.advance(120)
             result = self.checks(handlers)
             self.assertEqual((result["handler_calls"], result["results"][0]["reason"]), (0, "SIGNED_IN_START_RECOVERY_PENDING"))
+            self.assertEqual(result["results"][0]["next_retry_at"], (timestamp(self.at) + timedelta(seconds=120)).isoformat())
         self.native_state = "captured"; self.advance(121)
         self.assertEqual(self.checks(handlers)["counts"], {"acquired": 1})
         self.assertFalse((folder / NOT_STARTED).exists())

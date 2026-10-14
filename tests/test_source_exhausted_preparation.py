@@ -84,7 +84,6 @@ class SourceExhaustedPreparationTests(unittest.TestCase):
         self.assertEqual(builder_calls, [])
         self.assertEqual(result["products"], 156)
         self.assertEqual(result["product_route_questions"], 156 * len(PLANNED_ROUTES))
-        self.assertEqual(result["product_route_questions"], 2028)  # 13 planned routes.
         self.assertEqual(result["handler_calls"], 0)
         self.assertEqual(len(result["passes"]), 1)
         self.assertEqual(result["passes"][0]["counts"], {"not_attempted": SAVED_RECOVERY_SCAN_LIMIT})

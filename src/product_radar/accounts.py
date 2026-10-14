@@ -341,6 +341,33 @@ def account_pool_status(root, journal, registry=None, *, now=None):
             "note": "Rows show configured saved account periods; totals retain every original journal period, including inactive profiles. Opening balances are dated inputs, not current provider balances. Holds are not bills."}
 
 
+def enable_account_list(root):
+    """Cutover step (W13): switch on the account list with the one funded account.
+
+    Writes ``config/local/apify_accounts.json`` naming the four existing
+    private files of the current account. No key is read, no provider is
+    called and no unfunded account is added. Repeating it is harmless; a
+    different existing list is never replaced.
+    """
+    root = Path(root)
+    entry = {"id": "main", "enabled": True, "priority": 0, "credential": "config/local/providers.env",
+             "binding": "config/local/apify_binding.json", "profile": "config/local/apify_profile.json",
+             "handover": "config/local/apify_handover.json"}
+    for field in ("credential", "binding", "profile", "handover"):
+        if not _private_reference(root, entry[field]).is_file():
+            raise SafetyError("ACCOUNT_FILES_REQUIRED")
+    value = {"schema_version": REGISTRY_VERSION, "pool_enabled": True, "accounts": [entry]}
+    path = _private_reference(root, "config/local/" + REGISTRY_NAME)
+    if path.exists():
+        if load_json(path, 32768) != value:
+            raise SafetyError("ACCOUNT_REGISTRY_EXISTS")
+        return {"written": False, "path": "config/local/" + REGISTRY_NAME}
+    load_binding(_private_reference(root, entry["binding"]))
+    atomic_json(path, value)
+    load_account_registry(root)  # the list must be valid as written
+    return {"written": True, "path": "config/local/" + REGISTRY_NAME}
+
+
 def load_binding(path):
     path = Path(path)
     safe_path(path.parent)
@@ -382,7 +409,15 @@ def save_binding(path, binding, journal, *, account_scope=False, renewal_origin_
             and isinstance(proof.get("origins"), list))
         if not renewal:
             raise SafetyError("ACCOUNT_RENEWAL_ORIGIN_PROOF_INVALID")
-    if not same_identity and not renewal and not (account_scope and old is None) and not journal.can_switch_key(namespace=(old or binding).namespace if account_scope else None):
+    # The same key of the same account entering its next month is not a key
+    # change: earlier read-cost holds stay in the ledger and do not block it.
+    # A finished job's unknown bill or an unsent/uncertain job still does.
+    period_renewal = (old is not None and old.period != binding.period
+                      and all(getattr(old, field) == getattr(binding, field) for field in ("account_key", "role", "generation", "token_digest"))
+                      and not any(a["namespace"] == old.namespace and a["submission"] in ("reserved", "uncertain", "submitted")
+                                  and (not a["remote_status"] or a["charge"] is None) for a in journal.state()[1].values()))
+    if (not same_identity and not renewal and not period_renewal and not (account_scope and old is None)
+            and not journal.can_switch_key(namespace=(old or binding).namespace if account_scope else None)):
         raise SafetyError("OLD_ACCOUNT_RECOVERY_REQUIRED")
     if path.exists():
         if old.token_digest != binding.token_digest and old.generation == binding.generation:

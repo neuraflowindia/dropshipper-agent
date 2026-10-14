@@ -35,7 +35,7 @@ def renewed_read_operations(attempts, namespace=None):
             if namespace is None or value["namespace"] == namespace]
 
 
-def _renewed_read_commitment(attempts, namespace):
+def renewed_read_commitment(attempts, namespace):
     return sum((usd(row["charge"] if row["charge"] is not None else row["cap"])
                 for row in renewed_read_operations(attempts, namespace)), Decimal(0))
 
@@ -96,6 +96,33 @@ def load_json(path, limit=32768):
         return decode_json(raw)
     except OSError:
         raise SafetyError("SAVED_FILE_UNAVAILABLE") from None
+
+
+@contextmanager
+def file_lock(path, wait, code):
+    """An exclusive lock on ``path`` (created if missing) for short local record
+    work. Waits at most ``wait`` seconds, then refuses with ``code``; never
+    steals a held lock. The kernel releases it if the holder dies."""
+    path = Path(path)
+    safe_path(path.parent)
+    if path.is_symlink():
+        raise SafetyError("SYMLINK_PATH_REFUSED")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+b") as handle:
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise SafetyError(code) from None
+                time.sleep(min(.1, remaining))
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 class Journal:
@@ -237,7 +264,7 @@ class Journal:
                         transfer = usd(data["allocation_transfer"])
                         committed = sum((usd(a["cap"]) if a["charge"] is None else usd(a["charge"]) + usd(a["read_charge"] if a["read_charge"] is not None else a["read_hold"]))
                                         for a in attempts.values() if a["namespace"] == data["namespace"])
-                        committed += _renewed_read_commitment(attempts, data["namespace"])
+                        committed += renewed_read_commitment(attempts, data["namespace"])
                         future = usd(budget["policy"]["future_allocation"])
                         maximum = min(PERIOD_CAP, min(usd(budget["allowance"]), PERIOD_GRANT) - PROTECTED_BUFFER) + PENNY_TOLERANCE
                         if (data["work_scope"] != "production" or data["scope_decision"] != scope.get("decision")
@@ -279,7 +306,7 @@ class Journal:
                     committed = sum((usd(row["cap"]) if row["charge"] is None else usd(row["charge"])
                                      + usd(row["read_charge"] if row["read_charge"] is not None else row["read_hold"]))
                                     for row in attempts.values() if row["namespace"] == data["namespace"])
-                    committed += _renewed_read_commitment(attempts, data["namespace"])
+                    committed += renewed_read_commitment(attempts, data["namespace"])
                     maximum = min(PERIOD_CAP, min(usd(budget["allowance"]), PERIOD_GRANT) - PROTECTED_BUFFER) + PENNY_TOLERANCE
                     if (data["scope_decision"] != scope.get("decision") or transfer != cap or cap > future
                             or cap > usd(scope.get("source_allocations", {}).get(data["stage"], "0"))
@@ -370,7 +397,12 @@ class Journal:
                     elif kind == "charge" and set(data) == {"attempt", "usd", "evidence"} and attempt["remote_status"] and attempt["charge"] is None:
                         usd(data["usd"]); identifier(data["evidence"])
                         attempt["charge"] = data["usd"]
-                    elif kind == "charge_update" and set(data) == {"attempt", "previous_usd", "usd", "evidence"} and attempt["remote_status"] and attempt["charge"] is not None:
+                    elif kind == "charge_final" and set(data) == {"attempt", "evidence"} and attempt["remote_status"] and attempt["charge"] is not None and not attempt.get("charge_final"):
+                        # A later re-read (at least an hour after the run ended)
+                        # matched the recorded bill: it is not read again.
+                        identifier(data["evidence"])
+                        attempt["charge_final"] = True
+                    elif kind == "charge_update" and set(data) == {"attempt", "previous_usd", "usd", "evidence"} and attempt["remote_status"] and attempt["charge"] is not None and not attempt.get("charge_final"):
                         identifier(data["evidence"])
                         if usd(data["previous_usd"]) != usd(attempt["charge"]) or usd(data["usd"]) <= usd(attempt["charge"]):
                             raise ValueError
@@ -531,7 +563,7 @@ class Journal:
         committed = sum((usd(a["cap"]) if a["charge"] is None else usd(a["charge"]) +
                          usd(a["read_charge"] if a["read_charge"] is not None else a["read_hold"])
                          for a in matching), Decimal(0))
-        committed += _renewed_read_commitment(attempts, namespace)
+        committed += renewed_read_commitment(attempts, namespace)
         # The opening balance already reflects pre-project/external spending.
         opening = min(usd(budget["allowance"]), PERIOD_GRANT)
         headroom = min(PERIOD_CAP, opening - PROTECTED_BUFFER) + PENNY_TOLERANCE - allocation - committed

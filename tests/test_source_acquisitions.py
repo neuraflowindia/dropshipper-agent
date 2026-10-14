@@ -117,6 +117,44 @@ class SourceAcquisitionTests(unittest.TestCase):
             self.claim(owner_id="other-consumer")
         self.assertEqual(len(self.owners()), 1)
 
+    def saved_closed_route_owner(self, acquisition_id="retired-movers-owner", *, damage=False):
+        """A saved owner of the retired Movers & Shakers route, as the live store holds."""
+        live = self.claim()
+        row = deepcopy(self.memory.snapshot()["batch_runs"][live["acquisition_id"]])
+        request = {"node": "kitchen", "url": "https://www.amazon.in/gp/movers-and-shakers/kitchen"}
+        row["binding"].update(acquisition_id=acquisition_id, route="amazon-movers-and-shakers", request=request,
+            original_attempt_id=acquisition_id, physical_request_fingerprint="f" * 64 if damage else
+            physical_request_fingerprint("amazon-movers-and-shakers", request, history=True))
+        row["binding_hash"] = digest(row["binding"])
+        self.memory.put("batch_runs", acquisition_id, row)
+        return live, row
+
+    def test_saved_closed_route_owner_is_verified_history_never_a_shared_read_blocker(self):
+        import product_radar.source_acquisitions as module
+        live, closed = self.saved_closed_route_owner()
+        # Every live-route claim keeps working while the closed owner is in the store.
+        self.assertEqual(self.claim(owner_id="other-consumer")["acquisition_id"], live["acquisition_id"])
+        other = self.claim(request={**self.request, "query": "wall mounted kitchen organizer"}, owner_id="two")
+        self.assertEqual(other["action"], "reserved")
+        state = self.memory.snapshot()
+        with module.source_readiness_owner_scope(state):
+            self.assertEqual(module._owners(state, closed["binding"]["physical_request_fingerprint"]), [])
+            self.assertEqual(module._owners(state, physical_request_fingerprint(self.route, self.request))[0][0],
+                             live["acquisition_id"])
+        self.assertEqual(module._record(state, "retired-movers-owner")["binding"]["route"], "amazon-movers-and-shakers")
+        # The closed route is history only: no new fingerprint, claim or question.
+        with self.assertRaisesRegex(SafetyError, "RESEARCH_QUESTION_ROUTE_INVALID"):
+            physical_request_fingerprint("amazon-movers-and-shakers", closed["binding"]["request"])
+        with self.assertRaisesRegex(SafetyError, "RESEARCH_QUESTION_ROUTE_INVALID"):
+            self.claim(route="amazon-movers-and-shakers", request=closed["binding"]["request"])
+        with self.assertRaisesRegex(SafetyError, "RESEARCH_QUESTION_ROUTE_INVALID"):
+            physical_request_fingerprint("not-a-route", closed["binding"]["request"], history=True)
+
+    def test_damaged_closed_route_owner_is_still_refused(self):
+        self.saved_closed_route_owner(damage=True)
+        with self.assertRaisesRegex(SafetyError, "SOURCE_ACQUISITION_RECORD_INVALID"):
+            self.claim(owner_id="other-consumer")
+
     def test_readiness_scope_validates_all_owners_once_without_changing_lookup_results(self):
         import product_radar.source_acquisitions as module
         first = self.claim()
@@ -408,14 +446,15 @@ class SourceAcquisitionTests(unittest.TestCase):
             record_source_response(self.memory, first["acquisition_id"], receipt_path=path, as_of=AFTER)
         self.assertEqual(self.row(first)["response_ids"], [])
 
-    def test_all_fourteen_routes_map_to_actual_capture_sources(self):
+    def test_every_route_maps_to_actual_capture_sources(self):
         from product_radar.source_coverage import ROUTES
         self.assertEqual(set(CAPTURE_SOURCES), set(ROUTES))
-        self.assertEqual(CAPTURE_SOURCES, {"meta-ads": "meta", "amazon-bestsellers": "amazon",
-            "amazon-movers-and-shakers": "amazon", "amazon-search": "amazon", "flipkart-search": "flipkart",
+        self.assertNotIn("amazon-movers-and-shakers", CAPTURE_SOURCES)  # Retired in Plan R10 W6.
+        self.assertLessEqual({"meta-ads": "meta", "amazon-bestsellers": "amazon",
+            "amazon-search": "amazon", "flipkart-search": "flipkart",
             "google-trends": "trends", "blinkit": "blinkit", "zepto": "zepto", "instamart": "instamart",
             "google-suppliers": "supplier", "google-maps": "supplier", "indiamart": "supplier",
-            "tradeindia": "supplier", "company-pages": "supplier"})
+            "tradeindia": "supplier", "company-pages": "supplier"}.items(), CAPTURE_SOURCES.items())
         # Trends actually uses the existing importer. Supplier routes normally
         # save supplier checks, not captures; this test invents no such rows.
         first = self.claim(route="google-trends")

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "kind": "crowding-thresholds",
+  "version": "crowding-thresholds-v1",
+  "high": {
+    "bestseller_hits": 1,
+    "rated_listings": 3,
+    "rated_min_ratings": 1000,
+    "listings": 8,
+    "brands": 5,
+    "bought_listings": 2,
+    "bought_min_per_month": 1000
+  },
+  "low": {
+    "max_listings": 2,
+    "ratings_below": 200
+  },
+  "calibration": {
+    "after_checked_types": 50,
+    "high_share_above": "0.70",
+    "high_share_below": "0.10"
+  }
+}

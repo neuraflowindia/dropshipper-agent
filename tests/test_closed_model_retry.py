@@ -149,6 +149,103 @@ class ClosedModelRetryTests(unittest.TestCase):
     def test_subscription_failures_are_not_automatic(self): self.assert_not_automatic("Usage limit reached")
     def test_generic_provider_failures_are_not_automatic(self): self.assert_not_automatic("Unclassified local wrapper failure")
 
+    # Money-guard refusals after the intent (the watch changed between the
+    # pre-intent check and the call): proven never started, retried when due.
+
+    def refused_by_guard(self, code="AI_PAID_CREDITS_USED"):
+        class Refused(SuccessRunner):
+            def check_new_execution(self):
+                pass  # the pre-intent check still passed
+
+            def __call__(self, *args):
+                self.calls.append(args)
+                raise SafetyError(code)  # the call's own fresh admission refuses before the model
+        result = review_functional_definitions(self.memory, [self.cid], Refused(), as_of=NOW)
+        job_id = next(jid for jid, row in self.memory.snapshot()["jobs"].items()
+                      if row["request"]["payload"].get("mode") == MODE)
+        return job_id, self.memory.root / "ai_jobs" / job_id, result
+
+    def test_money_guard_refusal_after_intent_retries_the_same_job_once_due(self):
+        for code in ("AI_PLAN_LIMIT_CREDITS_PROTECTED", "AI_USAGE_READ_FAILED", "AI_SPEND_WATCH_UNAVAILABLE"):
+            with self.subTest(code=code):
+                fresh = ClosedModelRetryTests(self._testMethodName); fresh.setUp(); self.addCleanup(fresh.doCleanups)
+                job_id, _, _ = fresh.refused_by_guard(code)
+                self.assertEqual((fresh.hint(job_id)["ready"], fresh.hint(job_id)["failure_code"]), (True, code))
+        job_id, base, first = self.refused_by_guard()
+        self.assertEqual(first["failures"][self.cid]["reason"], "AI_PAID_CREDITS_USED")
+        self.assertEqual(sorted(path.name for path in base.iterdir()), ["failure.json", "intent.json"])
+        originals = {path.name: path.read_bytes() for path in base.iterdir()}
+        hint = self.hint(job_id, as_of=BEFORE)
+        self.assertEqual((hint["ready"], hint["next_retry_at"], hint["failure_code"]), (False, AFTER, "AI_PAID_CREDITS_USED"))
+        self.assertEqual(set(self.hint(job_id)["original_proof"]["original_hashes"]), {"intent.json", "failure.json"})
+        runner = SuccessRunner()
+        result = review_functional_definitions(self.memory, [self.cid], runner, as_of=AFTER)
+        self.assertIn(self.cid, result["accepted"]); self.assertEqual(len(runner.calls), 1)
+        self.assertEqual(result["accepted"][self.cid]["job_id"], job_id)
+        self.assertEqual(current_attempt(base), base / "retry-1")
+        retries = load_json(base / "retries.json")
+        self.assertEqual((len(retries), retries[0]["closed_retry_proof"]["failure_code"]), (1, "AI_PAID_CREDITS_USED"))
+        for name, raw in originals.items(): self.assertEqual((base / name).read_bytes(), raw)
+
+    def test_a_money_wait_still_on_at_the_retry_starts_nothing_and_spends_no_retry(self):
+        job_id, base, _ = self.refused_by_guard()
+
+        class Waiting(SuccessRunner):
+            def check_new_execution(self):
+                raise SafetyError("AI_PAID_CREDITS_USED")
+        waiting = Waiting()
+        for _ in range(2):
+            result = review_functional_definitions(self.memory, [self.cid], waiting, as_of=AFTER)
+            self.assertEqual(result["failures"][self.cid]["reason"], "AI_PAID_CREDITS_USED")
+        self.assertEqual(waiting.calls, [])
+        self.assertEqual(len(load_json(base / "retries.json")), 1)
+        self.assertEqual(list((base / "retry-1").iterdir()) if (base / "retry-1").exists() else [], [])
+        runner = SuccessRunner()
+        result = review_functional_definitions(self.memory, [self.cid], runner, as_of=AFTER)
+        self.assertIn(self.cid, result["accepted"]); self.assertEqual(len(runner.calls), 1)
+        self.assertEqual(len(load_json(base / "retries.json")), 1)
+
+    def test_a_guard_code_beside_any_runner_file_is_not_proof_of_an_unstarted_model(self):
+        job_id, base, _ = self.refused_by_guard()
+        for name in ("runner_preflight.json", "runner_execution.json", "execution_failure.json"):
+            with self.subTest(name=name):
+                atomic_json(base / name, {"fixture": True})
+                with self.assertRaisesRegex(SafetyError, "AI_RETRY_RECONCILIATION_REQUIRED"):
+                    self.hint(job_id)
+                (base / name).unlink()
+        failure = load_json(base / "failure.json")
+        for changed in (dict(failure, execution_certainty="runner_returned"), dict(failure, at="2026-10-05T09:00:00+00:00")):
+            with self.subTest(changed=changed):
+                atomic_json(base / "failure.json", changed)
+                with self.assertRaisesRegex(SafetyError, "AI_RETRY_RECONCILIATION_REQUIRED"):
+                    self.hint(job_id)
+        atomic_json(base / "failure.json", failure)
+        self.assertTrue(self.hint(job_id)["ready"])
+
+    def test_jobs_runs_the_runners_own_guard_before_any_new_intent(self):
+        from product_radar.functional_definition_review import CONTRACT, PROMPT_VERSION, definition_review_input
+        payload = {"mode": MODE, "definition_contract": CONTRACT,
+                   "items": [definition_review_input(self.memory.snapshot(), self.cid, as_of=NOW)["item"]]}
+        seen = []
+
+        class Guarded(SuccessRunner):
+            def check_new_execution(self):
+                seen.append("runner")
+                raise SafetyError("AI_PAID_CREDITS_USED")
+
+        def caller(request, folder):
+            seen.append("caller")
+            self.assertFalse((folder / "intent.json").exists())
+        runner = Guarded(); intents = set(self.memory.root.glob("ai_jobs/*/intent.json"))
+        for supplied, expected in ((None, ["runner"]), (caller, ["runner", "caller", "runner"])):
+            with self.assertRaisesRegex(SafetyError, "AI_PAID_CREDITS_USED"):
+                Jobs(self.memory, runner, before_new_execution=supplied).run("B", payload, declared_version=PROMPT_VERSION)
+            self.assertEqual(seen, expected)  # the caller's check first, then the runner's own
+        self.assertEqual(runner.calls, [])
+        self.assertEqual(set(self.memory.root.glob("ai_jobs/*/intent.json")), intents)  # no new intent saved
+        with self.assertRaisesRegex(SafetyError, "AI_EXECUTION_GUARD_INVALID"):
+            Jobs(self.memory, type("Broken", (), {"check_new_execution": "not-callable"})())
+
     def test_forged_terminal_proof_and_changed_files_cannot_prepare_retry(self):
         job_id, base, _ = self.fail_closed()
         original = load_json(base / "execution_failure.json")

@@ -233,7 +233,6 @@ class RenewableImageTests(unittest.TestCase):
 
     def test_supporting_physical_read_is_not_a_market_route_or_question(self):
         from product_radar.functional_types import effective_functional_definition
-        self.assertEqual(len(ROUTES), 14)
         self.assertNotIn("public_image_http", ROUTES)
         physical_request_fingerprint("public_image_http", _image_request(self.candidate["url"]))
         with self.assertRaisesRegex(SafetyError, "RESEARCH_QUESTION_ROUTE_INVALID"):

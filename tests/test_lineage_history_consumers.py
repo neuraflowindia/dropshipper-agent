@@ -10,6 +10,7 @@ from test_report_selection import NOW
 from test_functional_source_market import functional_pool_fixture
 from test_functional_queries import DEFINITION, Runner as QueryRunner
 from test_functional_fit import FunctionalFitRunner
+from product_radar.crowding import refresh_crowding
 from product_radar.fit_description import FUNCTIONAL_CONTRACT
 from product_radar.fit_review import prepare_practical_fit_reviews, run_fit_reviews
 from product_radar.functional_lineage import accept_functional_lineage, prepare_lineage_input
@@ -144,6 +145,8 @@ class ReportLineageHistoryTests(unittest.TestCase):
             accept_functional_lineage(self.memory, prepared, reviewer="synthetic_operator",
                 reason="Explicit fictional narrowing with the same use and mechanism.",
                 distinctions=["The child's sink compatibility is narrower."])
+        # Revised meanings need their own free crowding answer (W6), as the stage would.
+        refresh_crowding(self.memory, ids, as_of=NOW)
 
     def pool(self):
         return build_report_pool(self.memory, as_of=NOW, recommendation_contract=RECOMMENDATION_CONTRACT)

@@ -8,7 +8,7 @@
   "disclosure": "Illustrative preview using sample data; not a live market-research report.",
   "disclosure_page": 1,
   "data_file": "preview/sample-data/client_preview_dataset.json",
-  "data_sha256": "400c648e35fda0bacf1838c9e429f7427c393a217dc17000df098e11359b766b",
+  "data_sha256": "e15f4f46772eefb66af400933b6f97ae807ce8825dd61b877fbb8da45edd1787",
   "image_manifest_file": "media/client-preview/product-visuals/manifest.json",
   "image_manifest_sha256": "a8fb240d6c1fb279e1866cc34b9f51eef7f5bb8b4285e37a803be4482a89e161",
   "summary": {

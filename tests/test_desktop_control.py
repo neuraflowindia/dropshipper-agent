@@ -138,6 +138,39 @@ class DesktopControlTests(unittest.TestCase):
                          ["google", "google-trends", "indiamart", "dropship-india", "dropdash"])
         self.assertTrue(all(set(row) == {"id", "site", "label", "state"} for row in result["sign_in"]["needs"]))
         self.assertTrue(result["sign_in"]["line"].startswith("Sign-in needed: Google account"))
+        self.assertEqual(result["sign_in"]["trends_line"], "Google Trends: waiting for the owner to sign in.")
+        from product_radar import signed_in_browser
+        signed_in_browser.note_sign_in_window(self.root, True, opened=True)
+        signed_in_browser.note_sign_in_window(self.root, False)
+        with patch.object(controls, "owned_programmes", return_value=[]):
+            self.assertEqual(controls.status(self.root)["sign_in"]["trends_line"],
+                             "Google Trends check: 0 of 3 signed-in reads saved complete results.")
+        signed_in_browser.record_site_observation(self.root, "indiamart", False)
+        before = controls.sign_in_summary(self.root)
+        (self.root / "data/operations/signed-in-browser/trends-proof-gate.json").write_text("{corrupt")
+        summary = controls.sign_in_summary(self.root)  # a corrupt Trends record never hides the sign-in needs
+        self.assertEqual(summary["trends_line"], "The Google Trends check records could not be read. See the project log.")
+        self.assertEqual((summary["line"], summary["needs"]), (before["line"], before["needs"]))
+        self.assertEqual([row["site"] for row in summary["needs"]], ["indiamart"])
+
+    def test_sign_in_area_shows_one_line_per_platform_needing_attention(self):
+        from product_radar import dropship_platforms as platforms
+        captured = self.root / "data/research/captured"
+        with patch.object(controls, "owned_programmes", return_value=[]):
+            self.assertEqual(controls.status(self.root)["sign_in"]["platform_lines"], [])
+        for route, reason in (("dropdash", "OWNER_SIGN_IN_REQUIRED"), ("dropship-india", "DROPSHIP_PLAN_REQUIRED"),
+                              ("deodap", "DROPSHIP_FEED_UNAVAILABLE")):  # the last is not the owner's to act on
+            refresh = platforms.load_refresh(captured, route)
+            platforms._save_refresh(captured, route, dict(refresh, wait={"reason": reason, "at": "2026-10-14T10:00:00+00:00"}))
+        with patch.object(controls, "owned_programmes", return_value=[]):
+            lines = controls.status(self.root)["sign_in"]["platform_lines"]
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(lines[0].startswith("Dropship India shows a paid plan or membership page"))
+        self.assertEqual(lines[1], "Dropdash needs you to sign in (Sign in to research sites).")
+        (captured / "dropship_platforms/dropdash/refresh.json").write_text("{corrupt")
+        summary = controls.sign_in_summary(self.root)  # a corrupt platform record never hides the sign-in needs
+        self.assertEqual(summary["platform_lines"], ["The dropshipping platform records could not be read. See the project log."])
+        self.assertTrue(summary["line"].startswith("Sign-in needed: Google account"))
 
     def test_open_sign_in_window_is_rechecked_at_most_every_thirty_seconds(self):
         from product_radar import signed_in_browser
@@ -160,7 +193,9 @@ class DesktopControlTests(unittest.TestCase):
             result = controls.status(self.root)
         self.assertEqual(result["state"], "ready")
         self.assertEqual(result["sign_in"], {"window_open": False, "needs": [],
-                                             "line": "The sign-in records could not be read. See the project log."})
+                                             "line": "The sign-in records could not be read. See the project log.",
+                                             "platform_lines": [],
+                                             "trends_line": "Google Trends: waiting for the owner to sign in."})
 
     def test_sign_in_action_opens_the_window_and_returns_research_status(self):
         from product_radar import signed_in_browser
@@ -211,6 +246,17 @@ class DesktopControlTests(unittest.TestCase):
         with patch.object(controls, "owned_programmes", return_value=[{"pid": 123}]), patch.object(controls.subprocess, "Popen") as launch:
             self.assertEqual(controls.run_worker(self.root, ["--tick", "--execute"])["state"], "already_running")
             launch.assert_not_called()
+
+    def test_a_worker_already_holding_the_worker_lock_is_not_duplicated(self):
+        from product_radar.runtime_storage import runtime_path
+        from product_radar.storage import file_lock
+        lock = runtime_path(self.root, "data/operations") / "desktop" / "worker.lock"
+        with file_lock(lock, 0, "FIXTURE_HELD"), patch.object(controls.subprocess, "Popen") as launch:
+            self.assertEqual(controls.run_worker(self.root, ["--tick", "--execute"]), {"state": "already_running"})
+            launch.assert_not_called()
+        with patch.object(controls, "file_lock", side_effect=SafetyError("SYMLINK_PATH_REFUSED")), \
+                self.assertRaisesRegex(SafetyError, "SYMLINK_PATH_REFUSED"):
+            controls.run_worker(self.root, ["--tick", "--execute"])  # other lock faults are not hidden
 
     def test_worker_refuses_unapproved_or_repeated_options(self):
         for arguments in (["--execute"], ["--tick", "--execute", "--publish"], ["--tick", "--execute", "--live-model", "--live-model"]):

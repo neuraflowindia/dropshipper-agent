@@ -78,6 +78,8 @@ namespace NeuraFlow.Dropshipper {
     internal sealed class SignInStatus {
         public bool window_open { get; set; }
         public string line { get; set; }
+        public string trends_line { get; set; }
+        public List<string> platform_lines { get; set; }
         public string notice { get; set; }
         public List<SignInNeed> needs { get; set; }
     }
@@ -297,7 +299,12 @@ namespace NeuraFlow.Dropshipper {
         }
         private void ApplySignIn(SignInStatus signIn) {
             // A busy/error notice stays until the owner's next action.
-            signInLine.Text = signInNotice ?? (signIn == null ? "" : signIn.line ?? "");
+            // The sign-in needs, one line per dropshipping platform needing attention,
+            // then the signed-in Google Trends check, each on its own line.
+            SetSignInText(signInNotice ?? (signIn == null ? "" : (signIn.line ?? "")
+                + (signIn.platform_lines == null ? "" : String.Concat(signIn.platform_lines.FindAll(
+                    line => !String.IsNullOrEmpty(line)).ConvertAll(line => "\n" + line).ToArray()))
+                + (String.IsNullOrEmpty(signIn.trends_line) ? "" : "\n" + signIn.trends_line)));
             SignInButton.Enabled = !signingIn && (signIn == null || !signIn.window_open);
             if (signIn == null || signIn.needs == null) return;
             var fresh = new List<SignInNeed>();
@@ -309,6 +316,19 @@ namespace NeuraFlow.Dropshipper {
             string text = fresh.Count == 1 && fresh[0].state == "expired" ? "The " + fresh[0].label + " sign-in has expired."
                 : "Sign-in needed for " + String.Join(", ", fresh.ConvertAll(need => need.label).ToArray()) + ".";
             Tray.ShowBalloonTip(10000, "Sign-in needed", text + " Open NeuraFlow Dropshipper and click Sign in to research sites.", ToolTipIcon.Info);
+        }
+        private void SetSignInText(string text) {
+            if (signInLine.Text == text) return;
+            signInLine.Text = text;
+            // The label grows with its lines (needs, platforms, then the Trends check), never clipping them.
+            signInLine.Height = Math.Max(20, TextRenderer.MeasureText(text, signInLine.Font,
+                new Size(signInLine.Width, 0), TextFormatFlags.WordBreak).Height + 4);
+            Relayout();
+        }
+        private void Relayout() {
+            spendLines.Top = signInLine.Bottom + 4;
+            hint.Top = spendLines.Top + spendLines.Height + 4;
+            ClientSize = new Size(ClientSize.Width, hint.Bottom + 12);
         }
         private void ApplySpend(ResearchStatus state) {
             // One line per spend or allowance item, as the status command words it.
@@ -322,8 +342,7 @@ namespace NeuraFlow.Dropshipper {
                 int height = lines.Count == 0 ? 0 : TextRenderer.MeasureText(text, spendLines.Font,
                     new Size(spendLines.Width, 0), TextFormatFlags.WordBreak).Height + 4;
                 spendLines.Height = height;
-                hint.Top = spendLines.Top + height + 4;
-                ClientSize = new Size(ClientSize.Width, hint.Bottom + 12);
+                Relayout();
             }
             if (state.spend_alerts == null) return;
             var fresh = new List<SpendAlert>();
@@ -341,7 +360,7 @@ namespace NeuraFlow.Dropshipper {
         internal async Task SignIn() {
             if (signingIn || changing) return;
             signingIn = true; SignInButton.Enabled = false; signInNotice = null;
-            signInLine.Text = "Opening the sign-in window…";
+            SetSignInText("Opening the sign-in window…");
             try {
                 ResearchStatus result = await controls.Call("sign-in");
                 signingIn = false;
@@ -349,7 +368,7 @@ namespace NeuraFlow.Dropshipper {
                 Apply(result);
             } catch (Exception error) {
                 // A sign-in problem never reads as a research Stop failure.
-                signingIn = false; signInNotice = error.Message; signInLine.Text = error.Message; SignInButton.Enabled = true;
+                signingIn = false; signInNotice = error.Message; SetSignInText(error.Message); SignInButton.Enabled = true;
             }
         }
         internal async Task RefreshStatus() {
@@ -446,6 +465,7 @@ namespace NeuraFlow.Dropshipper {
         internal List<SignInNeed> Needs = new List<SignInNeed> {
             new SignInNeed { id = "indiamart:expired:2026-10-14T10:00:00+00:00", site = "indiamart", label = "IndiaMART", state = "expired" },
             new SignInNeed { id = "dropdash:sign_in_needed:never", site = "dropdash", label = "Dropdash", state = "sign_in_needed" } };
+        internal List<string> PlatformLines = new List<string>();
         public Task<ResearchStatus> Call(string action) {
             if (Fail) throw new IOException("Controlled connection failure.");
             if (action == "start") { Enabled = true; Active = true; Starts++; }
@@ -456,7 +476,9 @@ namespace NeuraFlow.Dropshipper {
                 spend = Spend, spend_alerts = SpendAlerts,
                 sign_in = new SignInStatus { window_open = SignInWindowOpen, needs = Needs,
                     notice = action == "sign-in" && Busy ? "A research read is using the browser. Try again in a minute." : null,
-                    line = SignInWindowOpen ? "The sign-in window is open." : "Sign-in expired: IndiaMART. Click Sign in to research sites." } });
+                    line = SignInWindowOpen ? "The sign-in window is open." : "Sign-in expired: IndiaMART. Click Sign in to research sites.",
+                    platform_lines = PlatformLines,
+                    trends_line = "Google Trends check: 1 of 3 signed-in reads saved complete results." } });
         }
         public void LaunchWorker() { Workers++; }
         public void OpenLogs() { }
@@ -477,6 +499,10 @@ namespace NeuraFlow.Dropshipper {
                     checks["stopped_buttons"] = window.StartButton.Enabled && !window.StopButton.Enabled;
                     checks["sign_in_need_line_and_one_notification"] = window.Controls["SignInNeeds"].Text.StartsWith("Sign-in expired: IndiaMART") &&
                         window.NotificationsShown == 1 && window.SignInButton.Enabled;
+                    checks["trends_check_line_under_sign_in"] = window.Controls["SignInNeeds"].Text.EndsWith(
+                        "\nGoogle Trends check: 1 of 3 signed-in reads saved complete results.") &&
+                        window.Controls["SignInNeeds"].Height >= 2 * window.Controls["SignInNeeds"].Font.Height &&
+                        window.Controls["SpendLines"].Top >= window.Controls["SignInNeeds"].Bottom;
                     checks["spend_lines_and_one_combined_notification"] = window.Controls["SpendLines"].Text.StartsWith("AI weekly allowance: 76% used") &&
                         window.Controls["SpendLines"].Height > 0 && window.SpendNotificationsShown == 1 &&
                         window.LastSpendNotification.StartsWith("2 spending updates:");
@@ -492,7 +518,19 @@ namespace NeuraFlow.Dropshipper {
                         window.SignInButton.Enabled;
                     controls.Busy = false; window.SignInButton.PerformClick();
                     checks["sign_in_button_action"] = controls.SignIns == 2 && !window.SignInButton.Enabled &&
-                        window.Controls["SignInNeeds"].Text == "The sign-in window is open." && window.StartButton.Enabled;
+                        window.Controls["SignInNeeds"].Text == "The sign-in window is open.\nGoogle Trends check: 1 of 3 signed-in reads saved complete results." && window.StartButton.Enabled;
+                    controls.PlatformLines.Add("Dropdash needs you to sign in (Sign in to research sites).");
+                    controls.PlatformLines.Add("Dropship India shows a paid plan or membership page instead of products.");
+                    int linesBefore = window.Controls["SignInNeeds"].Height;
+                    await window.RefreshStatus();
+                    checks["platform_lines_in_sign_in_area"] = window.Controls["SignInNeeds"].Text ==
+                        "The sign-in window is open.\nDropdash needs you to sign in (Sign in to research sites)." +
+                        "\nDropship India shows a paid plan or membership page instead of products." +
+                        "\nGoogle Trends check: 1 of 3 signed-in reads saved complete results." &&
+                        window.Controls["SignInNeeds"].Height > linesBefore &&
+                        window.Controls["SpendLines"].Top >= window.Controls["SignInNeeds"].Bottom;
+                    controls.PlatformLines.Clear();
+                    await window.RefreshStatus();
                     window.StartButton.PerformClick();
                     checks["start_button_action"] = controls.Starts == 1 && controls.Workers == 1;
                     checks["running_buttons"] = !window.StartButton.Enabled && window.StopButton.Enabled;

@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "kind": "apify-period-allocation-v1",
+  "reserve_usd": "0.55",
+  "sources": {"meta": "4.45"},
+  "note": "Each new Apify month is earmarked automatically for the deeper Meta read (Plan R10 W11): at most the month's free allowance less US$0.55 (the protected US$0.50 buffer plus the ledger's five-cent tolerance). No paid plan is ever used."
+}

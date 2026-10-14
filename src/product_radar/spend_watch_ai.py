@@ -47,6 +47,8 @@ PAUSE_REASON = "AI_PAID_CREDITS_USED"
 PROTECT_REASON = "AI_PLAN_LIMIT_CREDITS_PROTECTED"
 READ_FAILED = "AI_USAGE_READ_FAILED"
 WATCH_UNAVAILABLE = "AI_SPEND_WATCH_UNAVAILABLE"
+# Every refusal the guard raises; all of them come before the model starts.
+GUARD_CODES = (PROTECT_REASON, PAUSE_REASON, READ_FAILED, WATCH_UNAVAILABLE)
 LABEL = "Codex paid credits"
 _LIMIT_ID = re.compile(r"[A-Za-z0-9_.-]{1,80}")
 _REACHED = re.compile(r"[a-z_]{1,80}")

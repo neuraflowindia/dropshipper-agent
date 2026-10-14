@@ -60,9 +60,9 @@ def _route_source(route):
     from .source_coverage import ROUTES
     if not isinstance(route, str) or route not in ROUTES:
         raise SafetyError("RESEARCH_SCOPE_ROUTE_INVALID")
-    return ("meta" if route == "meta-ads" else "amazon" if route.startswith("amazon-") else
+    return ("meta" if route in ("meta-ads", "meta-ads-depth") else "amazon" if route.startswith("amazon-") else
             "flipkart" if route == "flipkart-search" else route if route in ("blinkit", "zepto", "instamart") else
-            "trends" if route == "google-trends" else "supplier")
+            "trends" if route == "google-trends" else route if ROUTES[route]["source"] == "dropship-platforms" else "supplier")
 
 
 def _reference_record(state, table, record_id):
@@ -117,7 +117,7 @@ def _source_context(table, record_id, row):
             if context["route"] is None:
                 context["route"] = ("meta-ads" if row.get("source") == "meta" else
                     row["source"] if row.get("source") in ("blinkit", "zepto", "instamart") else
-                    {"bestsellers": "amazon-bestsellers", "movers-and-shakers": "amazon-movers-and-shakers",
+                    {"bestsellers": "amazon-bestsellers",
                      "product-search": "amazon-search" if row.get("source") == "amazon" else "flipkart-search",
                      "product_search": "amazon-search" if row.get("source") == "amazon" else "flipkart-search"}.get(facts.get("list_type")))
     timestamp(context.get("observed_at"))

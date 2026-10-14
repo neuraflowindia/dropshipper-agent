@@ -91,14 +91,18 @@ class ReadinessSnapshotPairingReviewTests(TestCase):
         self.assertEqual(self.source.calls, [])
 
     def test_discovery_propagates_corrupt_replaced_one_argument_base(self):
+        from product_radar.meta_browser import meta_direct_source_handlers
         handlers = {route: dict(value) for route, value in self.source.handlers.items()}
+        # Meta is the one discovery route (D4); its shared leaf's hint is replaced.
+        handlers["meta-ads"] = dict(meta_direct_source_handlers(self.memory, shared_acquisitions=True,
+            browser=lambda *_args, **_options: self.fail("No Meta page is read")))
         def corrupt(_context):
             raise SafetyError("RESEARCH_EVENTS_INVALID")
-        handlers["amazon-search"]["marketplace_due_hint"] = corrupt
+        handlers["meta-ads"]["source_due_hint"] = corrupt
         state = self.memory.snapshot(); before = deepcopy(state); files = self.canonical_files()
         with self.assertRaisesRegex(SafetyError, "RESEARCH_EVENTS_INVALID"):
             discovery_wave_readiness(self.memory, "independent", catalogue_fixture(), handlers=handlers,
-                                     as_of=NOW, include_lists=False, state=state)
+                                     as_of=NOW, state=state)
         self.assertEqual(state, before)
         self.assertEqual(self.canonical_files(), files)
         self.assertEqual(self.source.calls, [])
@@ -107,7 +111,7 @@ class ReadinessSnapshotPairingReviewTests(TestCase):
         state = self.memory.snapshot(); before = deepcopy(state); files = self.canonical_files()
         with patch.object(self.memory, "snapshot", side_effect=AssertionError("Discovery nested canonical snapshot")):
             result = discovery_wave_readiness(self.memory, "independent", catalogue_fixture(),
-                handlers=self.source.handlers, as_of=NOW, include_lists=False, state=state)
+                handlers=self.source.handlers, as_of=NOW, state=state)
         self.assertTrue(result["new_wave_ready"])
         self.assertEqual(state, before)
         self.assertEqual(self.canonical_files(), files)

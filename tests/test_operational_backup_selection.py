@@ -503,6 +503,19 @@ class EssentialBackupSelectionTests(unittest.TestCase):
         self.assertEqual(set(self.files(selected)), set(locations))
         self.assertFalse(selected["unsafe"] or selected["unresolved_required"])
 
+    def test_deeper_meta_read_receipts_are_source_captures_not_incomplete_backups(self):
+        # meta_depth.collect_depth saves each paid read's receipt in its own area.
+        receipt = self.json("data/research/captured/meta_depth/source-acquisition-depth/receipt.json",
+                            {"version": "meta-depth-v2", "acquisition_id": "source-acquisition-depth", "capture": None})
+        self.state["source_checks"]["meta-depth-receipt"] = {"reference": str(receipt)}
+        selected = self.select(multipart=True)
+        self.assertEqual(self.files(selected)[receipt.relative_to(self.root).as_posix()]["kind"], "source_capture")
+        self.assertFalse(selected["unsafe"] or selected["unresolved_required"])
+        # The area list stays exact: a look-alike folder is still refused.
+        other = self.json("data/research/captured/meta_depth_private/one/receipt.json", {"public": True})
+        self.state["source_checks"]["meta-depth-receipt"] = {"reference": str(other)}
+        self.assertIn("BACKUP_SELECTION_SCOPE_INVALID", {row["reason"] for row in self.select()["unsafe"]})
+
     def test_legacy_public_directory_does_not_admit_private_json_fields(self):
         path = self.json("media/live/supplier-captures/mixed.json", {"state": "failed", "access_token": "fictional-secret"})
         self.state["source_checks"]["legacy-private"] = {"reference": str(path)}
@@ -1635,6 +1648,69 @@ class EssentialBackupSelectionTests(unittest.TestCase):
                 selected = self.select()
                 self.assertEqual(selected["files"], [])
                 self.assertTrue(selected["unsafe"])
+
+    def test_signed_in_read_pacing_is_a_checked_public_setting(self):
+        from product_radar.signed_in_pacing import SETTINGS
+        from product_radar.storage import load_json
+        good = load_json(SETTINGS)
+        path = self.json("config/research/signed_in_reads.json", good)
+        selected = self.select()
+        self.assertEqual(self.files(selected)[path.relative_to(self.root).as_posix()]["kind"], "public_setting")
+        self.assertEqual(selected["unsafe"], [])
+        # The same rules the pacing reader applies: bounds, known sites, exact fields.
+        for sites in ({"indiamart": {"min_interval_seconds": 0, "daily_ceiling": 150}},
+                      {"unknown-site": {"min_interval_seconds": 30, "daily_ceiling": 1}},
+                      {"indiamart": {"min_interval_seconds": 30, "daily_ceiling": 150, "account": "x"}}):
+            with self.subTest(sites=sites):
+                self.json("config/research/signed_in_reads.json", dict(good, sites=sites))
+                selected = self.select()
+                self.assertEqual(selected["files"], [])
+                self.assertEqual({row["reason"] for row in selected["unsafe"]}, {"SIGNED_IN_PACING_SETTINGS_INVALID"})
+
+    def test_crowding_thresholds_are_a_checked_public_setting(self):
+        from product_radar.crowding import SETTINGS
+        from product_radar.storage import load_json
+        good = load_json(SETTINGS)
+        path = self.json("config/research/crowding.json", good)
+        selected = self.select()
+        self.assertEqual(self.files(selected)[path.relative_to(self.root).as_posix()]["kind"], "public_setting")
+        self.assertEqual(selected["unsafe"], [])
+        self.json("config/research/crowding.json", dict(good, high=dict(good["high"], listings="8")))
+        selected = self.select()
+        self.assertEqual(selected["files"], [])
+        self.assertEqual({row["reason"] for row in selected["unsafe"]}, {"CROWDING_SETTINGS_INVALID"})
+
+    def test_apify_month_earmark_is_a_checked_public_setting(self):
+        from product_radar.meta_depth_money import ALLOCATION
+        from product_radar.storage import load_json
+        good = load_json(ALLOCATION)
+        path = self.json("config/research/apify_allocation.json", good)
+        selected = self.select()
+        self.assertEqual(self.files(selected)[path.relative_to(self.root).as_posix()]["kind"], "public_setting")
+        self.assertEqual(selected["unsafe"], [])
+        # The same rules the earmark reader applies: protected buffer, known sources, exact fields.
+        for bad in (dict(good, reserve_usd="0.10"), dict(good, sources={"unknown": "1.00"}), dict(good, extra=1)):
+            with self.subTest(bad=bad):
+                self.json("config/research/apify_allocation.json", bad)
+                selected = self.select()
+                self.assertEqual(selected["files"], [])
+                self.assertEqual({row["reason"] for row in selected["unsafe"]}, {"APIFY_ALLOCATION_SETTINGS_INVALID"})
+
+    def test_reviewed_meta_request_settings_are_a_checked_production_input(self):
+        from product_radar.meta_depth import CONFIG
+        from product_radar.storage import load_json
+        good = load_json(CONFIG)
+        path = self.json("config/benchmarks/meta_first.json", good)
+        selected = self.select()
+        self.assertEqual(self.files(selected)[path.relative_to(self.root).as_posix()]["kind"], "public_setting")
+        self.assertEqual(selected["unsafe"], [])
+        for bad, reason in ((dict(good, trial_cap_usd="5.00"), "UNREVIEWED_CONFIG"),
+                            (dict(good, private_note="x"), "UNREVIEWED_CONFIG")):
+            with self.subTest(bad=bad):
+                self.json("config/benchmarks/meta_first.json", bad)
+                selected = self.select()
+                self.assertEqual(selected["files"], [])
+                self.assertEqual({row["reason"] for row in selected["unsafe"]}, {reason})
 
     def test_ai_public_probe_timeout_is_optional_and_has_exact_checker_bounds(self):
         base = {"model": "gpt-6-luna", "reasoning_effort": "high", "authentication": "chatgpt", "paid_fallback": False}

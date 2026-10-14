@@ -52,7 +52,8 @@ def validate_spec(spec):
              "/v2/acts/amazon-scraper~amazon-bestsellers-scraper",
              "/v2/acts/sourabhbgp~google-trends-scraper"}
     allowed = ((method == "POST" and path in {p + "/runs" for p in fixed})
-               or (method == "GET" and (path in fixed | {"/v2/actor-runs", "/v2/users/me", "/v2/users/me/usage/monthly"}
+               or (method == "GET" and (path in fixed | {"/v2/actor-runs", "/v2/users/me", "/v2/users/me/usage/monthly",
+                                                    "/v2/users/me/limits"}
                    or re.fullmatch(r"/v2/actor-runs/[A-Za-z0-9_-]{1,80}", path)
                    or re.fullmatch(r"/v2/actor-builds/[A-Za-z0-9_-]{1,80}", path)
                    or re.fullmatch(r"/v2/datasets/[A-Za-z0-9_-]{1,80}/items", path)

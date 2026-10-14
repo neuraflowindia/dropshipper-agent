@@ -1,14 +1,24 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { webcrypto, createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { validateFitPacket, validateFunctionalPacket, canonical, handleAdminRequest } from './release-admin.mjs';
-import { currentSupplierOutcome, retiredSupplierRoutes, supersedingRule, supplierFirstTransport } from './functional-packet.mjs';
+import { currentSupplierOutcome, deeperMetaNote, foldedRoutes, metaAds, metaAdvertiserCount, retiredSupplierRoutes, supersedingRule, supplierFirstTransport } from './functional-packet.mjs';
+
+// The offline Python producers run from the project folder with its own
+// interpreter: RADAR_PYTHON, else the project's .venv, else the shared one.
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const PYTHON = [process.env.RADAR_PYTHON, ROOT + '.venv/bin/python',
+  '/mnt/d/Coding/Business/Ideas and Trials and Forked and Misc/dropshipping-product-and-supplier-finder/.venv/bin/python']
+  .find(path => path && existsSync(path)) ?? 'python3';
+const PY_ENV = { ...process.env, PYTHONPATH: ROOT + 'src:' + ROOT + 'tests' };
 
 globalThis.crypto ??= webcrypto;
 // The actual offline Python producers generate this fixture. No handwritten
 // compatibility packet and no real source, model, upload or publication calls.
-const generated = spawnSync('.venv/bin/python', ['-c', `
+const generated = spawnSync(PYTHON, ['-c', `
 import json,tempfile,copy
 from pathlib import Path
 from test_functional_report_packet import functional_packet_fixture
@@ -171,7 +181,7 @@ with tempfile.TemporaryDirectory() as path:
  'replaced':{'facts':replaced,'manifest':replaced_manifest},'scoped':{'facts':scoped['dataset'],'manifest':scoped_manifest},
  'range':{'facts':range_report['dataset'],'manifest':range_manifest},
  'model_definitions':{'facts':model_report['dataset'],'manifest':model_manifest}},ensure_ascii=False))
-`], { encoding: 'utf8', maxBuffer: 12 * 1024 * 1024, env: { ...process.env, PYTHONPATH: 'src:tests' } });
+`], { encoding: 'utf8', maxBuffer: 12 * 1024 * 1024, env: PY_ENV, cwd: ROOT });
 assert.equal(generated.status, 0, generated.stderr);
 const fixture = JSON.parse(generated.stdout);
 const fresh = () => structuredClone(fixture);
@@ -422,12 +432,12 @@ test('supplier search outcome and retired routes match the Python owner exactly'
     [['a',row('indiamart','i','x/capture-parser-5.json','partial')],['b',row('tradeindia','t','x/capture-parser-5.json','completed_empty')]],
     [['a',row('google-maps','m','x\\capture-parser-5.json','failed')],['b',row('google-maps','m','x/capture.json','partial',later)]],
   ];
-  const python=spawnSync('.venv/bin/python',['-c',`
+  const python=spawnSync(PYTHON,['-c',`
 import json,sys
 from product_radar.supplier_effort import RETIRED_SUPPLIER_ROUTES,_current_outcome
 cases=json.load(sys.stdin)
 print(json.dumps({'retired':sorted(RETIRED_SUPPLIER_ROUTES),'outcomes':[_current_outcome([tuple(r) for r in rows]) for rows in cases]}))
-`],{encoding:'utf8',input:JSON.stringify(cases),env:{...process.env,PYTHONPATH:'src:tests'}});
+`],{encoding:'utf8',input:JSON.stringify(cases),env:PY_ENV,cwd:ROOT});
   assert.equal(python.status,0,python.stderr);
   const expected=JSON.parse(python.stdout);
   assert.deepEqual([...retiredSupplierRoutes].sort(),expected.retired);
@@ -451,15 +461,82 @@ test('superseded old questions follow the Python owner exactly',()=>{
     ['google-maps',{query:'q',transport:'public-http'},{query:'q',transport:'public-http'}],
     ['tradeindia',{query:'q',transport:'public-http'},{query:'q',transport:'public-browser'}],
   ];
-  const python=spawnSync('.venv/bin/python',['-c',`
+  const python=spawnSync(PYTHON,['-c',`
 import json,sys
 from product_radar.source_coverage import SUPPLIER_FIRST_TRANSPORT,_superseding_reason
 cases=json.load(sys.stdin)
 print(json.dumps({'first':SUPPLIER_FIRST_TRANSPORT,'rules':[_superseding_reason(*row) is not None for row in cases]}))
-`],{encoding:'utf8',input:JSON.stringify(cases),env:{...process.env,PYTHONPATH:'src:tests'}});
+`],{encoding:'utf8',input:JSON.stringify(cases),env:PY_ENV,cwd:ROOT});
   assert.equal(python.status,0,python.stderr);
   const expected=JSON.parse(python.stdout);
   assert.deepEqual(supplierFirstTransport,expected.first);
   assert.deepEqual(cases.map(row=>supersedingRule(...row)),expected.rules);
   assert.deepEqual(expected.rules,[true,false,true,true,false,false,true,false,false]);
 });
+
+test('the deeper Meta read folds into the single Meta client row, exactly like the Python owner',()=>{
+  const python=spawnSync(PYTHON,['-c',`
+import json
+from product_radar.report_source_facts import CLIENT_ROUTES, DEEPER_META_NOTE, FOLDED_ROUTES, PACKET_ROUTES
+print(json.dumps({'folded':FOLDED_ROUTES,'note':DEEPER_META_NOTE,'client':list(CLIENT_ROUTES),'packet':list(PACKET_ROUTES)}))
+`],{encoding:'utf8',env:PY_ENV,cwd:ROOT});
+  assert.equal(python.status,0,python.stderr);
+  const expected=JSON.parse(python.stdout);
+  assert.deepEqual(foldedRoutes,expected.folded);
+  assert.equal(deeperMetaNote,expected.note);
+  assert.ok(!expected.client.includes('meta-ads-depth')&&!expected.packet.includes('meta-ads-depth'));
+  assert.equal(expected.client.length,16);
+});
+
+test('free and deeper Meta reads of one ad count once, exactly like the Python owner',()=>{
+  // The deeper (paid) read fills what the free read lacks; known values that
+  // disagree still exclude the ad; one advertiser known by page address and by
+  // page ID is never counted twice (product_radar/meta_facts.py).
+  const ad=(id,facts,observed='2026-10-08T10:00:00+00:00',source='meta',adId='111')=>[id,{source,observed_at:observed,
+    facts:{ad_id:adId,advertiser_id:null,active:null,started_at:null,...facts}}];
+  const later='2026-10-08T11:00:00+00:00',shopA='https://www.facebook.com/ShopA/',shopB='https://www.facebook.com/ShopB/';
+  const cases=[
+    [ad('free',{active:true}),ad('deep',{advertiser_id:'998877',active:true,started_at:'2026-09-01T07:30:00+00:00'},later)],
+    [ad('free',{advertiser_url:'https://www.facebook.com/SinkShop/',started_at:'2026-09-01T00:00:00+00:00'}),ad('deep',{advertiser_id:'998877',started_at:'2026-08-31T19:30:00+00:00'},later)],
+    [ad('one',{advertiser_id:'1'}),ad('two',{advertiser_id:'2'},later)],
+    [ad('one',{started_at:'2026-09-01T00:00:00+00:00'}),ad('two',{started_at:'2026-09-04T00:00:00+00:00'},later)],
+    [ad('one',{active:false}),ad('two',{active:true},later)],
+    [ad('one',{active:false}),ad('two',{active:true})],
+    [ad('one',{advertiser_id:'5'}),ad('two',{advertiser_id:'5'},later,'amazon'),ad('three',{active:true,facts_only:1},later)],
+    // Two real advertisers: free ads by page address, deeper ads by page ID only.
+    [ad('a1',{advertiser_url:shopA},undefined,'meta','1'),ad('b1',{advertiser_url:shopB},undefined,'meta','2'),
+     ad('a2',{advertiser_id:'101'},later,'meta','3'),ad('b2',{advertiser_id:'202'},later,'meta','4')],
+    // The deeper read also names the page address: the forms are linked.
+    [ad('a1',{advertiser_url:shopA},undefined,'meta','1'),ad('b1',{advertiser_url:shopB},undefined,'meta','2'),
+     ad('a2',{advertiser_id:'101',advertiser_url:shopA},later,'meta','3'),ad('c1',{advertiser_id:'303'},later,'meta','5')],
+    // A merged ad teaches the link for another ad of the same advertiser.
+    [ad('free',{advertiser_url:shopA},undefined,'meta','1'),ad('deep',{advertiser_id:'101'},later,'meta','1'),
+     ad('other',{advertiser_id:'101'},later,'meta','2'),ad('third',{advertiser_url:shopB},later,'meta','3')],
+  ];
+  const python=spawnSync(PYTHON,['-c',`
+import json,sys
+from product_radar.meta_facts import advertiser_count, relevant_ads
+out=[]
+for rows in json.load(sys.stdin):
+    ads,conflicts=relevant_ads([(i,o) for i,o in rows if o['source']=='meta'])
+    valid=[v for k,v in ads.items() if k not in conflicts]
+    out.append({'count':advertiser_count(valid),'rows':[{'id':v['id'],'advertiser':v['advertiser'],'page_id':v['page_id'],
+        'page_address':v['page_address'],'active':v['active'],'started':v['started_at'],'observed':v['observed_at']} for v in valid]})
+print(json.dumps(out))
+`],{encoding:'utf8',input:JSON.stringify(cases),env:PY_ENV,cwd:ROOT});
+  assert.equal(python.status,0,python.stderr);
+  const expected=JSON.parse(python.stdout);
+  const fail=code=>{throw new Error(code);};
+  const actual=cases.map(rows=>{const valid=metaAds(rows,fail);return {count:metaAdvertiserCount(valid),rows:valid};});
+  assert.deepEqual(actual,expected);
+  assert.deepEqual(expected.map(row=>row.rows.map(r=>[r.id,r.advertiser,r.active,r.started])).slice(0,7),[
+    [['deep','998877',true,'2026-09-01T07:30:00+00:00']],
+    [['deep','998877',null,'2026-08-31T19:30:00+00:00']],
+    [], [],
+    [['two',null,true,null]],
+    [],
+    [['three','5',true,null]]]);
+  // An unlinked page address may be an unlinked page ID: the count is a lower bound.
+  assert.deepEqual(expected.map(row=>row.count),[1,1,0,0,0,0,1,2,2,2]);
+});
+

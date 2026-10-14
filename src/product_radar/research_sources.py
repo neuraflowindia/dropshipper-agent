@@ -25,7 +25,13 @@ SOURCES = {
     },
 }
 AMAZON_CASES = {category + "-" + kind: "https://www.amazon.in/gp/" + kind + "/" + category
-                for category in ("kitchen", "baby") for kind in ("bestsellers", "movers-and-shakers")}
+                for category in ("kitchen", "baby") for kind in ("bestsellers",)}
+# Amazon Movers & Shakers is retired (W6): it is never newly prepared or
+# launched, but its reviewed historical preparations and saved rows still load
+# and map exactly, so the ledger's earlier billing and reviews stay checkable.
+RETIRED_AMAZON_CASES = {category + "-movers-and-shakers": "https://www.amazon.in/gp/movers-and-shakers/" + category
+                        for category in ("kitchen", "baby")}
+REVIEWED_AMAZON_URLS = (*AMAZON_CASES.values(), *RETIRED_AMAZON_CASES.values())
 TREND_TERMS = ("sink organiser", "packing cubes", "napkin holder")
 TREND_INPUT = {"mode": "explore", "keywords": ", ".join(TREND_TERMS), "geo": "IN",
                "timeRange": "today 12-m", "category": "0", "googleProperty": "",
@@ -54,7 +60,7 @@ def validate_request(request):
     body = request.input
     if name == "amazon":
         if (not isinstance(body, dict) or set(body) != {"urls", "subcategoryLevel", "nextPage", "retries"}
-                or body["urls"] not in [[url] for url in AMAZON_CASES.values()]
+                or body["urls"] not in [[url] for url in REVIEWED_AMAZON_URLS]
                 or type(body["subcategoryLevel"]) is not int or body["subcategoryLevel"] != 0
                 or body["nextPage"] is not False or type(body["retries"]) is not int or body["retries"] != 3
                 or request.purpose != body["urls"][0].split("/")[4]):
@@ -85,7 +91,9 @@ def prepare_source(source, case, attempt_id, reviewed_at):
 
 
 def checked_source_pricing(actor, build, prepared, now=None):
-    _, spec = source_spec(prepared.actor)
+    name, spec = source_spec(prepared.actor)
+    if name == "amazon" and prepared.input["urls"][0] in RETIRED_AMAZON_CASES.values():
+        raise SafetyError("AMAZON_CASE_RETIRED")  # a historical record, never a new launch
     try:
         data, definition = actor["data"], build["data"]
         if (data["id"] != spec["actor_id"] or data.get("isDeprecated") is True

@@ -1,0 +1,103 @@
+{
+  "_note": "Synthetic snapshots in the shape the signed-in page read returns. The real Dropship India and Dropdash layouts are not yet seen signed in; every name, price and address below is invented.",
+  "catalogue": {
+    "url": "https://dropshipindia.live/products",
+    "title": "Products | Dropship India",
+    "text": "Catalogue\nUpgrade to Premium for ₹999/month\nSteel Draining Sink Caddy\nDropship price ₹ 149\nMRP ₹ 499\nIn stock\nTrending\nKids Bath Toy Set\n₹ 99\nOut of stock",
+    "password": false,
+    "cards": [
+      {"href": "https://dropshipindia.live/products/steel-draining-sink-caddy?ref=list", "title": "Steel Draining Sink Caddy", "text": "Trending\nSteel Draining Sink Caddy\nDropship price ₹ 149\nMRP ₹ 499\nIn stock", "image": "https://cdn.dropshipindia.example/caddy.jpg", "badges": ["Trending"]},
+      {"href": "https://dropshipindia.live/products/kids-bath-toy-set", "title": null, "text": "Kids Bath Toy Set\n₹ 99\nOut of stock\nHigh Demand", "image": null, "badges": ["High Demand"]},
+      {"href": "https://dropshipindia.live/products/best-selling-trending-lunch-box", "title": "Best Selling Trending Lunch Box", "text": "Best Selling Trending Lunch Box\n₹ 120\nPlans from ₹ 499/month", "image": null, "badges": []},
+      {"href": "https://dropshipindia.live/products/steel-draining-sink-caddy?ref=list", "title": "duplicate card", "text": "duplicate card", "image": null, "badges": []},
+      {"href": "https://dropshipindia.live/checkout/123", "title": "Checkout", "text": "Checkout", "image": null, "badges": []}
+    ],
+    "product": null,
+    "categories": [
+      {"href": "https://dropshipindia.live/category/kitchen-tools", "text": "Kitchen Tools"},
+      {"href": "https://elsewhere.example/category/x", "text": "Elsewhere"}
+    ],
+    "next": "https://dropshipindia.live/products?page=2"
+  },
+  "catalogue_page_2": {
+    "url": "https://dropshipindia.live/products?page=2",
+    "title": "Products | Dropship India",
+    "text": "Folding Travel Pillow\n₹ 210",
+    "password": false,
+    "cards": [{"href": "https://dropshipindia.live/products/folding-travel-pillow", "title": "Folding Travel Pillow", "text": "Folding Travel Pillow\n₹ 210", "image": null, "badges": []}],
+    "product": null,
+    "categories": [],
+    "next": "https://dropshipindia.live/checkout"
+  },
+  "trending": {
+    "url": "https://dropshipindia.live/trending-products",
+    "title": "Trending | Dropship India",
+    "text": "Steel Draining Sink Caddy\n₹ 149",
+    "password": false,
+    "cards": [{"href": "https://dropshipindia.live/products/steel-draining-sink-caddy", "title": "Steel Draining Sink Caddy", "text": "Steel Draining Sink Caddy\n₹ 149\nMRP ₹ 499", "image": null, "badges": []}],
+    "product": null,
+    "categories": [],
+    "next": null
+  },
+  "product": {
+    "url": "https://dropshipindia.live/products/steel-draining-sink-caddy",
+    "title": "Dropship India - Steel Draining Sink Caddy | Best price",
+    "text": "Steel Draining Sink Caddy\nDropship price ₹ 149\nMRP ₹ 499\nIn stock\nFree shipping across India\nFooter: Shipping policy | Returns | Contact",
+    "password": false,
+    "cards": [],
+    "product": {"title": "Steel Draining Sink Caddy", "text": "Steel Draining Sink Caddy\nDropship price ₹ 149\nMRP ₹ 499\nIn stock\nUpgrade to Premium ₹ 999/month",
+                "terms": ["Free shipping across India; dispatch within 24 hours\nCOD available", "Returns accepted within 7 days"]},
+    "categories": [],
+    "next": null
+  },
+  "product_sparse": {
+    "url": "https://dropshipindia.live/products/kids-bath-toy-set",
+    "title": "Kids Bath Toy Set",
+    "text": "Kids Bath Toy Set\nFooter: Shipping policy | Returns",
+    "password": false,
+    "cards": [],
+    "product": {"title": "Kids Bath Toy Set", "text": "Kids Bath Toy Set", "terms": []},
+    "categories": [],
+    "next": null
+  },
+  "plan_wall": {
+    "url": "https://dropshipindia.live/products",
+    "title": "Choose your plan",
+    "text": "Upgrade your plan to view products. Choose a plan: Basic ₹ 999/month, Pro ₹ 2,499/month.",
+    "password": false,
+    "cards": [],
+    "product": null,
+    "categories": [],
+    "next": null
+  },
+  "redirected_to_plans": {
+    "url": "https://dropshipindia.live/plans?from=products",
+    "title": "Plans",
+    "text": "Plans",
+    "password": false,
+    "cards": [{"href": "https://dropshipindia.live/products/x", "title": "X", "text": "X", "image": null, "badges": []}],
+    "product": null,
+    "categories": [],
+    "next": null
+  },
+  "wall": {
+    "url": "https://dropshipindia.live/login",
+    "title": "Log in",
+    "text": "Log in to continue. Password",
+    "password": true,
+    "cards": [],
+    "product": null,
+    "categories": [],
+    "next": null
+  },
+  "unrecognised": {
+    "url": "https://dropshipindia.live/products",
+    "title": "Products",
+    "text": "Welcome back! Our catalogue has moved.",
+    "password": false,
+    "cards": [],
+    "product": null,
+    "categories": [],
+    "next": null
+  }
+}

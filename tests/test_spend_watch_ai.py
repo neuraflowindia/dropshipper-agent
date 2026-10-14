@@ -522,8 +522,8 @@ class MoneyGuardTests(unittest.TestCase):
         from product_radar import research_ai
         codes = {"AI_PAID_CREDITS_USED", "AI_PLAN_LIMIT_CREDITS_PROTECTED", "AI_USAGE_READ_FAILED", "AI_SPEND_WATCH_UNAVAILABLE"}
         self.assertTrue(codes <= MODEL_ROUTE_FAILURES)
-        source = Path(research_ai.__file__).read_text()
-        self.assertTrue(all('"' + code + '"' in source for code in codes))  # retry list after a refused job
+        # A job refused after its intent is proven unstarted and retried automatically.
+        self.assertEqual(research_ai._AUTOMATIC_GUARD_FAILURES, codes)
         watched = self.runner(Reader(reply(100)))
         record, context = {}, {"memory": SimpleNamespace(root=self.root), "at": NOW.isoformat(),
                                "fixed_as_of": NOW.isoformat(), "clock": None, "retry_seconds": 300}

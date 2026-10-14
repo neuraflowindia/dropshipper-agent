@@ -54,7 +54,7 @@ class SharedMetaTests(unittest.TestCase):
         prepare_source_tasks(self.memory, [{"route": "meta-ads", "request": {"query": query, "country": "IN"},
             "concept_ids": ["sink"]}], run_id=run, as_of=self.now)
         self.wave = prepare_next_discovery_wave(self.memory, "programme", fixture(), handlers=handlers,
-            include_lists=False, as_of=self.now)
+            as_of=self.now)
 
     def checks(self, handlers, **options):
         return execute_source_run(self.memory, self.run, handlers=handlers, as_of=self.now,
@@ -254,7 +254,7 @@ class SharedMetaTests(unittest.TestCase):
         original_id = next(iter(self.owners())); self.now = "2026-10-17T10:00:00+00:00"
         turn = open_work_turn(self.memory, "programme", at=self.now)
         with bind_work_turn(self.memory, turn["id"]):
-            advance_discovery_waves(self.memory, "programme", fixture(), handlers=handlers, include_lists=False,
+            advance_discovery_waves(self.memory, "programme", fixture(), handlers=handlers,
                 as_of=self.now, admission=lambda *_args, **_options: None)
         close_work_turn(self.memory, turn["id"], at=self.now, reason="Synthetic due refresh")
         self.assertEqual(len(self.calls), 2); self.assertEqual(len(self.owners()), 2)

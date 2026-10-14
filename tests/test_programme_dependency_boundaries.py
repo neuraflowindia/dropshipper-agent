@@ -9,7 +9,7 @@ import product_radar.programme as programme
 from product_radar.fit_description import DESCRIPTION_CONTRACT, FUNCTIONAL_CONTRACT
 from product_radar.fit_policy import FIT_POLICY_ID
 from product_radar.fit_review import prepare_practical_fit_reviews, run_fit_reviews
-from product_radar.models import digest, timestamp
+from product_radar.models import SafetyError, digest, timestamp
 from product_radar.product_queries import query_profile_scope_hash
 from product_radar.research_flow import assessment_item, current_assessment_fit
 from product_radar.work_turns import bind_work_turn, close_work_turn, open_work_turn
@@ -40,7 +40,9 @@ class ProgrammeDependencyBoundaryTests(unittest.TestCase):
         row = self.record if record is None else record
         return programme._programme_stage_plan(state, row,
             {"programme_turn_sequence": sequence}, at=NOW,
-            inputs=programme._signature(state, row), model_available=True)
+            inputs=programme._signature(state, row), model_available=True,
+            report_pool=lambda: programme._programme_report_pool(self.memory, row, as_of=NOW, state=state,
+                                                                 functional_packets=True))
 
     def context(self, stage):
         return {"at": NOW, "fixed_as_of": NOW, "runner": None, "profile_limit": 1,
@@ -173,6 +175,102 @@ class ProgrammeDependencyBoundaryTests(unittest.TestCase):
             programme._fit(self.memory, self.record, self.context("fit"))
         self.assertEqual(calls, ["updates", "fit"])
         self.assertEqual(self.memory.snapshot()["batch_runs"][second["id"]]["counters"]["model_executions"], 0)
+
+    def held(self):
+        from product_radar.work_turns import _discovery_var
+        holder = _discovery_var(self.memory).get()
+        return holder["count"] if holder is not None else None
+
+    def test_platform_lane_runs_every_round_and_takes_turns_with_discovery(self):
+        calls = []
+        def platforms(memory, record, context):
+            calls.append(("platforms", self.held()))
+            return {"discovery": {"new_concept_ids": []}}
+        def discovery(memory, record, context):
+            calls.append(("discovery", self.held()))
+            return {"state": "checked"}
+        steps = self.noops()
+        steps["acquire"] = lambda *_args: calls.append(("acquire", self.held())) or {"state": "checked"}
+        orders = []
+        for _ in range(3):
+            calls.clear()
+            result = self.advance(steps=steps, runner=FakeRunner(), discovery_step=discovery, platform_step=platforms)
+            orders.append([name for name, _ in calls if name != "acquire"])
+            self.assertTrue(result["execution_order"]["platforms_attempted"])
+            # Whichever lane goes first has the round's held share; nothing is held once it runs.
+            self.assertTrue(all(count == 0 for name, count in calls if name != "acquire"))
+        firsts = [order[0] for order in orders if order]
+        self.assertIn("platforms", firsts)
+        self.assertTrue(all(order.count("platforms") == 1 for order in orders))
+        self.assertTrue(any(order[:2] == ["discovery", "platforms"] for order in orders))
+        self.assertTrue(any(order[:2] == ["platforms", "discovery"] for order in orders))
+        record = programme.load_programme(self.memory, self.record["programme_id"])
+        self.assertEqual(record["last_results"]["platforms"]["queued_follow_on_products"], 0)
+        # A failing discovery (then waiting in its lane) never stops the platforms.
+        def failing(memory, record, context):
+            calls.append(("discovery", None))
+            raise SafetyError("DISCOVERY_SLICE_INVALID")
+        for _ in range(2):
+            calls.clear()
+            self.advance(steps=steps, runner=FakeRunner(), discovery_step=failing, platform_step=platforms)
+            self.assertIn(("platforms", 0), calls)
+        record = programme.load_programme(self.memory, self.record["programme_id"])
+        self.assertEqual(record["last_results"]["discovery"]["reason"], "DISCOVERY_SLICE_INVALID")
+
+    def test_platform_lane_runs_without_discovery_and_holds_the_share_for_it(self):
+        calls = []
+        def platforms(memory, record, context):
+            calls.append(("platforms", self.held()))
+            return {"discovery": {"new_concept_ids": [self.cid]}}
+        steps = {stage: (lambda memory, record, context, name=stage: calls.append((name, self.held())) or {"state": "checked"})
+                 for stage in programme.STAGES}
+        from product_radar.work_turns import DISCOVERY_RESERVED_EXECUTIONS
+        rounds = []
+        for _ in range(2):
+            calls.clear()
+            result = self.advance(steps=steps, runner=FakeRunner(), platform_step=platforms)
+            self.assertTrue(result["execution_order"]["platforms_attempted"])
+            self.assertTrue(result["execution_order"]["report_supply_short"])
+            rounds.append((result["execution_order"]["discovery_position"], list(calls)))
+        # The lane runs at discovery's place (before or after the stages); while
+        # short of report types the stages before it leave it the held share.
+        self.assertEqual([position for position, _ in rounds], ["before", "after"])
+        self.assertEqual(rounds[0][1][0], ("platforms", 0))
+        self.assertEqual(rounds[1][1][-1], ("platforms", 0))
+        self.assertTrue(all(count == DISCOVERY_RESERVED_EXECUTIONS for _, count in rounds[1][1][:-1]))
+        record = programme.load_programme(self.memory, self.record["programme_id"])
+        self.assertEqual(record["last_results"]["platforms"]["queued_follow_on_products"], 0)  # already in this group
+
+    def test_platform_lane_failure_is_recorded_without_a_lane_wait_but_integrity_stops(self):
+        def broken(memory, record, context):
+            raise SafetyError("DROPSHIP_REFRESH_BUSY")
+        self.advance(platform_step=broken)
+        record = programme.load_programme(self.memory, self.record["programme_id"])
+        self.assertEqual(record["last_results"]["platforms"]["reason"], "DROPSHIP_REFRESH_BUSY")
+        self.assertFalse(any(row["stage"] == "lane" and row["target"] == "platforms" for row in record["deferrals"].values()))
+        for bad in ({"state": "checked"}, None):
+            self.advance(platform_step=lambda *_args, bad=bad: bad)
+            record = programme.load_programme(self.memory, self.record["programme_id"])
+            self.assertEqual(record["last_results"]["platforms"]["reason"], "PROGRAMME_PLATFORM_RESULT_INVALID")
+        self.advance(platform_step=lambda *_args: (_ for _ in ()).throw(OSError("disk")))
+        record = programme.load_programme(self.memory, self.record["programme_id"])
+        self.assertEqual(record["last_results"]["platforms"]["reason"], "PROGRAMME_PLATFORMS_FAILED")
+        failure = next(iter(programme.INTEGRITY_FAILURES))
+        with self.assertRaisesRegex(SafetyError, failure):
+            self.advance(platform_step=lambda *_args: (_ for _ in ()).throw(SafetyError(failure)))
+        with self.assertRaisesRegex(SafetyError, "PROGRAMME_STEPS_INVALID"):
+            self.advance(platform_step="not callable")
+
+    def test_each_round_has_its_own_signed_in_browser_share(self):
+        from product_radar import signed_in_round
+        shares = []
+        steps = self.noops()
+        steps["acquire"] = lambda *_args: shares.append(signed_in_round._ROUND.get()) or {"state": "checked"}
+        self.advance(steps=steps); self.advance(steps=steps)
+        self.assertEqual(len(shares), 2)
+        self.assertTrue(all(share is not None and share["seconds"] == 0 for share in shares))
+        self.assertIsNot(shares[0], shares[1])
+        self.assertIsNone(signed_in_round._ROUND.get())
 
     def test_owner_stop_in_first_promoted_stage_records_only_that_visit(self):
         self.fixture.accept(); self.advance(); self.advance()

@@ -37,7 +37,7 @@ class CatalogueScopeTests(unittest.TestCase):
     def setUp(self):
         # Reuse actual installed direct leaf+parser/importer+wave/A/B admission.
         waves.DiscoveryWaveTests.setUp(self)
-        self.mode["amazon-search"] = "usable"
+        self.mode["meta-ads"] = "usable"
         waves.DiscoveryWaveTests.advance(self, max_actions=3, runner=FakeRunner(), admission=None)
         state = self.memory.snapshot()
         self.cid = next(iter(state["concepts"]))

@@ -17,6 +17,14 @@ from product_radar.trends_controller import (
 )
 
 NOW = "2026-10-06T10:00:00+00:00"
+SIGNED_IN_AT = "2026-10-06T09:00:00+00:00"
+
+
+def sign_in(root, at=SIGNED_IN_AT):
+    """The owner opens the sign-in window, signs in and closes it (local records only)."""
+    from product_radar.signed_in_browser import note_sign_in_window
+    note_sign_in_window(root, True, opened=True, at=at)
+    note_sign_in_window(root, False, at=at)
 
 
 def snapshot(term="chair cover", **changes):
@@ -41,11 +49,12 @@ class TrendsControllerTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.memory = ResearchMemory(self.root / "research", Journal(self.root / "money"), evidence_type="synthetic")
         self.memory.put("concepts", "chair", {"description": {"name": "chair cover"}})
+        self.signed_root = self.root / "signed-in"; sign_in(self.signed_root)
 
     def capture(self, name="fixture", actual=None, request=None):
         with patch("product_radar.trends_controller._wrapper_utc_now", return_value=NOW):
             return capture_direct_trends(request or build_trends_request("chair cover"), name, data_root=self.root / "captures",
-                snapshot_reader=lambda request: actual if actual is not None else original())
+                snapshot_reader=lambda request: actual if actual is not None else original(), transport="signed-in")
 
     def context(self, name="fixture"):
         return {"route": "google-trends", "request": build_trends_request("chair cover"), "acquisition_id": name,
@@ -119,7 +128,8 @@ class TrendsControllerTests(unittest.TestCase):
         def capture(request, acquisition_id, **options):
             calls.append(acquisition_id)
             return self.capture(acquisition_id, request=request)
-        handlers = create_trends_handlers(self.memory, data_root=self.root / "captures", capture=capture)
+        handlers = create_trends_handlers(self.memory, data_root=self.root / "captures", capture=capture,
+                                          signed_in_root=self.signed_root)
         context = self.context(); dispatch = []; context["record_dispatch"] = lambda: dispatch.append(True)
         result = handlers["google-trends"]["handler"](context)
         self.assertEqual(result["target_results"][0]["state"], "completed_relevant")

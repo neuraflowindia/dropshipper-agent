@@ -31,11 +31,12 @@ WAVE_VERSION = "discovery-wave-v2"
 WAVE_CONTROL_VERSION = "discovery-wave-control-v2"
 SEED_CYCLE_VERSION = "catalogue-discovery-seed-cycle-v1"
 SEED_RETRY_SECONDS = 300
-FREE_ROUTES = ("meta-ads", "amazon-bestsellers", "amazon-movers-and-shakers", "amazon-search", "flipkart-search")
-# This is the observed Amazon India Home & Decor node. The guessed `home`
-# path returns an undefined category with no cards, not evidence of no demand.
-DEPARTMENTS = {"Home and Decor": "kitchen/1380374031", "Baby Products": "baby",
-               "Home and Kitchen": "kitchen", "Travel and Outdoor": "luggage"}
+# Amazon India and Flipkart no longer produce candidates (owner decision D4):
+# they keep running only as each type's crowding check.
+FREE_ROUTES = ("meta-ads",)
+# Saved discovery questions of these routes are closed, never read or interpreted.
+RETIRED_ROUTES = frozenset(("amazon-search", "flipkart-search", "amazon-bestsellers", "amazon-movers-and-shakers"))
+_CLOSED_ACTIONS = frozenset(("acquired", "empty", "retired"))
 KNOWN_LOCAL_FAILURES = {"RUNNER_ALREADY_ACTIVE", "MARKETPLACE_BROWSER_NOT_INSTALLED", "NATIVE_PUBLIC_BROWSER_UNAVAILABLE"}
 
 
@@ -72,19 +73,34 @@ def _callable(value, *, reconciliation=False):
     return callback if callable(callback) else None
 
 
-def _source_request(route, *, phrase=None, department=None):
-    """Freeze the real installed collector contract before any dispatch.
+def _retire_closed_routes(record, at):
+    """D4: an unfinished saved Amazon/Flipkart discovery question (even one
+    with saved cards awaiting interpretation, or a failed one awaiting a
+    retry) closes as retired. Its cards are never turned into candidates and
+    it is not unfinished work. Finished questions keep their history."""
+    retired = []
+    for planned in record["planned_actions"]:
+        for question in planned["questions"]:
+            old = record["actions"].get(question["id"], {})
+            if question["route"] in RETIRED_ROUTES and old.get("state") not in _CLOSED_ACTIONS:
+                record["actions"][question["id"]] = dict(old, state="retired", reason="DISCOVERY_ROUTE_RETIRED",
+                    next_trigger="none", updated_at=at)
+                retired.append(question["id"])
+    return retired
 
-    Already saved v1 cycles keep their exact older request through replay;
-    new planning uses the source-native builder instead of a lossy envelope.
+
+def _source_request(route, *, phrase):
+    """Freeze the installed Meta collector contract before any dispatch.
+
+    Already saved cycles keep their exact older request through replay. Meta
+    is the only discovery route (D4); any other route is refused.
     """
-    if route != "meta-ads":
-        from .marketplace_browser import build_marketplace_request
-        return build_marketplace_request(route, term=phrase, department=department, limit=30)
+    if route not in FREE_ROUTES:
+        raise SafetyError("DISCOVERY_ROUTE_RETIRED")
     return {"query": phrase, "country": "IN", "limit": 30}
 
 
-def _recent_capture(state, route, request, at, cache_days, *, verify_original=False):
+def _recent_capture(state, route, request, at, cache_days):
     """Retain original dates; actual scoped receipts, not a global healthy flag."""
     wanted = physical_request_fingerprint(route, request)
     latest = None
@@ -103,22 +119,6 @@ def _recent_capture(state, route, request, at, cache_days, *, verify_original=Fa
             continue
         if not same_request:
             continue
-        if verify_original:
-            # In the shared installed path, metadata alone cannot remove a
-            # useful discovery question. Verify the actual original bytes.
-            from .marketplace_browser import replay_marketplace, reconcile_marketplace
-            folder = ref.get("folder")
-            if not folder:
-                continue
-            try:
-                receipt = reconcile_marketplace(folder) if capture.get("reference", {}).get("file") != "receipt.json" else replay_marketplace(folder)
-                if (digest(receipt) != capture.get("capture_hash")
-                    or receipt.get("observed_at") != capture.get("observed_at")
-                    or receipt.get("acquisition_id") != capture.get("acquisition_id")
-                    or receipt.get("dispatch_started") is not True):
-                    continue
-            except (SafetyError, OSError):
-                continue
         age = timestamp(at) - timestamp(capture["observed_at"])
         if timedelta(0) <= age and (cache_days is None or age <= timedelta(days=cache_days)):
             if cache_days is not None:
@@ -170,16 +170,11 @@ def _query_candidates(catalogue, state, at, handlers, cache_days):
                        and (group, normalise(row["text"])) not in recent_choices), None)
         if phrase is None:
             continue
-        primary = "meta-ads" if phrase["source"] == "meta" else "amazon-search"
-        routes = [route for route in (primary, "amazon-search", "flipkart-search")
-                  if _callable(handlers.get(route)) is not None]
-        routes = list(dict.fromkeys(routes))
+        routes = [route for route in FREE_ROUTES if _callable(handlers.get(route)) is not None]
         questions = []
         for route in routes:
             request = _source_request(route, phrase=phrase["text"])
-            installed = handlers.get(route)
-            verified_cache = isinstance(installed, dict) and callable(installed.get("resolve_marketplace"))
-            if _recent_capture(state, route, request, at, cache_days, verify_original=verified_cache) is not None:
+            if _recent_capture(state, route, request, at, cache_days) is not None:
                 # An already acquired exact type is not an unexplored search.
                 continue
             questions.append({"id": key("discovery-question", [route, request]), "route": route,
@@ -190,16 +185,16 @@ def _query_candidates(catalogue, state, at, handlers, cache_days):
                 "kind": "family_query", "family_id": family["id"], "category": family["category"],
                 "parent_id": family["parent_id"], "family": family["label"], "phrase": phrase["text"],
                 "questions": questions,
-                "reason": "Use the accepted compact type; alternate free marketplaces retrieve the same type, not a new family or bestseller proof."})
+                "reason": "Use the accepted compact type on Meta, the one discovery route; Amazon and Flipkart only check each type's crowding."})
             selected_groups.add(group)
     return candidates
 
 
 def prepare_discovery_cycle(memory, programme_id, catalogue, *, handlers, action_limit=4,
-                            include_lists=True, cache_days=7, as_of=None, baseline_concepts=None):
+                            cache_days=7, as_of=None, baseline_concepts=None):
     """Freeze a finite public research slice; preparation performs no calls."""
     if (type(action_limit) is not int or not 1 <= action_limit <= 20
-            or type(cache_days) is not int or not 0 <= cache_days <= 90 or type(include_lists) is not bool
+            or type(cache_days) is not int or not 0 <= cache_days <= 90
             or not isinstance(handlers, dict)):
         raise SafetyError("DISCOVERY_SLICE_INVALID")
     cycle_id = _cycle_id(programme_id)
@@ -216,24 +211,8 @@ def prepare_discovery_cycle(memory, programme_id, catalogue, *, handlers, action
     at = as_of or utc_now(); timestamp(at)
     catalogue = effective_catalogue(validate_catalogue(catalogue), state)
     candidates = _query_candidates(catalogue, state, at, handlers, cache_days)
-    # Meaningful department scopes, not new keywords padded with colours.
+    # Amazon department lists are crowding reads for types, not discovery (D4).
     lists = []
-    if include_lists:
-        for category in CATEGORIES:
-            for route in ("amazon-bestsellers", "amazon-movers-and-shakers"):
-                request = _source_request(route, department=DEPARTMENTS[category])
-                if _callable(handlers.get(route)) is None or _recent_capture(state, route, request, at, cache_days):
-                    continue
-                qid = key("discovery-question", [route, request])
-                prior = [action for row in state["batch_runs"].values() if row.get("kind") == VERSION
-                         for action_id, action in row["actions"].items() if action_id == qid]
-                if any(row.get("state") in {"intent_saved", "execution_uncertain", "interpretation_pending"}
-                       or row.get("dispatch_started") is True and timedelta(0) <= timestamp(at) - timestamp(row["observed_at"]) <= timedelta(days=cache_days)
-                       for row in prior):
-                    continue
-                lists.append({"id": qid, "kind": "department_list", "family_id": None, "category": category,
-                    "questions": [{"id": qid, "route": route, "request": request}],
-                    "reason": "Read one genuine department list page; its cards need product interpretation and identity matching."})
     # One list and one family lane each get an early turn, then rotate categories.
     selected, categories = [], set()
     pools = [lists, candidates]
@@ -261,10 +240,12 @@ def validate_discovery_wave(state, record):
             or not isinstance(record.get("planned_actions"), list) or not record["planned_actions"]
             or len(record["planned_actions"]) > 20):
         raise SafetyError("DISCOVERY_WAVE_INVALID")
-    if (not isinstance(record.get("policy"), dict) or set(record["policy"]) != {"action_limit", "include_lists", "cache_days"}
+    # Waves saved before D4 also carry the old "include_lists" flag; it plans nothing now.
+    if (not isinstance(record.get("policy"), dict)
+            or set(record["policy"]) - {"include_lists"} != {"action_limit", "cache_days"}
             or type(record["policy"]["action_limit"]) is not int or not 1 <= record["policy"]["action_limit"] <= 20
             or len(record["planned_actions"]) > record["policy"]["action_limit"]
-            or type(record["policy"]["include_lists"]) is not bool
+            or type(record["policy"].get("include_lists", False)) is not bool
             or type(record["policy"]["cache_days"]) is not int or not 1 <= record["policy"]["cache_days"] <= 90
             or not isinstance(record.get("catalogue_hash"), str)
             or not isinstance(record.get("baseline_concepts"), list)
@@ -324,29 +305,22 @@ def _wave_control(state, programme_id):
     return control_id, deepcopy(saved)
 
 
-def _wave_candidates(state, programme_id, catalogue, handlers, at, *, include_lists, cache_days, location=None):
+def _wave_candidates(state, programme_id, catalogue, handlers, at, *, cache_days, location=None):
     """Pure source-specific choices; no family-wide busy/cooldown exclusion."""
     from .research_questions import _catalogue_direction_scope
     from .source_acquisitions import source_readiness_owner_scope
     current = effective_catalogue(validate_catalogue(catalogue), state)
     with source_readiness_owner_scope(state), _catalogue_direction_scope(state, catalogue, current):
         return _wave_candidates_in_scope(state, programme_id, catalogue, current, handlers, at,
-            include_lists=include_lists, cache_days=cache_days, location=location)
+            cache_days=cache_days, location=location)
 
 
-def _wave_candidates_in_scope(state, programme_id, catalogue, current, handlers, at, *, include_lists, cache_days, location=None):
+def _wave_candidates_in_scope(state, programme_id, catalogue, current, handlers, at, *, cache_days, location=None):
     from .research_questions import _prepare, catalogue_direction_subject
     from .source_coverage import shared_source_hooks, source_readiness_hint
     candidates, waits, seen, gaps = [], [], set(), []
     families = [row for row in current["families"] if row["disposition"] == "usable"]
-    specs = []
-    if include_lists:
-        for category in CATEGORIES:
-            family = next((row for row in sorted(families, key=lambda row: row["id"]) if row["category"] == category), None)
-            if family is not None:
-                for route in ("amazon-bestsellers", "amazon-movers-and-shakers"):
-                    specs.append((family, route, _source_request(route, department=DEPARTMENTS[category]),
-                                  {"search_scope": "category_list_context"}, "discovery"))
+    specs = []  # Amazon department lists are crowding reads for types, not discovery (D4).
     for family in sorted(families, key=lambda row: row["id"]):
         for phrase in family["phrases"]:
             if phrase["source"] == "supplier":
@@ -369,8 +343,8 @@ def _wave_candidates_in_scope(state, programme_id, catalogue, current, handlers,
             if phrase["source"] not in {"meta", "marketplace", "quickcommerce"}:
                 continue
             if phrase["source"] in {"meta", "marketplace"}:
-                routes = (("meta-ads", "amazon-search", "flipkart-search") if phrase["purpose"] == "discovery" else
-                          ("meta-ads",) if phrase["source"] == "meta" else ("amazon-search", "flipkart-search"))
+                # Amazon and Flipkart searches are the types' crowding check (D4).
+                routes = FREE_ROUTES if phrase["purpose"] == "discovery" or phrase["source"] == "meta" else ()
                 for route in routes:
                     specs.append((family, route, _source_request(route, phrase=phrase["text"]),
                                   {"search_scope": "accepted_direction"}, phrase["purpose"]))
@@ -430,8 +404,7 @@ def _wave_candidates_in_scope(state, programme_id, catalogue, current, handlers,
                     waits.append(due_hint["next_retry_at"])
                 continue  # Do not fill new waves with known waiting requests.
         # Metadata alone cannot suppress a newly useful installed question.
-        latest = _recent_capture(state, route, request, at, None, verify_original=shared) if route in {
-            "amazon-search", "flipkart-search", "amazon-bestsellers", "amazon-movers-and-shakers"} else None
+        latest = None
         if isinstance(installed, dict) and callable(installed.get("resolve_source")) and due_hint and due_hint.get("signal", {}).get("complete"):
             latest = {"observed_at": due_hint["signal"]["observed_at"]}
         refresh = None
@@ -458,9 +431,9 @@ def _first_pass_settled(wave):
 
 
 def prepare_next_discovery_wave(memory, programme_id, catalogue, *, handlers, action_limit=4,
-                                include_lists=True, cache_days=7, as_of=None, location=None):
+                                cache_days=7, as_of=None, location=None):
     """Prepare a real nonempty finite wave, or retain a named saved wait."""
-    if (type(action_limit) is not int or not 1 <= action_limit <= 20 or type(include_lists) is not bool
+    if (type(action_limit) is not int or not 1 <= action_limit <= 20
             or type(cache_days) is not int or not 1 <= cache_days <= 90 or not isinstance(handlers, dict)):
         raise SafetyError("DISCOVERY_SLICE_INVALID")
     from .programme import programme_service_state
@@ -474,7 +447,7 @@ def prepare_next_discovery_wave(memory, programme_id, catalogue, *, handlers, ac
         if not _first_pass_settled(existing):
             return deepcopy(existing)
     current, candidates, waits, gaps = _wave_candidates(state, programme_id, catalogue, handlers, at,
-        include_lists=include_lists, cache_days=cache_days, location=location)
+        cache_days=cache_days, location=location)
     if not candidates:
         return {"kind": WAVE_VERSION, "state": "waiting", "wave_id": None,
                 "next_retry_at": min(waits, key=timestamp) if waits else None,
@@ -505,7 +478,7 @@ def prepare_next_discovery_wave(memory, programme_id, catalogue, *, handlers, ac
     wave = {"kind": WAVE_VERSION, "id": wave_id, "programme_id": programme_id, "wave_sequence": sequence,
         "previous_wave_id": control["current_wave_id"], "catalogue_hash": digest(current), "prepared_at": at,
         "baseline_concepts": sorted(state["concepts"]), "planned_actions": planned, "actions": {},
-        "policy": {"action_limit": action_limit, "include_lists": include_lists, "cache_days": cache_days},
+        "policy": {"action_limit": action_limit, "cache_days": cache_days},
         "admission": {"state": "not_started"}, "new_concept_ids": [], "status": "prepared", "updated_at": at,
         "paid_actor_calls": 0, "client_publication_attempted": False}
     if gaps: wave["preparation_gaps"] = gaps
@@ -629,6 +602,7 @@ def advance_discovery_cycle(memory, cycle_id, *, handlers, runner=None, max_acti
                 or any(not isinstance(value, str) for value in question_ids)
                 or not set(question_ids) <= {q["id"] for row in record["planned_actions"] for q in row["questions"]}):
             raise SafetyError("DISCOVERY_SLICE_INVALID")
+        retired = _retire_closed_routes(record, at)
         calls, failures, visited_routes = 0, [], set()
         for planned in record["planned_actions"]:
             if calls >= max_actions and not shared_marketplace:
@@ -637,6 +611,8 @@ def advance_discovery_cycle(memory, cycle_id, *, handlers, runner=None, max_acti
                 if question_ids is not None and question["id"] not in question_ids:
                     continue
                 old = record["actions"].get(question["id"], {})
+                if old.get("state") == "retired":
+                    continue
                 if old.get("state") in {"acquired", "interpretation_pending", "empty"} and not old.get("supplier_original_pending"):
                     break  # Only a failed route merits its saved fallback.
                 if old.get("state") in {"failed", "blocked", "insufficient"} and not wave:
@@ -798,6 +774,18 @@ def advance_discovery_cycle(memory, cycle_id, *, handlers, runner=None, max_acti
                         action["supplier_results_hash"] = receipt["supplier_results_hash"]
                         action["supplier_original_pending"] = receipt["supplier_original_pending"]
                 except Exception as error:
+                    if getattr(error, "calm_wait", False) is True and action.get("dispatch_started") is not True:
+                        # A signed-in read that never started (the owner's sign-in, the
+                        # desktop, the one browser or pacing): the question waits, as for
+                        # a resolver's calm wait, never an uncertain dispatch.
+                        record["actions"][question["id"]] = dict(old, updated_at=at, reason=str(error),
+                            acquisition_owner_ref=action.get("acquisition_owner_ref"))
+                        if wave:
+                            record["actions"][question["id"]].update(state="waiting",
+                                next_retry_at=getattr(error, "next_retry_at", None),
+                                next_trigger="saved_input_reply_or_connection_change")
+                        _save(memory, record)
+                        break
                     if wave:
                         _raise_shared_integrity(error)
                     reason = str(error) if isinstance(error, SafetyError) else "DISCOVERY_ORIGINAL_CAPTURE_PENDING" if isinstance(error, FileNotFoundError) else "DISCOVERY_ACQUISITION_FAILED"
@@ -852,12 +840,14 @@ def advance_discovery_cycle(memory, cycle_id, *, handlers, runner=None, max_acti
                 if action.get("state") == "interpretation_pending":
                     action["state"] = "acquired"
         unfinished = sum(not any(record["actions"].get(q["id"], {}).get("state") in {"acquired", "empty"} for q in row["questions"])
-                         and not all(record["actions"].get(q["id"], {}).get("state") in {"failed", "blocked", "insufficient"} for q in row["questions"])
+                         and not all(record["actions"].get(q["id"], {}).get("state") in {"failed", "blocked", "insufficient", "retired"}
+                                     for q in row["questions"])
                          for row in record["planned_actions"])
         record["status"] = "checked" if not unfinished and progress["all_items_interpreted"] else "work_remaining"
         record["progress"] = progress; _save(memory, record)
         if wave:
-            _save_wave_question_progress(memory, record, handlers, at, served=question_ids)
+            _save_wave_question_progress(memory, record, handlers, at,
+                                         served=None if question_ids is None else question_ids + retired)
         return {"state": record["status"],
             **({"wave_id": cycle_id, "wave_sequence": record["wave_sequence"]} if wave else {"cycle_id": cycle_id}),
             "planned_actions": len(record["planned_actions"]),
@@ -897,6 +887,7 @@ def _save_wave_question_progress(memory, wave, handlers, at, *, served=None):
     served = set(served) if served is not None else {row["questions"][0]["id"] for row in wave["planned_actions"]}
     mapping = {"acquired": ("parsed", "accepted", "settled"), "empty": ("completed_empty", "not_started", "settled"),
         "interpretation_pending": ("parsed", "pending", "parked"),
+        "retired": ("retired", "not_started", "settled"),
         "execution_uncertain": ("execution_unknown", "not_started", "parked"),
         "intent_saved": ("execution_unknown", "not_started", "parked"),
         "failed": ("failed_access", "not_started", "parked"), "blocked": ("failed_access", "not_started", "parked")}
@@ -929,18 +920,18 @@ def _save_wave_question_progress(memory, wave, handlers, at, *, served=None):
 
 
 def discovery_wave_readiness(memory, programme_id, catalogue, *, handlers, as_of,
-                             include_lists=True, cache_days=7, runner_available=False, state=None, location=None):
+                             cache_days=7, runner_available=False, state=None, location=None):
     """Pure bounded work selection; unchanged waits create no empty waves."""
     state = memory.snapshot() if state is None else state
     from .source_acquisitions import source_readiness_owner_scope
     with source_readiness_owner_scope(state):
         return _discovery_wave_readiness(memory, programme_id, catalogue, handlers=handlers, as_of=as_of,
-            include_lists=include_lists, cache_days=cache_days, runner_available=runner_available,
+            cache_days=cache_days, runner_available=runner_available,
             state=state, location=location)
 
 
 def _discovery_wave_readiness(memory, programme_id, catalogue, *, handlers, as_of,
-                              include_lists, cache_days, runner_available, state, location):
+                              cache_days, runner_available, state, location):
     _, control = _wave_control(state, programme_id)
     work, waits, projection, signals = [], [], {}, []
     current = state["batch_runs"].get(control["current_wave_id"]) if control["current_wave_id"] else None
@@ -960,22 +951,24 @@ def _discovery_wave_readiness(memory, programme_id, catalogue, *, handlers, as_o
         retry = progress.get("next_retry_at") or hint.get("access", {}).get("next_retry_at")
         if retry and timestamp(retry) > timestamp(as_of):
             waits.append(retry)
-        never_served = not action.get("state")
+        # Closed locally on the next advance (D4): no read, interpretation or wait.
+        retiring = ref["route"] in RETIRED_ROUTES and action.get("state") not in _CLOSED_ACTIONS
+        never_served = not action.get("state") and not retiring
         interpreted = action.get("state") == "interpretation_pending"
         changed = hint != progress.get("saved_wake_hint")
         due = bool(retry and timestamp(retry) <= timestamp(as_of))
         # A changed arrival is merely permission to inspect the original;
         # resolver/leaf still own evidence, currentness and launch admission.
-        ready = never_served or interpreted and runner_available or changed or due
+        ready = never_served or interpreted and runner_available or changed or due or retiring
         if ready:
             work.append({"wave_id": wave_id, "question_id": question["id"],
                          "lane": "exploration" if never_served else "backlog",
-                         "callback": bool(hint["connected"] and not interpreted
+                         "callback": bool(hint["connected"] and not interpreted and not retiring
                              and not (hint.get("access", {}).get("local_saved") and not ref.get("refresh_due_at"))),
                          "last_served": progress.get("last_served_turn", 0)})
     work.sort(key=lambda row: (row["last_served"], row["question_id"]))
     current_catalogue, candidates, new_waits, gaps = _wave_candidates(state, programme_id, catalogue, handlers, as_of,
-        include_lists=include_lists, cache_days=cache_days, location=location)
+        cache_days=cache_days, location=location)
     waits.extend(new_waits)
     new_wave = bool((current is None or _first_pass_settled(current)) and candidates)
     # A different accepted catalogue or newly due question is a real wake
@@ -994,7 +987,7 @@ def _discovery_wave_readiness(memory, programme_id, catalogue, *, handlers, as_o
 
 
 def advance_discovery_waves(memory, programme_id, catalogue, *, handlers, runner=None, max_actions=2,
-                            flow_limit=10, admission=None, action_limit=4, include_lists=True, cache_days=7, as_of=None, location=None):
+                            flow_limit=10, admission=None, action_limit=4, cache_days=7, as_of=None, location=None):
     """Serve finite old work and independent exploration under the same turn."""
     turn = active_work_turn(memory)
     if turn is None:
@@ -1006,11 +999,11 @@ def advance_discovery_waves(memory, programme_id, catalogue, *, handlers, runner
         # This callback already owns a real ready turn. Even without a live
         # runner, Jobs may apply exact saved replies; readiness outside the
         # callback separately avoids advertising new AI during a model wait.
-        include_lists=include_lists, cache_days=cache_days, runner_available=True, location=location)
+        cache_days=cache_days, runner_available=True, location=location)
     available = ready["work"]
     if ready["new_wave_ready"]:
         wave = prepare_next_discovery_wave(memory, programme_id, catalogue, handlers=handlers,
-            action_limit=action_limit, include_lists=include_lists, cache_days=cache_days, as_of=at, location=location)
+            action_limit=action_limit, cache_days=cache_days, as_of=at, location=location)
         if wave.get("id"):
             fresh = []
             # Preparation committed real question records. Share this new
@@ -1397,7 +1390,7 @@ def advance_catalogue_seed_cycle(memory, cycle_id, catalogue, *, runner=None, ma
 
 
 def create_catalogue_discovery_step(catalogue=None, *, action_limit=4, actions_per_round=2,
-                                    include_lists=True, admission=None, seed_manifest=None, seed_branches_per_round=1,
+                                    admission=None, seed_manifest=None, seed_branches_per_round=1,
                                     shared_marketplace=False, renewable_waves=False, seed_inventory=None,
                                     seed_source_root=None):
     """N22 callback. Construction is read-only and performs no external work.
@@ -1446,12 +1439,12 @@ def create_catalogue_discovery_step(catalogue=None, *, action_limit=4, actions_p
                 result = advance_discovery_waves(memory, programme_record["programme_id"], base,
                     handlers=context["handlers"], runner=context.get("runner"), max_actions=actions_per_round,
                     flow_limit=min(50, context.get("fit_limit", 10)), admission=admission, action_limit=action_limit,
-                    include_lists=include_lists, as_of=context["at"], location=programme_record.get("location"))
+                    as_of=context["at"], location=programme_record.get("location"))
             if seed is not None:
                 result["seed"] = seed
             return result
         record = prepare_discovery_cycle(memory, programme_record["programme_id"], base,
-            handlers=context["handlers"], action_limit=action_limit, include_lists=include_lists, as_of=context["at"],
+            handlers=context["handlers"], action_limit=action_limit, as_of=context["at"],
             baseline_concepts=seed.get("baseline_concepts") if seed else None)
         result = advance_discovery_cycle(memory, record["id"], handlers=context["handlers"], runner=context.get("runner"),
             max_actions=actions_per_round, flow_limit=min(50, context.get("fit_limit", 10)), admission=admission, as_of=context["at"],
@@ -1465,7 +1458,7 @@ def create_catalogue_discovery_step(catalogue=None, *, action_limit=4, actions_p
     if renewable_waves:
         step.discovery_wave_contract = WAVE_VERSION
         step.discovery_catalogue = deepcopy(base)
-        step.discovery_wave_options = {"include_lists": include_lists, "cache_days": 7}
+        step.discovery_wave_options = {"cache_days": 7}
         step.discovery_seed_manifest = deepcopy(supplied_manifest)
         step.discovery_seed_inventory = deepcopy(inventory)
     return step

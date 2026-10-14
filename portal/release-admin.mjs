@@ -37,16 +37,21 @@ const SUPPLIER_TERMS_DISPLAY_VERSION = 'supplier-terms-v2';
 const SOURCE_ROUTES = Object.freeze([
   ['meta-ads', 'Facebook Ads Library', 'meta'],
   ['amazon-bestsellers', 'Amazon India Bestsellers', 'marketplace'],
-  ['amazon-movers-and-shakers', 'Amazon India Movers & Shakers', 'marketplace'],
   ['amazon-search', 'Amazon India product search', 'marketplace'],
   ['flipkart-search', 'Flipkart product search', 'marketplace'],
   ['google-trends', 'Google Trends India', 'trends'],
   ['blinkit', 'Blinkit', 'quickcommerce'], ['zepto', 'Zepto', 'quickcommerce'], ['instamart', 'Instamart', 'quickcommerce'],
   ['google-suppliers', 'Google supplier search', 'supplier'], ['google-maps', 'Google Maps supplier search', 'supplier'],
   ['indiamart', 'IndiaMART', 'supplier'], ['tradeindia', 'TradeIndia', 'supplier'], ['company-pages', 'Supplier company pages', 'supplier'],
+  ['deodap', 'DeoDap', 'dropship-platforms'], ['baapstore', 'BaapStore', 'dropship-platforms'],
+  ['dropship-india', 'Dropship India', 'dropship-platforms'], ['dropdash', 'Dropdash', 'dropship-platforms'],
 ]);
-// Retired routes are no longer part of the service: new packets omit their rows.
-// Packets frozen earlier keep all fourteen rows and stay readable.
+// The paid deeper Meta read (W11, internal route meta-ads-depth) has no client
+// row of its own: its ads count in the Facebook Ads Library row, which notes it.
+// Retired routes are no longer offered: new packets omit their rows. A packet
+// carrying a row for every route in this table (retired ones included) is also
+// accepted. Rows of deleted routes (Amazon Movers & Shakers, Plan R10 W6) are
+// refused; no client packet with them was published (development stage).
 const RETIRED_SOURCE_ROUTES = Object.freeze(['google-suppliers']);
 const CLIENT_SOURCE_ROUTES = Object.freeze(SOURCE_ROUTES.filter(([route]) => !RETIRED_SOURCE_ROUTES.includes(route)));
 const SOURCE_MEASUREMENTS = new Set(['relevant_ads', 'advertisers', 'active_ads', 'unknown_active_status', 'missing_advertiser_ids',

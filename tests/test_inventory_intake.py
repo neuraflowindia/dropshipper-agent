@@ -45,6 +45,27 @@ class InventoryIntakeTests(unittest.TestCase):
         for ref in self.record["reporting_intake_ids"]:
             self.assertEqual(state["batch_runs"][ref]["binding"]["origin_scope"]["programme_id"], "whole-programme")
 
+    def test_expired_intake_is_skipped_then_judged_again_to_a_fresh_record(self):
+        from product_radar.inventory_intake import current_intake_records, expire_intake_records
+        self.refresh()
+        state = self.memory.snapshot()
+        first = next(ref for ref in self.record["reporting_intake_ids"] if state["batch_runs"][ref]["binding"]["concept_id"] == "first")
+        self.assertEqual(expire_intake_records(self.memory, [first], as_of=self.now, reason="Synthetic cutover."), [first])
+        self.assertEqual(expire_intake_records(self.memory, [first], as_of=self.now, reason="Synthetic cutover."), [])
+        state = self.memory.snapshot()
+        self.assertEqual(state["batch_runs"][first]["expired"], {"at": self.now, "reason": "Synthetic cutover."})
+        self.assertEqual({row["binding"]["concept_id"] for row in current_intake_records(state, self.record)}, {"second"})
+        for reason in ("", " ", "x" * 501, None):
+            with self.assertRaisesRegex(SafetyError, "INVENTORY_EXPIRY_REASON_INVALID"):
+                expire_intake_records(self.memory, [first], as_of=self.now, reason=reason)
+        with self.assertRaisesRegex(SafetyError, "INVENTORY_BINDING_INVALID"):
+            expire_intake_records(self.memory, ["reporting-intake-missing"], as_of=self.now, reason="Synthetic.")
+        # Judged again to the same binding: admitted afresh under the same id.
+        self.refresh()
+        state = self.memory.snapshot()
+        self.assertNotIn("expired", state["batch_runs"][first])
+        self.assertEqual(reporting_intake_concept_ids(state, self.record, pool=self.pool()), {"first", "second"})
+
     def test_unchanged_refresh_does_not_create_canonical_tail_or_new_intake(self):
         self.refresh(); before = self.memory.snapshot_with_provenance()
         self.refresh(); after = self.memory.snapshot_with_provenance()

@@ -89,7 +89,7 @@ class ProgrammeTests(unittest.TestCase):
         self.assertEqual(progress["products"], 156)
         self.assertEqual(progress["fit_products"], 153)
         self.assertEqual(progress["excluded_fit_products"], 3)
-        self.assertEqual(progress["product_route_questions"], 2184)
+        self.assertEqual(progress["product_route_questions"], 156 * len(ROUTES))
         self.assertFalse(any("percent" in field for field in progress))
 
     def test_programme_progress_reuses_one_supplied_verified_snapshot_for_coverage(self):
@@ -98,7 +98,7 @@ class ProgrammeTests(unittest.TestCase):
             progress = programme_progress(self.memory, record["programme_id"], record=record, state=state,
                                           handlers={}, as_of=self.now)
         self.assertEqual(progress["products"], 2)
-        self.assertEqual(progress["product_route_questions"], 28)
+        self.assertEqual(progress["product_route_questions"], 2 * len(ROUTES))
 
     def test_exact_prepare_replay_does_not_append_an_event(self):
         record = self.prepare(); before = self.memory.snapshot()
@@ -238,7 +238,7 @@ class ProgrammeTests(unittest.TestCase):
             request_builder=lambda context: {"query": "sink caddy", "country": "IN"}, steps=steps,
             source_limit=3, max_cycles=20)
         # Every planned route is asked once; retired Google Search results never are.
-        self.assertEqual(len(calls), 13)
+        self.assertEqual(len(calls), len(ROUTES) - 1)
         self.assertEqual(set(calls), set(ROUTES) - {"google-suppliers"})
         self.assertGreater(result["cycles_this_tick"], 1)
         self.assertTrue(result["report_filled_does_not_stop_work"])
@@ -662,7 +662,7 @@ class ProgrammeTests(unittest.TestCase):
 
     def test_no_fictional_success_for_missing_source_or_discovery_adapter(self):
         self.prepare(); result = self.advance()
-        self.assertEqual(result["progress"]["source_states"], {"not_connected": 28})
+        self.assertEqual(result["progress"]["source_states"], {"not_connected": 2 * len(ROUTES)})
         self.assertEqual(result["progress"]["research_state"], "work_remaining")
         self.assertEqual(result["progress"]["actually_attempted_product_routes"], 0)
 
@@ -675,7 +675,7 @@ class ProgrammeTests(unittest.TestCase):
         self.assertEqual(result["progress"]["current_query_profiles"], 1)
         saved = load_programme(self.memory, "whole-programme")
         self.assertEqual(saved["deferrals"]["profiles:first"]["reason"], "SOURCE_PRODUCT_DESCRIPTION_INVALID")
-        self.assertEqual(result["progress"]["source_states"]["not_attempted"], 14)
+        self.assertEqual(result["progress"]["source_states"]["not_attempted"], len(ROUTES))
 
     def test_owner_pause_prevents_new_stages_without_resetting_the_source_run(self):
         original = self.prepare(); calls = []
@@ -1180,6 +1180,31 @@ class ProgrammeCliTests(unittest.TestCase):
         self.assertIs(advance.call_args.kwargs["discovery_step"], callback)
         state = self.memory.snapshot()
         self.assertEqual(state["jobs"], {}); self.assertEqual(state["captures"], {})
+
+    def test_cli_installed_sources_advance_the_dropshipping_platforms_in_their_own_lane(self):
+        from product_radar import platform_roles
+        from test_research_flow import FakeRunner
+        self.prepare(); cli = self.cli(); callback = lambda *_args: {"state": "nothing_new"}
+        for discovery in ({"return_value": callback}, {"side_effect": SafetyError("DISCOVERY_CATALOGUE_INVALID")}):
+            with self.subTest(discovery=discovery), patch("sys.stdout", new=StringIO()), \
+                    patch.object(cli, "installed_source_handlers", return_value={}) as installed, \
+                    patch("product_radar.catalogue_discovery.create_catalogue_discovery_step", **discovery), \
+                    patch.object(cli, "advance_programme", return_value={}) as advance:
+                self.assertEqual(cli.main(["--programme-id", "whole-programme", "--execute"], memory=self.memory,
+                    steps=self.noops(), private_staging=lambda *_args: {}, root=self.root, runner=FakeRunner()), 0)
+                installed.assert_called_once()
+                # Discovery is unchanged (or missing after its setup failed); the platforms still run.
+                self.assertIs(advance.call_args.kwargs["discovery_step"], callback if "return_value" in discovery else None)
+                self.assertIs(advance.call_args.kwargs["platform_step"], platform_roles.platform_step)
+        with patch("product_radar.platform_roles.advance_dropship_platforms",
+                   return_value={"discovery": {"new_concept_ids": []}}) as platforms:
+            platform_roles.platform_step(self.memory, {}, {"at": "2026-10-14T00:00:00+00:00"})
+        platforms.assert_called_once_with(self.memory, {"at": "2026-10-14T00:00:00+00:00"})
+        # Supplied sources (tests, saved-only runs) have no platform lane.
+        with patch("sys.stdout", new=StringIO()), patch.object(cli, "advance_programme", return_value={}) as advance:
+            cli.main(["--programme-id", "whole-programme", "--execute"], memory=self.memory, handlers={},
+                     steps=self.noops(), private_staging=lambda *_args: {}, root=self.root, discovery_step=callback)
+        self.assertIsNone(advance.call_args.kwargs["platform_step"])
 
     def test_cli_missing_grounded_sources_keeps_healthy_stages_running_with_named_seed_wait(self):
         self.prepare(); cli = self.cli()

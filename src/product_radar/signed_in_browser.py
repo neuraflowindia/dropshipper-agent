@@ -14,9 +14,9 @@ Only one signed-in Chrome runs at a time (``browser_lock``), and the owner's
 sign-in window counts as that Chrome: reads never close it.
 """
 
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack
 import base64
-import fcntl
+from datetime import timedelta
 import json
 from pathlib import Path, PureWindowsPath
 import re
@@ -25,7 +25,7 @@ import time
 
 from .models import SafetyError, timestamp, utc_now
 from .runtime_storage import runtime_path
-from .storage import atomic_json, load_json, safe_path
+from .storage import atomic_json, file_lock, load_json, safe_path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROFILE_FOLDER = ("NeuraFlowDropshipper", "research-browser-profile")
@@ -43,6 +43,9 @@ WAIT_CODES = ("OWNER_SIGN_IN_REQUIRED", "OWNER_SIGN_IN_WINDOW_OPEN", "OWNER_DESK
               "SIGNED_IN_BROWSER_BUSY")
 WINDOW_RECHECK_SECONDS = 120
 DESKTOP_RECHECK_SECONDS = 120
+# Any other calm wait (sign-in needed, a busy or unstartable browser) is
+# looked at again after this long; looking is a local record check only.
+WAIT_RECHECK_SECONDS = 120
 _PROFILE_CACHE = {}
 _WINDOWS_PROFILE = re.compile(r"[A-Za-z]:\\[^\x00-\x1f\"*?<>|]{1,180}\\NeuraFlowDropshipper\\research-browser-profile")
 
@@ -133,25 +136,6 @@ def research_profile(runner=subprocess.run):
     return _PROFILE_CACHE[runner]
 
 
-@contextmanager
-def _file_lock(path, wait, code):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+b") as handle:
-        deadline = time.monotonic() + wait
-        while True:
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                if time.monotonic() >= deadline:
-                    raise SafetyError(code) from None
-                time.sleep(.1)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
-
-
 def records_path(root, name):
     """A file beside the signed-in browser's own records (for its helpers)."""
     if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,60}", name):
@@ -161,12 +145,12 @@ def records_path(root, name):
 
 def records_lock(root, name, *, wait=5):
     """A named lock (``<name>.lock``) beside the signed-in records."""
-    return _file_lock(records_path(root, name + ".lock"), wait, "SIGNED_IN_RECORD_BUSY")
+    return file_lock(records_path(root, name + ".lock"), wait, "SIGNED_IN_RECORD_BUSY")
 
 
 def browser_lock(root=PROJECT_ROOT, *, wait=5):
     """One signed-in Chrome at a time: a read, or the launch of the sign-in window."""
-    return _file_lock(_folder(root) / "browser.lock", wait, "SIGNED_IN_BROWSER_BUSY")
+    return file_lock(_folder(root) / "browser.lock", wait, "SIGNED_IN_BROWSER_BUSY")
 
 
 def _load(root, name, empty):
@@ -199,7 +183,7 @@ def note_sign_in_window(root, is_open, *, opened=False, at=None):
     at = at or utc_now()
     if not is_open and not opened and not sign_in_window(root)["open"]:
         return sign_in_window(root)  # nothing changed; nothing is written
-    with _file_lock(_folder(root) / "records.lock", 5, "SIGNED_IN_RECORD_BUSY"):
+    with file_lock(_folder(root) / "records.lock", 5, "SIGNED_IN_RECORD_BUSY"):
         value = sign_in_window(root)
         value.update(open=bool(is_open), checked_at=at)
         if opened:
@@ -233,7 +217,7 @@ def record_site_observation(root, site, signed_in, *, route=None, observed_at=No
         raise SafetyError("SIGNED_IN_OBSERVATION_INVALID")
     observed_at = observed_at or utc_now()
     timestamp(observed_at)
-    with _file_lock(_folder(root) / "records.lock", 5, "SIGNED_IN_RECORD_BUSY"):
+    with file_lock(_folder(root) / "records.lock", 5, "SIGNED_IN_RECORD_BUSY"):
         value = _site_records(root)
         previous = value["sites"].get(site)
         changed = previous is None or previous["signed_in"] != signed_in
@@ -281,14 +265,28 @@ def signed_in_wait(root, site, *, as_of=None):
         return "OWNER_SIGN_IN_WINDOW_OPEN"
     if site_states(root)[site]["state"] in ("sign_in_needed", "expired"):
         return "OWNER_SIGN_IN_REQUIRED"
-    return None
+    from .signed_in_round import round_wait
+    return round_wait(site)  # this programme round's share of the browser
+
+
+def signed_in_recheck_at(root, reason, *, as_of=None):
+    """When a calm signed-in wait is next worth checking: the end of the saved
+    desktop or window recheck, else ``WAIT_RECHECK_SECONDS`` from now. Never
+    earlier than now, so a waiting question always carries a retry time."""
+    now = timestamp(as_of or utc_now())
+    anchor, seconds = now, WAIT_RECHECK_SECONDS
+    if reason == "OWNER_DESKTOP_UNAVAILABLE" and desktop_unavailable(root, as_of=now.isoformat()):
+        anchor, seconds = timestamp(_load(root, "desktop.json", None)["unavailable_at"]), DESKTOP_RECHECK_SECONDS
+    elif reason == "OWNER_SIGN_IN_WINDOW_OPEN" and sign_in_window(root)["open"]:
+        anchor, seconds = timestamp(sign_in_window(root)["checked_at"]), WINDOW_RECHECK_SECONDS
+    return max(anchor + timedelta(seconds=seconds), now).isoformat()
 
 
 def note_desktop_unavailable(root, *, at=None):
     """A read found the owner's Windows session locked or signed out."""
     at = at or utc_now()
     timestamp(at)
-    with _file_lock(_folder(root) / "records.lock", 5, "SIGNED_IN_RECORD_BUSY"):
+    with file_lock(_folder(root) / "records.lock", 5, "SIGNED_IN_RECORD_BUSY"):
         atomic_json(_folder(root) / "desktop.json", {"schema_version": 1, "unavailable_at": at})
 
 
@@ -308,15 +306,21 @@ _EMAIL = re.compile(r"[A-Za-z0-9._%+-]+(?:@|%40)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)
 _ACCOUNT_QUERY = re.compile(r"([?&#;](?:login_hint|authuser|email|Email|username)=)[^&#;\s\"'<>\\]*")
 _FILE_ENDINGS = ("png", "jpg", "jpeg", "webp", "gif", "svg", "avif", "ico", "js", "css")
 _ACCOUNT_LABEL = re.compile(r"(Google Account: )[^\"<>\n\\]*")
+# The account's own picture (lh3...googleusercontent.com/a/..., /a-/..., /ogw/...)
+# and Google's 21-digit account ids where they appear on their own.
+_AVATAR = re.compile(r"(//lh[3-6]\.googleusercontent\.com/(?:a|a-|ogw)/)[A-Za-z0-9_=-]+")
+_ACCOUNT_ID = re.compile(r"(?<![\w.%-])1\d{20}(?![\w])")
 
 
 def redact_signed_in(value):
     """Remove the research account's identity from saved signed-in artefacts:
     e-mail addresses (also %40-encoded), account query values (login_hint,
-    authuser, email ...) and Google's account-label text. JSON and HTML stay
-    well formed; keys and every other value are unchanged."""
+    authuser, email ...), Google's account-label text, the account's picture
+    address and its 21-digit account ids. JSON and HTML stay well formed; keys
+    and every other value are unchanged."""
     if isinstance(value, str):
         value = _ACCOUNT_QUERY.sub(r"\1redacted", value)
+        value = _ACCOUNT_ID.sub("[account id redacted]", _AVATAR.sub(r"\1redacted", value))
         # "logo@2x.png" is a file name, not an address.
         value = _EMAIL.sub(lambda found: found[0] if found[0].rsplit(".", 1)[1].lower() in _FILE_ENDINGS
                            else "[email redacted]", value)
@@ -412,7 +416,13 @@ def signed_in_read(site, url, expression, folder, *, marker, root=PROJECT_ROOT, 
                 "snapshot": None}
     if browser is None:
         from .native_public_browser import native_snapshot as browser
-    result = browser(url, expression, folder, profile="signed-in", root=root, **options)
+    from .signed_in_round import note_round_read
+    started, result = time.monotonic(), None
+    try:
+        result = browser(url, expression, folder, profile="signed-in", root=root, **options)
+    finally:
+        if result is None or result.get("navigation_started") is not False:
+            note_round_read(site, time.monotonic() - started)  # a read that never started uses no share
     if result.get("state") == "captured":
         seen = marker(result.get("snapshot"))
         if seen is not None:

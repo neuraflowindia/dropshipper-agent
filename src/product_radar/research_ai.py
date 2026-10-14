@@ -26,6 +26,7 @@ from .fit_description import (DESCRIPTION_CONTRACT, DESCRIPTION_FIELDS, DESCRIPT
 from .research_memory import key
 from .service import CATEGORIES
 from .runtime_storage import runtime_path
+from .spend_watch_ai import GUARD_CODES
 from .storage import Journal, atomic_bytes, atomic_json, load_json, safe_path
 
 MODEL = "gpt-6-luna"
@@ -164,7 +165,11 @@ FUNCTIONAL_EXAMPLE_INSTRUCTIONS = (
     "Do not invent child ids, URLs, missing specifications, scores, safety approval or supplier promises. No browsing "
     "or external actions. A judgment records example membership only, never changes the accepted type definition."
 )
-SOURCE_SUPPORT_ROW = obj({"source": enum("meta", "amazon", "flipkart", "google-trends", "blinkit", "zepto", "instamart"),
+# Dropshipping platforms are reviewed sources too; their support opinion is
+# kept as context and is not a market vote (opportunity_policy.SOURCE_PLATFORMS).
+SUPPORT_SOURCES = ("meta", "amazon", "flipkart", "google-trends", "blinkit", "zepto", "instamart",
+                   "deodap", "baapstore", "dropship-india", "dropdash")
+SOURCE_SUPPORT_ROW = obj({"source": enum(*SUPPORT_SOURCES),
     "judgment": enum("reasonably_positive", "neutral", "weak", "unclear"),
     "basis": enum("observed", "inferred", "not_stated"), "references": array(TEXT), "reason": TEXT})
 SOURCE_SUPPORT_SCHEMA = obj({"results": array(obj(dict(
@@ -1064,7 +1069,7 @@ def _validate_source_support(item, value):
     """Validate provenance and shape, not the truth of a semantic opinion."""
     observations = {row["id"]: row for row in item["observations"]}
     sources = {row.get("source") for row in observations.values()}
-    allowed = {"meta", "amazon", "flipkart", "google-trends", "blinkit", "zepto", "instamart"}
+    allowed = set(SUPPORT_SOURCES)
     if not sources or not sources <= allowed:
         raise SafetyError("AI_SOURCE_SUPPORT_INPUT_INVALID")
     relevant = {row["id"] for row in value["relevance"] if row["relationship"] in ("exact_product", "relevant_family")}
@@ -1282,9 +1287,21 @@ class _NewExecutionWait(SafetyError):
 
 class Jobs:
     def __init__(self, memory, runner=None, *, before_new_execution=None):
-        if before_new_execution is not None and not callable(before_new_execution):
+        guard = getattr(runner, "check_new_execution", None)
+        if (before_new_execution is not None and not callable(before_new_execution)
+                or guard is not None and not callable(guard)):
             raise SafetyError("AI_EXECUTION_GUARD_INVALID")
         self.memory, self.runner = memory, runner
+        if guard is not None:
+            # The runner's own guard (owner pause, model waits, the money
+            # watch) always runs before a new intent, after any caller check:
+            # its refusal is then a wait, never a saved job left failing.
+            supplied = before_new_execution
+
+            def before_new_execution(request, folder):
+                if supplied is not None:
+                    supplied(request, folder)
+                guard()
         self.before_new_execution = before_new_execution
 
     def pending_bindings(self, state):
@@ -1601,8 +1618,7 @@ def prepare_retry(memory, job_id, reason):
                                    "AI_PROVIDER_REQUEST_FAILED", "AI_CHATGPT_SIGN_IN_REQUIRED", "AI_CODEX_NOT_INSTALLED",
                                    "AI_INTERRUPTED_REVIEW_SAVED_JOB", "AI_LOCAL_EXECUTION_FAILED",
                                    # Spend-watch guard refusals happen before the model starts.
-                                   "AI_PAID_CREDITS_USED", "AI_PLAN_LIMIT_CREDITS_PROTECTED", "AI_USAGE_READ_FAILED",
-                                   "AI_SPEND_WATCH_UNAVAILABLE"):
+                                   *_AUTOMATIC_GUARD_FAILURES):
             raise SafetyError("AI_RETRY_RECONCILIATION_REQUIRED")
         retries = load_json(base / "retries.json") if (base / "retries.json").exists() else []
         if len(retries) >= 20:
@@ -1613,6 +1629,13 @@ def prepare_retry(memory, job_id, reason):
 
 
 _AUTOMATIC_TRANSIENT_FAILURES = frozenset(("AI_RATE_LIMITED", "AI_NETWORK_UNAVAILABLE"))
+# Spend-watch refusals raised after an intent was saved (the watch changed
+# between the pre-intent check and the call). The guard refuses before the
+# runner starts and the Codex runner saves runner_execution.json before it
+# launches anything, so these codes without any runner file prove the model
+# never started: the job retries automatically once due.
+_AUTOMATIC_GUARD_FAILURES = frozenset(GUARD_CODES)
+_AUTOMATIC_RETRY_FAILURES = _AUTOMATIC_TRANSIENT_FAILURES | _AUTOMATIC_GUARD_FAILURES
 _RETRY_FILES = ("intent.json", "completion.json", "result.json", "runner_execution.json",
                 "execution_failure.json", "failure.json", "runner_preflight.json")
 _MODEL_RETRY_LEADER = ContextVar("product_radar_model_retry_leader", default=None)
@@ -1648,13 +1671,39 @@ def _bound_model_retry_leader(memory):
     return leader
 
 
+def _closed_original_files(code):
+    """The original files a closed automatic retry is bound to."""
+    if code in _AUTOMATIC_GUARD_FAILURES:
+        return ("intent.json", "failure.json")
+    return ("intent.json", "runner_execution.json", "execution_failure.json", "failure.json")
+
+
+def _validate_unstarted_guard(state, job_id, folder, failure):
+    """A spend-watch refusal: the job's own intent and nothing the runner
+    writes once it starts (login check, launch, exit or answer)."""
+    try:
+        intent = load_json(folder / "intent.json", MAX_JOB_BYTES)
+        saved = state["jobs"][job_id]["request"]
+        if (canonical(intent["request"]) != canonical(saved) or key("job", saved) != job_id
+                or saved["runner"] != "codex-chatgpt-high-v1" or saved["model"] != MODEL
+                or any((folder / name).exists() for name in ("runner_preflight.json", "runner_execution.json",
+                                                             "execution_failure.json", "completion.json", "result.json"))
+                or timestamp(failure["at"]) < timestamp(intent["created_at"])):
+            raise ValueError
+    except (SafetyError, KeyError, ValueError, TypeError):
+        raise SafetyError("AI_RETRY_RECONCILIATION_REQUIRED") from None
+
+
 def _validate_closed_transient(memory, state, job_id, folder, failure):
-    if (not isinstance(failure, dict) or failure.get("code") not in _AUTOMATIC_TRANSIENT_FAILURES
+    if (not isinstance(failure, dict) or failure.get("code") not in _AUTOMATIC_RETRY_FAILURES
             or set(failure) != {"code", "exception_type", "at", "next_action", "usage", "execution_certainty"}
             or failure["exception_type"] != "SafetyError" or failure["usage"] is not None
             or failure["next_action"] != "inspect_saved_output_before_deliberate_retry"
             or failure["execution_certainty"] != "unknown"):
         raise SafetyError("AI_RETRY_RECONCILIATION_REQUIRED")
+    if failure["code"] in _AUTOMATIC_GUARD_FAILURES:
+        _validate_unstarted_guard(memory._state()[0] if state is None else state, job_id, folder, failure)
+        return
     _validate_interrupted_exit(memory, job_id, folder, failure, state=state)
     receipt = load_json(folder / "execution_failure.json", 8192)
     if (timestamp(failure["at"]) < timestamp(receipt["at"]) or receipt.get("interruption") is not None
@@ -1672,10 +1721,10 @@ def _checked_retry_original(base, retries, *, job=None):
     if (not isinstance(proof, dict) or set(proof) != required or proof["contract"] != "closed-model-retry-proof-v1"
             or proof["record_hash"] != digest({name: value for name, value in proof.items() if name != "record_hash"})
             or proof["job_id"] != job_id or proof["previous_attempt"] != previous_attempt
-            or proof["failure_code"] not in _AUTOMATIC_TRANSIENT_FAILURES
+            or proof["failure_code"] not in _AUTOMATIC_RETRY_FAILURES
             or entry.get("previous_failure") != proof["failure_code"] or entry.get("at") != proof["prepared_at"]
             or not isinstance(proof["original_hashes"], dict)
-            or set(proof["original_hashes"]) != {"intent.json", "runner_execution.json", "execution_failure.json", "failure.json"}
+            or set(proof["original_hashes"]) != set(_closed_original_files(proof["failure_code"]))
             or type(proof["retry_seconds"]) is not int or proof["retry_seconds"] < 1):
         raise SafetyError("AI_RETRY_RECONCILIATION_REQUIRED")
     original = base if previous_attempt == "initial" else safe_path(base, previous_attempt)
@@ -1758,10 +1807,11 @@ def _closed_model_retry_hint(memory, state, job_id, *, as_of, retry_seconds, not
     else:
         failure = originals.get("failure.json")
         code = failure.get("code") if isinstance(failure, dict) else None
-        if code in _AUTOMATIC_TRANSIENT_FAILURES:
+        if code in _AUTOMATIC_RETRY_FAILURES:
             # The same strict binding used for explicit interrupted retries
-            # proves this actual local process ended. Never infer closure from
-            # a legacy failure label or a different attempt's receipt.
+            # proves this actual local process ended (or, for a money-guard
+            # refusal, never started). Never infer closure from a legacy
+            # failure label or a different attempt's receipt.
             _validate_closed_transient(memory, state, job_id, folder, failure)
             retries = originals.get("retries.json", [])
             if len(retries) >= 20:
@@ -1778,8 +1828,7 @@ def _closed_model_retry_hint(memory, state, job_id, *, as_of, retry_seconds, not
                 proof = {"contract": "closed-model-retry-proof-v1", "job_id": job_id,
                     "request_hash": digest(request), "binding_hash": digest(job["binding_keys"]),
                     "previous_attempt": attempt, "failure_code": code, "failure_at": failure["at"],
-                    "original_hashes": {name: digest(originals[name]) for name in
-                        ("intent.json", "runner_execution.json", "execution_failure.json", "failure.json")},
+                    "original_hashes": {name: digest(originals[name]) for name in _closed_original_files(code)},
                     "due_at": due.isoformat(), "retry_seconds": retry_seconds, "not_before": not_before}
     # Pin all reads, including absence of a late completed answer. The terminal
     # validator reopens its exact originals; no changed file may borrow the

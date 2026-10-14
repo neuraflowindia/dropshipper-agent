@@ -8,7 +8,6 @@ leads for the existing company-page/F review, never a market vote.
 from copy import deepcopy
 from datetime import timedelta
 from hashlib import sha256
-import os
 from pathlib import Path
 import stat
 
@@ -21,6 +20,7 @@ from .supplier_route_acquisition import (MAX_RECORD_BYTES, MAX_RESULTS, PARSER_V
     VERSION, _actual, _product, _query, fetch_supplier_native_page, parse_supplier_route_receipt,
     supplier_route_url, replay_supplier_search, _supplier_native_output_receipt, _deadline_page_receipt)
 from .source_coverage import SIGNED_IN_TRANSPORT, SUPPLIER_FIRST_TRANSPORT as FIRST_TRANSPORT
+from .signed_in_attempts import NOT_STARTED
 from .source_deadline import SourceActionDeadline, source_phase
 
 BRIDGE = "verified-supplier-search-response-v1"
@@ -33,7 +33,6 @@ LEGACY_CONTRACT = "supplier-legacy-transport-v1"
 # from its saved files but never sends a new read, and its queued question is
 # closed (or superseded when asked again on the route's own first read).
 _BROWSER_TRANSPORTS = {"public-browser", SIGNED_IN_TRANSPORT}
-NOT_STARTED = "not-started.json"
 
 
 def prepare_supplier_request(context):
@@ -124,80 +123,37 @@ def supplier_request_for_state(state, route, query):
 
 
 def _collectable(state, owner):
-    """A reserved owner that has never been sent, or whose every earlier start
-    proved it never navigated (``_reopen_not_started``)."""
-    from .source_acquisitions import _stage
-    if owner["state"] != "reserved":
-        return False
-    kinds = [_stage(state, owner, stage_id)["stage_type"] for stage_id in owner["stage_ids"]]
-    return not kinds or kinds[-1] == "prelaunch_zero" and set(kinds) <= {"dispatch_intent", "prelaunch_zero"}
+    """A reserved owner never sent, or whose every start never navigated (shared rule)."""
+    from .signed_in_attempts import collectable
+    return collectable(state, owner)
 
 
 def _note_not_started(folder, error):
     """Keep why and when a signed-in read did not start until its owner is reopened."""
-    atomic_json(folder / NOT_STARTED, {"reason": str(error), "started_at": error.started_at,
-                                       "finished_at": error.finished_at})
+    from .signed_in_attempts import note_not_started
+    note_not_started(folder, error)
 
 
 def _reopen_not_started(memory, acquisition_id, folder, as_of):
-    """Return a signed-in acquisition to "reserved" after a start that never navigated.
+    """Return a signed-in acquisition to "reserved" after a start that never
+    navigated (``signed_in_attempts.reopen_not_started``). The attempt's native
+    files are moved beside the acquisition first, so the next read starts in a
+    fresh folder; the proof is kept in ``not-started-<sequence>``."""
+    from .signed_in_attempts import aside_name, reopen_not_started
 
-    ``recover_source_prelaunch`` reopens only the same acquisition, and only
-    from a hash-bound "owned-source-process-exit-v1" proof. Here the owned
-    process is this research process (``os.getpid()``): the read adapter runs
-    inside it and had returned (``owned_process_exited`` refers to that
-    finished attempt, including any PowerShell child it ran), and the signed-in
-    browser proved no page was requested. The attempt's native files are moved
-    beside the acquisition first, so the next read starts in a fresh folder.
-    The note written by ``_note_not_started`` is removed only on success, so a
-    failed reopening is retried by the next resolution.
-    """
-    from .source_acquisitions import _record, _stage, recover_source_prelaunch
-    note_path = safe_path(folder / NOT_STARTED)
-    note = load_json(note_path, 16384)
-    if (not isinstance(note, dict) or set(note) != {"reason", "started_at", "finished_at"}
-            or not isinstance(note["reason"], str)):
-        raise SafetyError("SIGNED_IN_NOT_STARTED_NOTE_INVALID")
-    timestamp(note["started_at"]); timestamp(note["finished_at"])
-    state = memory.snapshot(); owner = _record(state, acquisition_id); binding = owner["binding"]
-    if owner["state"] == "dispatching":
-        intent_id = owner.get("active_dispatch_intent_id")
-        intent = _stage(state, owner, intent_id)
-        sequence = str(intent["intent_sequence"])
+    def set_aside(sequence, note):
         native = safe_path(folder / "native")
         if native.exists():
-            native.rename(folder / ("native-not-started-" + sequence + "-" + note["finished_at"].replace(":", "")))
-        target = safe_path(folder / ("not-started-" + sequence))
-        proof = {"contract": "owned-source-process-exit-v1", "acquisition_id": acquisition_id,
-                 "attempt_id": binding["original_attempt_id"], "physical_request_fingerprint": binding["physical_request_fingerprint"],
-                 "owned_process_exited": True, "request_sent": False, "process_id": os.getpid(),
-                 "dispatch_intent_id": intent_id, "intent_sequence": intent["intent_sequence"],
-                 "ownership_token_hash": intent["process_ownership_token_hash"],
-                 "started_at": note["started_at"], "exited_at": note["finished_at"], "reason": note["reason"]}
-        atomic_json(target / "process-exit.json", proof)
-        receipt = {"route": binding["route"], "request": binding["request"], "acquisition_id": acquisition_id,
-                   "attempt_id": binding["original_attempt_id"], "dispatch_started": False, "observed_at": note["finished_at"],
-                   "state": "failed", "reason": note["reason"],
-                   "artifacts": {"process-exit.json": sha256((target / "process-exit.json").read_bytes()).hexdigest()}}
-        atomic_json(target / "receipt.json", receipt)
-        recover_source_prelaunch(memory, acquisition_id, receipt_path=target / "receipt.json",
-                                 as_of=max(as_of, note["finished_at"], key=timestamp))
-    elif owner["state"] != "reserved":
-        raise SafetyError("SIGNED_IN_NOT_STARTED_OWNER_CHANGED")
-    note_path.unlink()
+            native.rename(folder / aside_name("native", note["finished_at"], sequence))
+        return folder / ("not-started-" + sequence), folder / NOT_STARTED
+    reopen_not_started(memory, acquisition_id, folder / NOT_STARTED, as_of, set_aside=set_aside)
 
 
 def _uncount(root, site, counted):
     """Give back a counted signed-in read that never navigated; a busy record
     keeps it counted (pacing only errs on the side of fewer reads)."""
-    if counted is None:
-        return
-    from .signed_in_pacing import release_signed_in_read
-    try:
-        release_signed_in_read(root, site, counted)
-    except SafetyError as error:
-        if str(error) != "SIGNED_IN_RECORD_BUSY":
-            raise
+    from .signed_in_attempts import release_unsent_read
+    release_unsent_read(root, site, counted)
 
 
 def _held(acquisition_id, hold):
@@ -223,7 +179,8 @@ def _launch_hold(state, route, request, *, as_of, signed_in_root):
 
     A replaced transport is saved history only; a plain-first route's browser
     read needs ``_fallback`` proof; a signed-in read waits calmly for the
-    owner's sign-in, a closed sign-in window, the desktop and pacing.
+    owner's sign-in, a closed sign-in window, the desktop and pacing; that
+    calm wait carries its recheck time for the question to keep.
     """
     first = FIRST_TRANSPORT.get(route, "public-http")
     transport = request["transport"]
@@ -233,7 +190,8 @@ def _launch_hold(state, route, request, *, as_of, signed_in_root):
         return {"reason": "SUPPLIER_BROWSER_FALLBACK_PROOF_REQUIRED", "next_retry_at": None}
     if transport == SIGNED_IN_TRANSPORT:
         from .indiamart_signed_in import signed_in_hold
-        return signed_in_hold(signed_in_root, as_of=as_of)
+        hold = signed_in_hold(signed_in_root, as_of=as_of)
+        return dict(hold, calm_wait=True) if hold else None
     return None
 
 
@@ -887,12 +845,8 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
                 if signed_in:
                     # Counted before the launch guard: no second read can slip in
                     # between the hold above and this read starting.
-                    from .indiamart_signed_in import SignedInWait
-                    from .signed_in_pacing import reserve_signed_in_read
-                    try:
-                        counted = reserve_signed_in_read(signed_in_root, route)
-                    except SafetyError as error:
-                        raise SignedInWait(str(error)) from None
+                    from .signed_in_attempts import count_signed_in_read
+                    counted = count_signed_in_read(signed_in_root, route)
                 try:
                     guard_shared_source_launch(memory, context, request, validate=fallback_current)
                 except BaseException:
@@ -923,7 +877,9 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
                                     _reopen_not_started(memory, aid, folder, context["as_of"])
                                 except (SafetyError, OSError):
                                     # Retried by the next resolution, still without a read.
-                                    raise SignedInWait("SIGNED_IN_START_RECOVERY_PENDING") from None
+                                    from .signed_in_browser import signed_in_recheck_at
+                                    raise SignedInWait("SIGNED_IN_START_RECOVERY_PENDING", next_retry_at=signed_in_recheck_at(
+                                        signed_in_root, "SIGNED_IN_START_RECOVERY_PENDING")) from None
                                 raise
                         else:
                             value = (browser_reader(item) if browser_reader is not None else
@@ -977,7 +933,10 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
                 try:
                     _reopen_not_started(memory, aid, safe_path(root / aid), context["as_of"])
                 except (SafetyError, OSError):
-                    return {"action": "wait", "acquisition_id": aid, "reason": "SIGNED_IN_START_RECOVERY_PENDING"}
+                    from .signed_in_browser import signed_in_recheck_at
+                    return {"action": "wait", "acquisition_id": aid, "reason": "SIGNED_IN_START_RECOVERY_PENDING", "calm_wait": True,
+                            "next_retry_at": signed_in_recheck_at(signed_in_root, "SIGNED_IN_START_RECOVERY_PENDING",
+                                                                  as_of=context["as_of"])}
                 owner = _record(memory.snapshot(), aid)
             if _collectable(memory.snapshot(), owner):
                 hold = _launch_hold(memory.snapshot(), route, request, as_of=context["as_of"], signed_in_root=signed_in_root)

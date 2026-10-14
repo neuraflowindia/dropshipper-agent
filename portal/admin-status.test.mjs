@@ -50,7 +50,7 @@ test('owner status is reachable at /admin and /admin/ without the API action hea
 });
 
 test('signed out, clients, unknown owner and forged email/JWT headers cannot read owner data', async () => {
-  for (const ctx of [{}, context('client@example.com'), context('another@gmail.com'), context('owner@example.com', 'wrong-aud'),
+  for (const ctx of [{}, context('client@example.com'), context('another@example.net'), context('owner@example.com', 'wrong-aud'),
     { access: { aud: 'owner-worker-aud', getIdentity: async () => { throw new Error('private identity error'); } } },
     { access: { aud: 'owner-worker-aud', getIdentity: async () => null } }]) {
     const { env, calls } = environment([issue('private')]);

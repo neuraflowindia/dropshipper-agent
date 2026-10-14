@@ -17,6 +17,7 @@ from product_radar.models import SafetyError
 from product_radar.native_public_browser import (SCRIPT, SIGNED_IN_OVERHEAD_SECONDS, SIGNED_IN_SCRIPT_MARGIN, SIGNED_IN_START,
                                                 native_snapshot, signed_in_budget, _cleanup_owned)
 from product_radar import signed_in_browser
+from product_radar.storage import file_lock
 
 
 class NativePublicBrowserTests(unittest.TestCase):
@@ -335,10 +336,10 @@ class SignedInNativeBrowserTests(unittest.TestCase):
         self.assertFalse(signed_in_browser.sign_in_window(self.store)["open"])
 
     def test_signed_in_results_and_saved_receipt_carry_no_account_identity(self):
-        snapshot = {"html": '<a aria-label="Google Account: Research Owner (owner.research@gmail.com)" href="/x">',
-                    "text": "Signed in as owner.research@gmail.com", "url": "https://trends.google.com/?authuser=0&hl=en"}
+        snapshot = {"html": '<a aria-label="Google Account: Research Owner (owner.research@example.com)" href="/x">',
+                    "text": "Signed in as owner.research@example.com", "url": "https://trends.google.com/?authuser=0&hl=en"}
         actual = self.read({"state": "captured", "snapshot": snapshot, "owned_process_exited": True,
-                            "requests": [{"url": "https://accounts.google.com/o?login_hint=owner.research%40gmail.com&x=1"}]})
+                            "requests": [{"url": "https://accounts.google.com/o?login_hint=owner.research%40example.com&x=1"}]})
         saved = (self.capture / "native_result.json").read_text()
         for text in (json.dumps(actual), saved):
             self.assertNotIn("owner.research", text); self.assertNotIn("Research Owner", text)
@@ -348,7 +349,7 @@ class SignedInNativeBrowserTests(unittest.TestCase):
 
     def test_a_running_signed_in_read_holds_the_next_one_without_any_windows_call(self):
         def immediate(root, wait=5):
-            return signed_in_browser._file_lock(signed_in_browser._folder(root) / "browser.lock", 0, "SIGNED_IN_BROWSER_BUSY")
+            return file_lock(signed_in_browser._folder(root) / "browser.lock", 0, "SIGNED_IN_BROWSER_BUSY")
         with signed_in_browser.browser_lock(self.store), patch.object(signed_in_browser, "browser_lock", immediate):
             actual = self.read({"state": "captured"})
         self.assertEqual(actual, {"state": "waiting", "reason": "SIGNED_IN_BROWSER_BUSY", "navigation_started": False,

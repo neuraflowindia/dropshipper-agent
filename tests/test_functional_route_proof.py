@@ -10,9 +10,9 @@ from unittest.mock import patch
 from product_radar.market_validation import functional_market_context
 from product_radar.models import SafetyError, canonical, digest
 from product_radar.report_selection import build_report_pool, _url
-from product_radar.report_source_facts import (coverage_rows, freeze_functional_route_proof,
+from product_radar.report_source_facts import (CLIENT_ROUTES, coverage_rows, freeze_functional_route_proof,
     functional_route_proof_state, source_route_facts, validate_functional_route_proof)
-from product_radar.source_coverage import execute_source_run, prepare_source_tasks
+from product_radar.source_coverage import ROUTES, execute_source_run, prepare_source_tasks
 from test_functional_source_market import functional_pool_fixture
 from test_source_interpretation import NOW
 
@@ -46,10 +46,10 @@ class FunctionalRouteProofTests(unittest.TestCase):
             self.assertEqual(validate_functional_route_proof(product), product["source_route_checks"])
         state = functional_route_proof_state(product["functional_route_proof"])
         self.assertEqual(self.derived(state), product["source_route_checks"])
-        self.assertEqual(len(product["source_route_checks"]), 13)
+        self.assertEqual([row["route"] for row in product["source_route_checks"]], list(CLIENT_ROUTES))
         self.assertNotIn("google-suppliers", [row["route"] for row in product["source_route_checks"]])
 
-    def test_packet_frozen_before_retirement_keeps_its_fourteen_rows(self):
+    def test_packet_frozen_before_retirement_keeps_its_original_rows(self):
         # Retired routes have no client row now; an earlier packet is still read
         # exactly as it was frozen, including the retired route's own row.
         product = self.product()
@@ -61,7 +61,8 @@ class FunctionalRouteProofTests(unittest.TestCase):
              "functional_market_context": context}, relevant, NOW, include_retired=True)
         for row in legacy:
             row["url"] = _url(row["url"])
-        self.assertEqual(len(legacy), 14)
+        # Every client-facing route, the retired one included; the deeper Meta read folds into the Meta row.
+        self.assertEqual([row["route"] for row in legacy], [route for route in ROUTES if route != "meta-ads-depth"])
         frozen = dict(product, source_route_checks=legacy)
         self.assertEqual(validate_functional_route_proof(frozen), legacy)
         changed = deepcopy(legacy); changed[9]["detail"] = "Edited after freezing."

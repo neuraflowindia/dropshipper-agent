@@ -7,7 +7,6 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from product_radar.catalogue_discovery import advance_discovery_cycle, prepare_discovery_cycle
 from product_radar.marketplace_browser import build_marketplace_request, capture_marketplace
 from product_radar.models import SafetyError, digest
 from product_radar.research_memory import ResearchMemory, key
@@ -16,7 +15,6 @@ from product_radar.source_coverage import create_marketplace_handlers, execute_s
 from product_radar.storage import Journal
 from product_radar.storage import atomic_json
 from product_radar.work_turns import bind_work_turn, open_work_turn
-from test_catalogue_expansion import fixture
 from test_marketplace_browser import snapshot, transport
 
 
@@ -40,6 +38,10 @@ class SharedMarketplaceTests(unittest.TestCase):
             "category": "Home and Kitchen", "function": "Store sink essentials", "mechanism": "manual",
             "audience": "adult", "features": ["draining"], "brand": "generic_or_small",
             "basis": "observed", "reason": "Synthetic source fixture."}})
+        self.memory.put("concepts", "rack", {"status": "active", "description": {"label": "Dish rack",
+            "category": "Home and Kitchen", "function": "Dry washed dishes", "mechanism": "manual",
+            "audience": "adult", "features": ["draining"], "brand": "generic_or_small",
+            "basis": "observed", "reason": "Synthetic second type asking the same search."}})
 
     def handlers(self, *, changes=None, failure=None, shared=True):
         def capture(request, acquisition_id, **options):
@@ -51,22 +53,24 @@ class SharedMarketplaceTests(unittest.TestCase):
         return create_marketplace_handlers(self.memory, data_root=self.source_root,
                                            capture=capture, shared_acquisitions=shared)
 
-    def prepare(self, handlers, *, request=None, programme="discovery-one", run="checks-one"):
+    def prepare(self, handlers, *, request=None, run="checks-one"):
+        """Two consumers of one Amazon read: this run's crowding question and
+        another programme's same question (Amazon is never discovery, D4)."""
         request = request or {"query": "sink caddy", "country": "IN", "limit": 30}
         self.run_id = run
         prepare_source_tasks(self.memory, [{"route": "amazon-search", "request": request,
             "concept_ids": ["sink"]}], run_id=run, as_of=NOW)
-        self.cycle = prepare_discovery_cycle(self.memory, programme, fixture(),
-            handlers={"amazon-search": handlers["amazon-search"]}, include_lists=False, action_limit=1, as_of=NOW)
+        prepare_source_tasks(self.memory, [{"route": "amazon-search",
+            "request": {"query": "sink caddy", "country": "IN", "limit": 30}, "concept_ids": ["rack"]}],
+            run_id="checks-other", as_of=NOW)
 
     def checks(self, handlers, **options):
         return execute_source_run(self.memory, self.run_id, handlers=handlers, as_of=NOW,
             bounded_call=lambda callback, context, timeout: callback(context), shared_marketplace=True, **options)
 
-    def discovery(self, handlers):
-        return advance_discovery_cycle(self.memory, self.cycle["id"],
-            handlers={"amazon-search": handlers["amazon-search"]}, as_of=NOW,
-            admission=lambda *_args, **_kwargs: None, shared_marketplace=True)
+    def other(self, handlers):
+        return execute_source_run(self.memory, "checks-other", handlers=handlers, as_of=NOW,
+            bounded_call=lambda callback, context, timeout: callback(context), shared_marketplace=True)
 
     def owners(self):
         return {rid: row for rid, row in self.memory.snapshot()["batch_runs"].items()
@@ -133,11 +137,11 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(owner["state"], "dispatching"); self.assertIsNone(owner["active_response_id"])
         self.assertEqual(len(self.calls), 1)
 
-    def test_discovery_first_then_checks_share_exact_original_without_callback(self):
+    def test_other_consumer_first_then_checks_share_exact_original_without_callback(self):
         handlers = self.handlers(); self.prepare(handlers)
-        first = self.discovery(handlers)
+        first = self.other(handlers)
         second = self.checks(handlers)
-        self.assertEqual(first["external_handler_calls_this_round"], 1)
+        self.assertEqual(first["handler_calls"], 1)
         self.assertEqual(second["handler_calls"], 0)
         self.assertEqual(second["counts"], {"acquired": 1})
         self.assertEqual(len(self.calls), 1)
@@ -145,23 +149,22 @@ class SharedMarketplaceTests(unittest.TestCase):
         captures = list(self.memory.snapshot()["captures"].values())
         self.assertEqual({r["acquisition_id"] for r in captures}, {self.calls[0][0]})
         self.assertEqual({r["observed_at"] for r in captures}, {NOW})
-        task = next(iter(self.memory.snapshot()["query_tasks"].values()))
+        task = next(row for row in self.memory.snapshot()["query_tasks"].values() if row["run_id"] == self.run_id)
         self.assertEqual(task["request"], {"query": "sink caddy", "country": "IN", "limit": 30})
         self.assertEqual(task["marketplace_physical_request"], self.calls[0][1])
         self.assertEqual(task["generation"], 0)
 
-    def test_checks_first_then_discovery_reuses_without_new_dispatch(self):
+    def test_checks_first_then_other_consumer_reuses_without_new_dispatch(self):
         handlers = self.handlers(); self.prepare(handlers)
         self.assertEqual(self.checks(handlers)["handler_calls"], 1)
-        second = self.discovery(handlers)
-        self.assertEqual(second["external_handler_calls_this_round"], 0)
-        self.assertEqual(second["actual_dispatches"], 0)
-        self.assertEqual(second["captured_cards"], 1)
+        second = self.other(handlers)
+        self.assertEqual(second["handler_calls"], 0)
+        self.assertEqual(second["counts"], {"acquired": 1})
         self.assertEqual(len(self.calls), 1)
         self.assertEqual(len(self.owners()), 1)
 
     def test_restart_replays_one_original_owner_and_does_not_recollect(self):
-        handlers = self.handlers(); self.prepare(handlers); self.discovery(handlers)
+        handlers = self.handlers(); self.prepare(handlers); self.other(handlers)
         self.memory = ResearchMemory(self.memory.root, Journal(self.root / "finance"), evidence_type="synthetic")
         self.assertEqual(self.checks(self.handlers())["handler_calls"], 0)
         self.assertEqual(len(self.calls), 1)
@@ -171,7 +174,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.checks(handlers)
         self.assertEqual(next(iter(self.owners().values()))["state"], "dispatching")
         # Both original recovery and a different consumer stay local-only.
-        self.checks(self.handlers()); self.discovery(self.handlers())
+        self.checks(self.handlers()); self.other(self.handlers())
         self.assertEqual(len(self.calls), 1)
         self.assertEqual(len(self.owners()), 1)
         self.assertEqual(list(self.memory.snapshot()["captures"]), [])
@@ -183,7 +186,7 @@ class SharedMarketplaceTests(unittest.TestCase):
             bounded_call=lambda callback, context, timeout: callback(context))
         original = next(iter(self.memory.snapshot()["query_tasks"].values()))["acquisition_id"]
         self.assertEqual(self.owners(), {})
-        self.discovery(self.handlers())
+        self.other(self.handlers())
         self.assertEqual(list(self.owners()), [original])
         self.assertEqual(self.owners()[original]["state"], "execution_unknown")
         self.assertEqual(len(self.calls), 1)
@@ -194,15 +197,15 @@ class SharedMarketplaceTests(unittest.TestCase):
             bounded_call=lambda callback, context, timeout: callback(context))
         original = self.calls[0][0]
         self.assertEqual(self.owners(), {})
-        result = self.discovery(self.handlers())
-        self.assertEqual(result["external_handler_calls_this_round"], 0)
+        result = self.other(self.handlers())
+        self.assertEqual(result["handler_calls"], 0)
         self.assertEqual(list(self.owners()), [original])
         self.assertEqual(len(self.calls), 1)
         self.assertEqual({r["observed_at"] for r in self.memory.snapshot()["captures"].values()}, {NOW})
 
     def test_recognized_empty_is_completed_capture_not_positive_market_evidence(self):
         handlers = self.handlers(changes={"cards": [], "card_count": 0, "empty": True}); self.prepare(handlers)
-        self.discovery(handlers)
+        self.other(handlers)
         result = self.checks(handlers)
         self.assertEqual(result["counts"], {"completed_no_results": 1})
         self.assertEqual(result["handler_calls"], 0)
@@ -214,7 +217,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.prepare(handlers)
         result = self.checks(handlers)
         self.assertEqual(result["counts"], {"insufficient": 1})
-        self.discovery(handlers)
+        self.other(handlers)
         self.assertEqual(len(self.calls), 1)
         owner = next(iter(self.owners().values()))
         self.assertNotEqual(owner["state"], "completed_empty")
@@ -224,9 +227,9 @@ class SharedMarketplaceTests(unittest.TestCase):
         handlers = self.handlers(changes={"query": "garbage bags"}); self.prepare(handlers)
         first = self.checks(handlers)
         self.assertEqual(first["counts"], {"insufficient": 1})
-        second = self.discovery(handlers)
-        self.assertEqual(second["captured_cards"], 0)
-        self.assertEqual(second["external_handler_calls_this_round"], 0)
+        second = self.other(handlers)
+        self.assertEqual(second["counts"], {"insufficient": 1})
+        self.assertEqual(second["handler_calls"], 0)
         owner = next(iter(self.owners().values()))
         stage = self.memory.snapshot()["source_checks"][owner["active_response_id"]]
         self.assertFalse(stage["complete"])
@@ -236,8 +239,8 @@ class SharedMarketplaceTests(unittest.TestCase):
     def test_parser_local_failure_retains_original_response_never_navigation_retry(self):
         handlers = self.handlers(changes={"cards": "invalid saved source snapshot"}); self.prepare(handlers)
         self.checks(handlers)
-        second = self.discovery(handlers)
-        self.assertEqual(second["external_handler_calls_this_round"], 0)
+        second = self.other(handlers)
+        self.assertEqual(second["handler_calls"], 0)
         self.assertEqual(len(self.calls), 1)
         owner = next(iter(self.owners().values()))
         stage = self.memory.snapshot()["source_checks"][owner["active_response_id"]]
@@ -248,7 +251,7 @@ class SharedMarketplaceTests(unittest.TestCase):
 
     def test_complete_request_bounds_do_not_share_different_limits(self):
         handlers = self.handlers(); self.prepare(handlers, request=build_marketplace_request("amazon-search", term="sink caddy", limit=10))
-        self.checks(handlers); self.discovery(handlers)
+        self.checks(handlers); self.other(handlers)
         self.assertEqual(len(self.calls), 2)
         self.assertEqual(len(self.owners()), 2)
         self.assertEqual({request["limit"] for _, request in self.calls}, {10, 30})
@@ -257,7 +260,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         handlers = self.handlers(); self.prepare(handlers)
         turn = open_work_turn(self.memory, "programme", at=NOW)
         with bind_work_turn(self.memory, turn["id"]):
-            self.discovery(handlers)
+            self.other(handlers)
             before = self.memory.snapshot()["batch_runs"][turn["id"]]["counters"]["source_callbacks"]
             self.checks(handlers)
             after = self.memory.snapshot()["batch_runs"][turn["id"]]["counters"]["source_callbacks"]
@@ -280,13 +283,14 @@ class SharedMarketplaceTests(unittest.TestCase):
 
     def test_context_boolean_alone_is_not_caller_intent_or_launch_authority(self):
         handlers = self.handlers(); self.prepare(handlers)
-        question = self.cycle["planned_actions"][0]["questions"][0]
-        context = {"task_id": question["id"], "route": "amazon-search", "acquisition_id": "unused-original",
+        task_id, question = next((tid, row) for tid, row in self.memory.snapshot()["query_tasks"].items()
+                                 if row["run_id"] == "checks-other")
+        context = {"task_id": task_id, "route": "amazon-search", "acquisition_id": "unused-original",
                    "request": question["request"], "as_of": NOW, "concept_ids": [], "description_hashes": {}}
         resolved = handlers["amazon-search"]["resolve_marketplace"](context)
         with self.assertRaisesRegex(SafetyError, "SOURCE_MARKETPLACE_CALLER_INTENT_REQUIRED"):
             handlers["amazon-search"]["handler"](dict(context, acquisition_id=resolved["acquisition_id"],
-                marketplace_admitted=True, marketplace_caller={"table": "batch_runs", "id": self.cycle["id"]}))
+                marketplace_admitted=True, marketplace_caller={"table": "query_tasks", "id": task_id}))
         self.assertEqual(self.calls, [])
         self.assertEqual(next(iter(self.owners().values()))["state"], "reserved")
 
@@ -295,7 +299,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.prepare(handlers)
         execute_source_run(self.memory, self.run_id, handlers=handlers, as_of=NOW,
             bounded_call=lambda callback, context, timeout: callback(context))
-        self.discovery(self.handlers())
+        self.other(self.handlers())
         binding = next(iter(self.owners().values()))["binding"]
         self.assertEqual(binding["collection_channel"], "unknown")
         self.assertEqual(binding["incremental_collection_fee"], "unknown")
@@ -317,7 +321,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(after["files"][0][0], "native_result.json")
 
     def test_original_artifacts_changed_after_capture_are_not_reused_or_recollected(self):
-        handlers = self.handlers(); self.prepare(handlers); self.discovery(handlers)
+        handlers = self.handlers(); self.prepare(handlers); self.other(handlers)
         aid = self.calls[0][0]
         atomic_json(self.source_root / aid / "snapshot.json", {"changed": "Synthetic damage"})
         result = self.checks(handlers)
@@ -342,8 +346,8 @@ class SharedMarketplaceTests(unittest.TestCase):
         shared = create_marketplace_handlers(self.memory, data_root=self.source_root,
             capture=lambda *_args, **_kwargs: self.fail("Must only replay the actual original"),
             shared_acquisitions=True, artifact_roots=[original_root])
-        result = self.discovery(shared)
-        self.assertEqual(result["external_handler_calls_this_round"], 0)
+        result = self.other(shared)
+        self.assertEqual(result["handler_calls"], 0)
         self.assertEqual(list(self.owners()), [aid])
         self.assertFalse((self.source_root / aid).exists())
         self.assertEqual((original_root / aid / "receipt.json").read_bytes(), original)
@@ -357,7 +361,7 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(self.checks(handlers)["counts"], {"waiting": 1})
         self.assertEqual(self.calls, [])
         # Another healthy caller can complete the same never-entered original.
-        self.discovery(handlers)
+        self.other(handlers)
         result = self.checks(handlers)
         self.assertEqual(result["counts"], {"acquired": 1})
         self.assertEqual(result["handler_calls"], 0)

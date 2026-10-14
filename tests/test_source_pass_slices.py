@@ -15,7 +15,7 @@ from product_radar.research_memory import ResearchMemory, key
 from product_radar.source_coverage import (
     SOURCE_INSPECTION_SLICE_LIMIT, SOURCE_INSPECTION_PRIORITY_LIMIT,
     _effective_source_inspection, _inspection_record, _source_inspection_position,
-    _stage_receipt, continue_source_run, prepare_source_tasks,
+    _stage_receipt, continue_source_run, execute_source_run, prepare_source_tasks,
 )
 from product_radar.work_turns import (
     DEFAULT_POLICY, bind_work_turn, close_work_turn, open_work_turn, reserve_source_callback,
@@ -264,6 +264,37 @@ class SourcePassSliceTests(unittest.TestCase):
         self.assertEqual(len([kind for kind, _ in events if kind == "source_outcome"]), 3)
         self.assertEqual(observer, [])
         self.assertEqual(self.memory.snapshot()["batch_runs"][key("source-run", "week-one")]["last_results"], result["results"])
+
+    def test_preflight_calm_wait_is_saved_and_not_asked_again_before_its_recheck_time(self):
+        from product_radar.nearly_ready import _acquire_pending
+        from product_radar.models import timestamp
+        task_id = self.plan(self.questions(1))["task_ids"][0]
+        later, asks = "2026-10-09T11:00:00+00:00", []
+        def preflight(context):
+            asks.append(context["as_of"])
+            return {"action": "wait", "calm_wait": True, "reason": "META_DEPTH_ALLOWANCE_USED", "next_retry_at": later}
+        def forbidden(_context):
+            raise AssertionError("A calm wait never launches a collector.")
+        handlers = {"meta-ads": {"handler": forbidden, "source_access_preflight": preflight}}
+        first = self.run_sources(handlers)
+        self.assertEqual([(row["state"], row["reason"], row["next_retry_at"]) for row in first["results"]],
+                         [("waiting", "META_DEPTH_ALLOWANCE_USED", later)])
+        task = self.memory.snapshot()["query_tasks"][task_id]
+        self.assertEqual((task["status"], task["reason"], task["next_retry_at"]), ("prepared", "META_DEPTH_ALLOWANCE_USED", later))
+        # The finishing priority no longer sees this question as due work.
+        self.assertFalse(_acquire_pending(task, None, timestamp(NOW)))
+        self.assertTrue(_acquire_pending(task, None, timestamp(later)))
+        again = self.run_sources(handlers)
+        self.assertEqual(len(asks), 1)
+        self.assertEqual([(row["state"], row["next_retry_at"]) for row in again["results"]], [("waiting", later)])
+        # At its recheck time the hook is asked again; a wait without a time is not saved.
+        def untimed(context):
+            asks.append(context["as_of"])
+            return {"action": "wait", "calm_wait": True, "reason": "OWNER_SIGN_IN_REQUIRED", "next_retry_at": None}
+        execute_source_run(self.memory, "week-one", as_of=later, bounded_call=self.direct_runner,
+                           handlers={"meta-ads": {"handler": forbidden, "source_access_preflight": untimed}})
+        self.assertEqual(asks, [NOW, later])
+        self.assertEqual(self.memory.snapshot()["query_tasks"][task_id]["next_retry_at"], later)
 
     def test_wrapper_yields_pending_slice_even_after_a_real_callback(self):
         self.plan(self.questions(80))

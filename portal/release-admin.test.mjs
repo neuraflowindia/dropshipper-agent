@@ -224,13 +224,14 @@ function platformPacket(matches = 6, sources = ['amazon', 'flipkart'], positive 
 const SOURCE_ROUTE_FIXTURE = [
   ['meta-ads', 'Facebook Ads Library', 'meta'],
   ['amazon-bestsellers', 'Amazon India Bestsellers', 'marketplace'],
-  ['amazon-movers-and-shakers', 'Amazon India Movers & Shakers', 'marketplace'],
   ['amazon-search', 'Amazon India product search', 'marketplace'],
   ['flipkart-search', 'Flipkart product search', 'marketplace'],
   ['google-trends', 'Google Trends India', 'trends'],
   ['blinkit', 'Blinkit', 'quickcommerce'], ['zepto', 'Zepto', 'quickcommerce'], ['instamart', 'Instamart', 'quickcommerce'],
   ['google-suppliers', 'Google supplier search', 'supplier'], ['google-maps', 'Google Maps supplier search', 'supplier'],
   ['indiamart', 'IndiaMART', 'supplier'], ['tradeindia', 'TradeIndia', 'supplier'], ['company-pages', 'Supplier company pages', 'supplier'],
+  ['deodap', 'DeoDap', 'dropship-platforms'], ['baapstore', 'BaapStore', 'dropship-platforms'],
+  ['dropship-india', 'Dropship India', 'dropship-platforms'], ['dropdash', 'Dropdash', 'dropship-platforms'],
 ];
 function sourcePacket() {
   const p = platformPacket();
@@ -255,25 +256,31 @@ function sourcePacket() {
   refreshFacts(p); return p;
 }
 
-test('marked source facts keep fourteen exact routes and fractional chart figures without relaxing canonical hashes', () => {
+test('marked source facts keep every exact route and fractional chart figures without relaxing canonical hashes', () => {
   const p = sourcePacket(); assert.equal(validateFitPacket(p.facts, p.manifest), p.facts);
-  assert.equal(p.facts.products[0].source_route_checks.length, 14);
+  assert.equal(p.facts.products[0].source_route_checks.length, SOURCE_ROUTE_FIXTURE.length);
   const raw = canonical(p.facts);
   assert.ok(raw.includes('"value":["8.125","12.5"]'));
   assert.throws(() => canonical({ value: 8.125 }), /ADMIN_NONINTEGER_JSON/);
   assert.equal(validateFitPacket(platformPacket().facts, platformPacket().manifest).schema_version, 2);
 });
 
-test('new source facts omit the retired Google Search route; earlier fourteen-row packets stay valid', () => {
+test('new source facts omit the retired Google Search route; earlier full-row packets stay valid', () => {
   const p = sourcePacket();
   for (const product of p.facts.products) product.source_route_checks = product.source_route_checks.filter(row => row.route !== 'google-suppliers');
   refreshFacts(p);
   assert.equal(validateFitPacket(p.facts, p.manifest), p.facts);
-  assert.equal(p.facts.products[0].source_route_checks.length, 13);
+  assert.equal(p.facts.products[0].source_route_checks.length, SOURCE_ROUTE_FIXTURE.length - 1);
   const shifted = sourcePacket();
   for (const product of shifted.facts.products) product.source_route_checks = product.source_route_checks.filter(row => row.route !== 'google-maps');
   refreshFacts(shifted);
   assert.throws(() => validateFitPacket(shifted.facts, shifted.manifest), /ADMIN_SOURCE_ROUTE_FACTS_INVALID/);
+  // The deeper Meta read has no client row of its own (it folds into the Meta row).
+  const deeper = sourcePacket();
+  for (const product of deeper.facts.products) product.source_route_checks.push({ ...product.source_route_checks[0],
+    route: 'meta-ads-depth', source: 'Facebook Ads Library (deeper read)' });
+  refreshFacts(deeper);
+  assert.throws(() => validateFitPacket(deeper.facts, deeper.manifest), /ADMIN_SOURCE_ROUTE_FACTS_INVALID/);
 });
 
 test('supplier detail version preserves absent legacy markers and accepts current source-bound metadata', () => {
@@ -320,7 +327,7 @@ test('marked source facts reject missing routes, invented references, unsupporte
     product => { product.source_route_checks[0].detail = 'x'.repeat(8001); },
     product => { product.source_route_checks[0].observed_at = 'tomorrow'; },
     product => { product.source_route_checks[0].url = 'https://example.com/?api_key=fixture'; },
-    product => { product.source_route_checks[5].last_attempt.receipt_id = 'invented'; },
+    product => { product.source_route_checks.find(row => row.route === 'google-trends').last_attempt.receipt_id = 'invented'; },
     product => { product.source_revisions.observations['source-one'] = 'not-a-hash'; },
   ]) {
     const p = sourcePacket(); change(p.facts.products[0]);
@@ -335,14 +342,14 @@ test('marked source facts reject missing routes, invented references, unsupporte
 test('marked source numeric ranges reject rounding-dependent comparisons and ungrounded measurements', () => {
   for (const value of [true, -1, 1_000_000_001, '01.25', '1.250', '1e2', '+2', '0.0', '1'.repeat(33),
     '1000000000.0000000000000000001', ['2.5', '2.25'], [null, '2'], ['1.0000000000000000000002', '1.0000000000000000000001']]) {
-    const p = sourcePacket(); p.facts.products[0].source_route_checks[5].measurements[1].value = value;
+    const p = sourcePacket(); p.facts.products[0].source_route_checks.find(row => row.route === 'google-trends').measurements[1].value = value;
     assert.throws(() => validateFitPacket(p.facts, p.manifest), /ADMIN_SOURCE_ROUTE_/);
   }
   for (const change of [
     metric => { metric.name = 'sales_guaranteed'; }, metric => { metric.evidence_ids = []; },
     metric => { metric.evidence_ids = ['receipt-one']; }, metric => { metric.value = 1.25; },
   ]) {
-    const p = sourcePacket(); change(p.facts.products[0].source_route_checks[5].measurements[1]);
+    const p = sourcePacket(); change(p.facts.products[0].source_route_checks.find(row => row.route === 'google-trends').measurements[1]);
     assert.throws(() => validateFitPacket(p.facts, p.manifest), /ADMIN_SOURCE_ROUTE_|ADMIN_NONINTEGER_JSON/);
   }
 });

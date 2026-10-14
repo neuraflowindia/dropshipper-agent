@@ -353,8 +353,13 @@ class TrialTests(unittest.TestCase):
         self.assertEqual(calls, [("GET", "/v2/users/me/usage/monthly")])
         spec = {"method": "GET", "path": "/v2/users/me/usage/monthly", "query": None,
                 "body": None, "byte_limit": 524288, "token": TOKEN}
-        for changed in ({"method": "POST"}, {"query": {"date": "2026-09-01"}}, {"path": "/v2/users/me/limits"}):
+        for changed in ({"method": "POST"}, {"query": {"date": "2026-09-01"}}, {"path": "/v2/users/me/usage/daily"}):
             with self.assertRaisesRegex(SafetyError, "INVALID_PROVIDER_REQUEST"): validate_spec({**spec, **changed})
+        # The monthly limits read (W11) is a reviewed plain GET too: no write, no query.
+        validate_spec({**spec, "path": "/v2/users/me/limits"})
+        for changed in ({"method": "POST"}, {"query": {"date": "2026-09-01"}}):
+            with self.assertRaisesRegex(SafetyError, "INVALID_PROVIDER_REQUEST"):
+                validate_spec({**spec, "path": "/v2/users/me/limits", **changed})
     def test_identity_mismatch_cannot_fallback(self):
         self.facts["provider_user_id"] = "differentUser"; self.save_facts()
         with self.journal.locked(), self.assertRaisesRegex(SafetyError, "ACCOUNT_IDENTITY_MISMATCH"): self.bind()

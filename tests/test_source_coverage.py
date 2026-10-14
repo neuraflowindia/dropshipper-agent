@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from product_radar.models import SafetyError, digest
-from product_radar.research_memory import ResearchMemory, key
-from product_radar.source_coverage import (CHECK_KIND, ROUTES, TASK_KIND, bind_source_relevance,
+from product_radar.research_memory import ResearchMemory, change, key
+from product_radar.source_coverage import (CHECK_KIND, PLANNED_ROUTES, ROUTES, TASK_KIND, bind_source_relevance,
     continue_source_run, create_marketplace_handlers, execute_source_run, installed_source_handlers, prepare_all_source_tasks,
     prepare_source_tasks, product_source_request_builder, resume_source_route, retry_source_prelaunch_task,
     route_registry, source_coverage, source_run_progress)
@@ -93,15 +93,44 @@ class SourceCoverageTests(unittest.TestCase):
             question["query_plan"] = context["query_plan"]
         return prepare_source_tasks(self.memory, [question], run_id=run_id, as_of=NOW)
 
-    def test_registry_has_fourteen_agreed_routes_and_only_three_demand_groups(self):
+    def test_registry_has_the_agreed_routes_and_only_three_demand_groups(self):
         registry = route_registry()
-        self.assertEqual(len(registry), 14)
+        self.assertEqual(set(registry), set(ROUTES))
+        self.assertNotIn("amazon-movers-and-shakers", registry)  # Retired in Plan R10 W6.
         self.assertTrue(all(not row["connected"] for row in registry.values()))
         self.assertEqual({row["demand_group"] for row in registry.values()} - {None}, {"meta", "marketplace", "trends"})
         self.assertEqual({registry[r]["demand_group"] for r in ("blinkit", "zepto", "instamart", "google-suppliers")}, {None})
         connected = route_registry({"meta-ads": self.acquired})
         self.assertTrue(connected["meta-ads"]["connected"])
         self.assertFalse(connected["google-trends"]["connected"])
+
+    def test_saved_question_of_a_deleted_route_is_closed_once_never_sent(self):
+        # Amazon Movers & Shakers was deleted (Plan R10 W6); a run saved before
+        # that still lists its questions, one even an open dispatch.
+        prepared = self.plan([self.question()])
+        state = self.memory.snapshot(); run_key = key("source-run", "week-one")
+        original = state["query_tasks"][prepared["task_ids"][0]]
+        prepared_old = dict(original, route="amazon-movers-and-shakers", request={"department": "kitchen"})
+        dispatching_old = dict(prepared_old, status="dispatching", reconcile_required=True, acquisition_id="old-original")
+        run = state["batch_runs"][run_key]
+        self.memory.commit("synthetic-retired-route-questions", [
+            change("query_tasks", "retired-prepared", prepared_old), change("query_tasks", "retired-dispatching", dispatching_old),
+            change("batch_runs", run_key, dict(run, task_ids=run["task_ids"] + ["retired-prepared", "retired-dispatching"]),
+                   previous=run)])
+        called = []
+        result = self.run_sources({"meta-ads": lambda context: called.append(context["route"]) or self.acquired(context)})
+        self.assertEqual(called, ["meta-ads"])
+        closed = {row["task_id"]: row for row in result["results"] if row["task_id"].startswith("retired-")}
+        self.assertEqual({row["state"] for row in closed.values()}, {"retired"})
+        self.assertEqual({row["reason"] for row in closed.values()}, {"SOURCE_ROUTE_RETIRED"})
+        tasks = self.memory.snapshot()["query_tasks"]
+        for task_id in ("retired-prepared", "retired-dispatching"):
+            self.assertEqual((tasks[task_id]["status"], tasks[task_id]["reconcile_required"], tasks[task_id]["next_retry_at"]),
+                             ("retired", False, None))
+        again = self.run_sources({"meta-ads": self.acquired})
+        self.assertFalse([row for row in again["results"] if row["task_id"].startswith("retired-")])
+        rows = source_coverage(self.memory, as_of=NOW)["rows"]
+        self.assertNotIn("amazon-movers-and-shakers", {row["route"] for row in rows})
 
     def test_registry_refuses_unknown_or_noncallable_handlers(self):
         with self.assertRaisesRegex(SafetyError, "REGISTRY"):
@@ -114,17 +143,17 @@ class SourceCoverageTests(unittest.TestCase):
         self.memory.put("concepts", "first", dict(old, description=None), previous=old)
         prepared = prepare_all_source_tasks(self.memory, run_id="week-one", as_of=NOW,
             request_builder=lambda context: {"query": "sink caddy", "country": "IN"})
-        # Thirteen planned routes: retired Google Search supplier results are never asked.
-        self.assertEqual(prepared["physical_questions"], 13)
-        self.assertEqual(len(prepared["pending_preparation"]), 13)
+        # Every planned route: retired Google Search supplier results are never asked.
+        self.assertEqual(prepared["physical_questions"], len(PLANNED_ROUTES))
+        self.assertEqual(len(prepared["pending_preparation"]), len(PLANNED_ROUTES))
         result = self.run_sources({route: self.acquired for route in ROUTES})
-        self.assertEqual(result["handler_calls"], 13)
+        self.assertEqual(result["handler_calls"], len(PLANNED_ROUTES))
         grid = source_coverage(self.memory, handlers={route: self.acquired for route in ROUTES}, as_of=NOW)
         broken = [row for row in grid["rows"] if row["concept_id"] == "first"]
-        self.assertEqual(len(grid["rows"]), 28)
+        self.assertEqual(len(grid["rows"]), 2 * len(ROUTES))
         self.assertTrue(all(row["state"] == "not_attempted" and not row["actual_attempt"] for row in broken))
         self.assertTrue(all(row["reason"] == "SOURCE_PRODUCT_DESCRIPTION_INVALID" for row in broken))
-        self.assertEqual(grid["actually_attempted_product_routes"], 13)
+        self.assertEqual(grid["actually_attempted_product_routes"], len(PLANNED_ROUTES))
         # Even with a handler supplied, the retired route is unavailable, not pending.
         retired = next(row for row in grid["rows"] if row["concept_id"] == "second" and row["route"] == "google-suppliers")
         self.assertEqual((retired["state"], retired["actual_attempt"], retired["task_ids"]), ("not_connected", False, []))
@@ -141,8 +170,8 @@ class SourceCoverageTests(unittest.TestCase):
             prepared = prepare_all_source_tasks(self.memory, run_id="week-one", as_of=NOW,
                 request_builder=lambda context: {"query": "sink caddy", "country": "IN"})
             grid = source_coverage(self.memory, as_of=NOW)
-        self.assertEqual(prepared["physical_questions"], 13)
-        self.assertEqual(len(prepared["pending_preparation"]), 13)
+        self.assertEqual(prepared["physical_questions"], len(PLANNED_ROUTES))
+        self.assertEqual(len(prepared["pending_preparation"]), len(PLANNED_ROUTES))
         self.assertTrue(all(row["reason"] == "BRAND_ORIGIN_BINDING_CHANGED"
             for row in grid["rows"] if row["concept_id"] == "first"))
 
@@ -150,18 +179,18 @@ class SourceCoverageTests(unittest.TestCase):
         self.memory.put("source_checks", "global-test", {"source": "meta", "route": "apify", "at": NOW,
                         "state": "usable", "reason": "Global route check only.", "reference": "global-test"})
         grid = source_coverage(self.memory, handlers={"meta-ads": self.acquired}, as_of=NOW)
-        self.assertEqual(grid["product_route_questions"], 28)
+        self.assertEqual(grid["product_route_questions"], 2 * len(ROUTES))
         self.assertEqual(grid["actually_attempted_product_routes"], 0)
-        self.assertEqual(grid["states"], {"not_attempted": 2, "not_connected": 26})
+        self.assertEqual(grid["states"], {"not_attempted": 2, "not_connected": 2 * len(ROUTES) - 2})
 
     def test_full_156_grid_preserves_three_known_brands_without_excluding_categories(self):
         for number in range(154):
             self.product("extra-" + str(number), brand="established" if number < 3 else "generic_or_small")
         grid = source_coverage(self.memory, as_of=NOW)
         self.assertEqual(grid["products"], 156)
-        self.assertEqual(grid["product_route_questions"], 2184)
-        self.assertEqual(grid["states"]["not_applicable"], 42)
-        self.assertEqual(grid["states"]["not_connected"], 2142)
+        self.assertEqual(grid["product_route_questions"], 156 * len(ROUTES))
+        self.assertEqual(grid["states"]["not_applicable"], 3 * len(ROUTES))
+        self.assertEqual(grid["states"]["not_connected"], 153 * len(ROUTES))
 
     def test_same_family_question_shares_acquisition_but_keeps_each_target(self):
         planned = self.plan([self.question(ids=["first"]), self.question(ids=["second"])])
@@ -202,9 +231,9 @@ class SourceCoverageTests(unittest.TestCase):
                 return {"not_applicable_reason": "Explicitly outside selected location scope."}
             return {"query": "sink caddy", "country": "IN"}
         prepared = prepare_all_source_tasks(self.memory, run_id="week-one", request_builder=builder, as_of=NOW)
-        self.assertEqual(prepared["physical_questions"], 11)
+        self.assertEqual(prepared["physical_questions"], len(PLANNED_ROUTES) - 2)
         self.assertEqual(len(prepared["pending_preparation"]), 2)
-        self.assertEqual(prepared["product_questions"], 22)
+        self.assertEqual(prepared["product_questions"], 2 * (len(PLANNED_ROUTES) - 2))
         grid = source_coverage(self.memory, handlers={r: self.acquired for r in ROUTES}, as_of=NOW)
         self.assertEqual(grid["actually_attempted_product_routes"], 0)
         self.assertTrue(all(r["reason"] == "SUPPLIER_DESTINATIONS_PENDING" for r in grid["rows"] if r["route"] == "company-pages"))
@@ -575,7 +604,7 @@ class SourceCoverageTests(unittest.TestCase):
             handlers={"tradeindia": search, "company-pages": company}, bounded_call=self.direct_runner)
         self.assertEqual(calls, ["tradeindia", "company-pages"])
         self.assertEqual(result["handler_calls"], 2)
-        self.assertEqual(result["product_route_questions"], 26)
+        self.assertEqual(result["product_route_questions"], 2 * len(PLANNED_ROUTES))
         self.assertEqual(result["progress"]["pending_preparation"], 0)
         replay = continue_source_run(self.memory, "week-one", request_builder=builder,
             handlers={"tradeindia": search, "company-pages": company}, bounded_call=self.direct_runner)
@@ -615,11 +644,11 @@ class SourceCoverageTests(unittest.TestCase):
         first = continue_source_run(self.memory, "week-one", request_builder=builder, handlers=handlers,
                                     action_limit=1, bounded_call=self.direct_runner)
         self.assertEqual(first["handler_calls"], 1)
-        self.assertEqual(first["progress"]["task_states"]["prepared"], 12)
+        self.assertEqual(first["progress"]["task_states"]["prepared"], len(PLANNED_ROUTES) - 1)
         second = continue_source_run(self.memory, "week-one", request_builder=builder, handlers=handlers,
                                      action_limit=1, bounded_call=self.direct_runner)
         self.assertEqual(second["handler_calls"], 1)
-        self.assertEqual(second["progress"]["task_states"]["prepared"], 11)
+        self.assertEqual(second["progress"]["task_states"]["prepared"], len(PLANNED_ROUTES) - 2)
 
     def test_known_failed_read_waits_and_retries_once_without_resetting_run(self):
         self.plan([self.question()], max_attempts=2)
@@ -846,7 +875,7 @@ class SourceCoverageTests(unittest.TestCase):
         state = self.memory.snapshot()
         with patch.object(self.memory, "snapshot", side_effect=AssertionError("Unnecessary repeated verified read")):
             result = source_coverage(self.memory, handlers={}, as_of=NOW, state=state)
-        self.assertEqual(result["product_route_questions"], 28)
+        self.assertEqual(result["product_route_questions"], 2 * len(ROUTES))
         self.assertEqual(result["actually_attempted_product_routes"], 0)
 
     def test_relevance_rejects_unrelated_reference_or_changed_product(self):
@@ -1197,9 +1226,9 @@ class SourceCoverageTests(unittest.TestCase):
         self.assertEqual(row["state"], "not_attempted")
         self.assertTrue(row["task_ids"])
 
-    def test_installed_factory_is_fourteen_real_handlers_without_hidden_calls_or_optional_keys(self):
+    def test_installed_factory_is_one_real_handler_per_route_without_hidden_calls_or_optional_keys(self):
         handlers = installed_source_handlers(self.memory)
-        self.assertEqual(len(handlers), 14)
+        self.assertEqual(set(handlers), set(ROUTES))
         self.assertIn("meta-ads", handlers)
         self.assertIn("google-trends", handlers)
         self.assertIn("blinkit", handlers)
@@ -1290,7 +1319,7 @@ class SourceCoverageTests(unittest.TestCase):
         stream = StringIO()
         with redirect_stdout(stream):
             self.assertEqual(module.main([], memory=self.memory, handlers={}), 0)
-        self.assertIn('"product_route_questions": 28', stream.getvalue())
+        self.assertIn('"product_route_questions": ' + str(2 * len(ROUTES)), stream.getvalue())
         self.assertEqual(before, self.memory.snapshot())
 
     def test_resume_uses_original_acquisition_and_only_registered_reconciliation(self):

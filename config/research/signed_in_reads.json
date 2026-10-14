@@ -1,7 +1,13 @@
 {
   "schema_version": 1,
-  "kind": "signed-in-read-pacing-v1",
+  "kind": "signed-in-read-pacing-v2",
   "sites": {
-    "indiamart": {"min_interval_seconds": 30, "daily_ceiling": 150}
-  }
+    "google-trends": {"min_interval_seconds": 90, "daily_ceiling": 200},
+    "indiamart": {"min_interval_seconds": 30, "daily_ceiling": 150},
+    "deodap": {"min_interval_seconds": 5, "daily_ceiling": 1500},
+    "baapstore": {"min_interval_seconds": 5, "daily_ceiling": 1500},
+    "dropship-india": {"min_interval_seconds": 30, "daily_ceiling": 300},
+    "dropdash": {"min_interval_seconds": 30, "daily_ceiling": 300}
+  },
+  "round": {"signed_in_seconds": 300, "site_reads": {"indiamart": 4}}
 }

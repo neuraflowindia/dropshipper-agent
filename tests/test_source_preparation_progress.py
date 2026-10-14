@@ -87,11 +87,21 @@ class SourcePreparationProgressTests(unittest.TestCase):
         self.assertEqual([row["scanned"] for row in questions], list(range(2 * R)))
         self.assertEqual([row["remaining"] for row in questions], list(range(2 * R, 0, -1)))
         self.assertTrue(all(row["stage"] == "acquire" and row["useful_result"] is False for row in rows))
+        # Pending: each product's company pages (no destination yet), its four
+        # dropshipping-platform questions (no platform catalogue has been read yet)
+        # and the Meta depth follow-up (no free read yet).
+        platforms = [route for route in ROUTES if coverage.ROUTES[route]["source"] == "dropship-platforms"]
+        waiting = {"company-pages", *platforms} | ({"meta-ads-depth"} & set(ROUTES))
+        pending = 2 * len(waiting)
+        self.assertEqual(len(platforms), 4)
+        self.assertEqual({row["route"] for row in result["pending_preparation"]}, waiting)
         self.assertEqual(rows[-1]["counts"], {"questions_total": 2 * R,
-            "questions_prepared": 2 * R - 2, "questions_pending": 2})
+            "questions_prepared": 2 * R - pending, "questions_pending": pending})
         self.assertEqual(rows[-1]["scanned"], 2 * R)
         self.assertEqual(rows[-1]["remaining"], 0)
-        self.assertEqual(len(result["pending_preparation"]), 2)
+        self.assertEqual(len(result["pending_preparation"]), pending)
+        self.assertEqual({row["reason"] for row in result["pending_preparation"] if row["route"] in platforms},
+                         {"DROPSHIP_CATALOGUE_PENDING"})
         self.assertEqual(result["source_attempts_created"], 0)
         self.assertEqual(current["counts"]["completed_results"], 0)
         self.assertEqual(current["counts"]["failures"], 0)

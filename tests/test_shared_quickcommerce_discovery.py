@@ -52,7 +52,7 @@ class SharedQuickCommerceTests(unittest.TestCase):
         prepare_source_tasks(self.memory, [{"route": "blinkit", "request": {"query": "sink caddy", "location": deepcopy(location)},
             "concept_ids": ["sink"]}], run_id=run, as_of=self.now)
         self.wave = prepare_next_discovery_wave(self.memory, programme, self.catalogue, handlers=handlers,
-            include_lists=False, location=location, as_of=self.now)
+            location=location, as_of=self.now)
 
     def checks(self, handlers):
         with patch("product_radar.quickcommerce.utc_now", return_value=self.now), patch("product_radar.quickcommerce_browser.utc_now", return_value=self.now):
@@ -114,7 +114,7 @@ class SharedQuickCommerceTests(unittest.TestCase):
     def test_missing_location_is_named_without_fake_questions_or_calls(self):
         before = self.memory.snapshot()
         hint = discovery_wave_readiness(self.memory, "programme", self.catalogue, handlers=self.handlers(),
-            as_of=self.now, include_lists=False)
+            as_of=self.now)
         self.assertFalse(hint["new_wave_ready"])
         self.assertEqual({r["route"] for r in hint["preparation_gaps"]}, {"blinkit", "zepto", "instamart"})
         self.assertEqual({r["reason"] for r in hint["preparation_gaps"]}, {"QUICKCOMMERCE_LOCATION_REQUIRED"})

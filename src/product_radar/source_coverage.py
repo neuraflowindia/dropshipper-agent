@@ -60,7 +60,6 @@ _ACCESS_CHALLENGE_STATUSES = {401, 403, 429}
 ROUTES = {
     "meta-ads": {"source": "meta", "demand_group": "meta"},
     "amazon-bestsellers": {"source": "marketplace", "demand_group": "marketplace"},
-    "amazon-movers-and-shakers": {"source": "marketplace", "demand_group": "marketplace"},
     "amazon-search": {"source": "marketplace", "demand_group": "marketplace"},
     "flipkart-search": {"source": "marketplace", "demand_group": "marketplace"},
     "google-trends": {"source": "trends", "demand_group": "trends"},
@@ -72,7 +71,21 @@ ROUTES = {
     "indiamart": {"source": "supplier", "demand_group": None},
     "tradeindia": {"source": "supplier", "demand_group": None},
     "company-pages": {"source": "supplier", "demand_group": None},
+    # Dropshipping platforms (W4): a local per-type check of each platform's
+    # saved catalogue; supplier and presence information, never a market vote.
+    "deodap": {"source": "dropship-platforms", "demand_group": None},
+    "baapstore": {"source": "dropship-platforms", "demand_group": None},
+    "dropship-india": {"source": "dropship-platforms", "demand_group": None},
+    "dropdash": {"source": "dropship-platforms", "demand_group": None},
+    # A paid follow-up to the free Meta read (W11, meta_depth): asked only when
+    # that read lacks advertisers or start dates. Its ads count in the single
+    # Meta site, never as a site of their own.
+    "meta-ads-depth": {"source": "meta", "demand_group": "meta"},
 }
+# Routes that have left the service (W6 retired Amazon Movers & Shakers). Their
+# saved owners and questions stay readable as closed history only; nothing new
+# is prepared, claimed, joined or sent for them.
+CLOSED_ROUTES = frozenset(("amazon-movers-and-shakers",))
 # Routes the planner asks product questions for. A retired supplier route keeps
 # its row and saved history but is never prepared, sent or waited on.
 PLANNED_ROUTES = tuple(route for route in ROUTES if route not in RETIRED_SUPPLIER_ROUTES)
@@ -222,7 +235,7 @@ _FIRST_READ_REASON = "This route now starts with its own browser read; the old q
 
 def _superseding_reason(route, old, new):
     """Why a new question may take over an old one's future work, or None."""
-    if (route in {"amazon-bestsellers", "amazon-movers-and-shakers"}
+    if (route == "amazon-bestsellers"
             and old.get("department") == "home" and new.get("department") == "kitchen/1380374031"):
         return _DECOR_REASON
     first = SUPPLIER_FIRST_TRANSPORT.get(route)
@@ -251,10 +264,11 @@ def acquisition_access_scope(owner, response=None, *, state=None, planned=False)
                 response = _stage(state, original, original["active_response_id"])
         url = (response or {}).get("access", {}).get("scope_url", request["url"])
         return source_access_scope(url, transport="supplier-public", access_identity="owned-supplier-public")
+    if request.get("transport") == SIGNED_IN_TRANSPORT:
+        # Every read in the owner's signed-in profile (Trends, IndiaMART ...).
+        return signed_in_access_scope(request["url"])
     from .supplier_route_acquisition import SEARCH_ROUTES
     if owner["binding"]["route"] in SEARCH_ROUTES:
-        if request.get("transport") == SIGNED_IN_TRANSPORT:
-            return signed_in_access_scope(request["url"])
         # HTTP and browser are different reads, not a way around the same
         # public supplier host's real refusal. Google search/Maps share it.
         return source_access_scope(request["url"], transport="supplier-public", access_identity="owned-supplier-public")
@@ -531,9 +545,11 @@ def _record_marketplace_access(memory, acquisition_id, response_id, *, as_of):
         wait_seconds = _access_backoff_seconds(attempt,
             challenge=status in _ACCESS_CHALLENGE_STATUSES or response["source_state"] == "blocked",
             image=owner["binding"]["route"] == "public_image_http")
-        if scope["transport"] == SIGNED_IN_TRANSPORT and response.get("parse_reason") == "OWNER_SIGN_IN_REQUIRED":
+        if scope["transport"] == SIGNED_IN_TRANSPORT and response.get("parse_reason") in (
+                "OWNER_SIGN_IN_REQUIRED", "TRENDS_MINIMISED_NOT_RENDERED"):
             # A sign-in wall in the owner's profile waits for the owner to sign in
-            # again (signed_in_browser); a long back-off would only delay that.
+            # again (signed_in_browser), and a page that did not draw waits on its
+            # own render hold (trends_signed_in); a long back-off would only delay that.
             wait_seconds = ACCESS_BACKOFF_SECONDS[0]
         binding = {"scope": scope, "scope_hash": digest(scope), "acquisition_id": acquisition_id,
             "response_id": response_id, "response_hash": digest(response), "observed_at": response["observed_at"],
@@ -1180,7 +1196,7 @@ def create_marketplace_handlers(memory, *, data_root=None, transport="auto",
                     raise SafetyError("SOURCE_ACQUISITION_FILE_INVALID")
                 files.append([name, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns])
         return {"kind": "saved-marketplace-wake-hint-v1", "acquisition_id": aid, "files": files}
-    for route in ("amazon-bestsellers", "amazon-movers-and-shakers", "amazon-search", "flipkart-search"):
+    for route in ("amazon-bestsellers", "amazon-search", "flipkart-search"):
         handlers[route] = {"handler": collect, "reconcile": lambda context: collect(context, reconcile=True)}
         if shared_acquisitions:
             if not installed_recovery:
@@ -1195,7 +1211,7 @@ def create_marketplace_handlers(memory, *, data_root=None, transport="auto",
 
 def installed_source_handlers(memory, *, marketplace_options=None, supplier_options=None,
                               trends_options=None, meta_options=None, quickcommerce_options=None, quickcommerce_client=None,
-                              meta_handler=None, trends_handler=None):
+                              meta_handler=None, trends_handler=None, meta_depth_options=None):
     """Compose concrete installed functions, not imaginary available sources.
 
     Optional account clients are supplied privately by the existing connection
@@ -1211,6 +1227,10 @@ def installed_source_handlers(memory, *, marketplace_options=None, supplier_opti
     handlers.update(create_supplier_handlers(memory, **(supplier_options or {})))
     handlers.update(create_trends_handlers(memory, **(trends_options or {})))
     handlers["meta-ads"] = meta_direct_source_handlers(memory, **(meta_options or {}))
+    from .platform_matching import create_dropship_handlers
+    handlers.update(create_dropship_handlers(memory))
+    from .meta_depth import create_meta_depth_handlers
+    handlers["meta-ads-depth"] = create_meta_depth_handlers(memory, **(meta_depth_options or {}))
     commerce = create_quickcommerce_handlers(memory, funded_client=quickcommerce_client,
                                              **(quickcommerce_options or {}))
     def commerce_reconciler(callback):
@@ -1307,7 +1327,7 @@ def product_source_request_builder(*, location=None, catalogue=None, run_id=None
                     continue
                 for target, scope in task.get("targets", {}).items():
                     histories.setdefault((target, scope, task["route"]), []).append((task_id, task))
-        if route in {"amazon-bestsellers", "amazon-movers-and-shakers"}:
+        if route == "amazon-bestsellers":
             from .marketplace_browser import build_marketplace_request
             department = departments.get(context["description"]["category"])
             if not department:
@@ -1348,12 +1368,26 @@ def product_source_request_builder(*, location=None, catalogue=None, run_id=None
                     return {"not_applicable_reason": "Actual supplier checks did not identify a company page to read."}
                 raise SafetyError("SOURCE_SUPPLIER_DESTINATIONS_PENDING")
             return {"candidate_urls": {cid: urls}, "candidate_check_ids": {cid: sorted(ref for ref, _ in checks)}, "country": "IN"}
+        if route == "meta-ads-depth":
+            # Follows the type's own free Meta read; asked only when it lacks
+            # advertisers or start dates (meta_depth.depth_request).
+            from .meta_depth import depth_request
+            return depth_request(state, cid, context)
         if cid not in profiles:
             profiles[cid] = resolve_query_profile(state, cid, catalogue=catalogue)
         profile = profiles[cid]
         if profile is None:
             raise SafetyError("PRODUCT_QUERY_PROFILE_REQUIRED")
         group = ROUTES[route]["source"]
+        if group == "dropship-platforms":
+            # A local match of the platform's saved catalogue: every reviewed
+            # phrase and the core label are the type's words; nothing is sent.
+            from .dropship_platforms import catalogue_date
+            from .platform_matching import platform_request
+            catalogue_at = catalogue_date(state, route)
+            if catalogue_at is None:
+                raise SafetyError("DROPSHIP_CATALOGUE_PENDING")  # asked once the platform has been read
+            return platform_request(route, profile, catalogue_at)
         queries = [row for row in profile["queries"] if row["source"] == group and row["scope"] != "context"]
         queries.sort(key=lambda row: {"subtype": 0, "family": 1}[row["scope"]])
         if not queries:
@@ -2259,7 +2293,7 @@ def _persist_receipt(memory, task_id, context, receipt):
     if (not set(value["capture_ids"]) <= set(state["captures"])
             or not set(value["observation_ids"]) <= set(state["observations"])):
         raise SafetyError("SOURCE_RECEIPT_IMPORT_REQUIRED")
-    expected_source = ("meta" if context["route"] == "meta-ads" else
+    expected_source = ("meta" if context["route"] in ("meta-ads", "meta-ads-depth") else
                        "amazon" if context["route"].startswith("amazon-") else
                        "flipkart" if context["route"] == "flipkart-search" else context["route"])
     for ref in value["capture_ids"]:
@@ -2891,6 +2925,19 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
             task = state["query_tasks"][task_id]
             route = task["route"]
             record_event("source_inspection", stage="acquire", task_id=task_id, route=route)
+            if route not in registry:
+                # A deleted route's saved question (Amazon Movers & Shakers, W6)
+                # is closed once, including an open dispatch: never sent again,
+                # never a wait or a reconciliation. Its records stay as history.
+                if task.get("status") != "retired":
+                    closed = dict(task, status="retired", reason="SOURCE_ROUTE_RETIRED", reconcile_required=False,
+                                  retryable=False, next_retry_at=None, retired_at=at)
+                    memory.put("query_tasks", task_id, closed, previous=task,
+                               event_id=key("source-route-retired", [task_id, digest(task)]))
+                    state = memory.snapshot()
+                    results.append({"task_id": task_id, "state": "retired", "actual_attempt": False,
+                                    "reason": "SOURCE_ROUTE_RETIRED"})
+                continue
             callback = registry[route]["handler"]
             hooks = shared_source_hooks(registry[route])
             resolver = hooks["resolve"] if shared_marketplace else None
@@ -2957,6 +3004,15 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
                 continue
             access_resolution = None
             access_hook = registry[route].get("source_access_preflight")
+            saved_wait = task.get("next_retry_at")
+            if (access_hook and not staged and task["status"] == "prepared" and not original_recovery
+                    and saved_wait and timestamp(saved_wait) > timestamp(at)):
+                # A calm wait the hook gave earlier (money, sign-in, plan wall,
+                # pacing) holds until its own recheck time: the hook (and any
+                # money check under the ledger lock) is not asked again before then.
+                results.append({"task_id": task_id, "state": "waiting", "actual_attempt": False,
+                                "reason": task.get("reason"), "next_retry_at": saved_wait})
+                continue
             if access_hook and not staged:
                 # The installed hook may read/parse only exact saved source
                 # bytes here. Any fresh request still needs the caller intent
@@ -2980,6 +3036,13 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
                                     "reason": str(error) if isinstance(error, SafetyError) else "SOURCE_ACCESS_LOCAL_PROOF_PENDING"})
                     continue
                 if access_resolution["action"] == "wait":
+                    if access_resolution.get("calm_wait") is True and access_resolution.get("next_retry_at"):
+                        # Nothing was requested: the question keeps the recheck
+                        # time, exactly as a calm wait from the resolver does.
+                        current = state["query_tasks"][task_id]
+                        _upsert(memory, "query_tasks", task_id, dict(current, reason=access_resolution["reason"],
+                                next_retry_at=access_resolution["next_retry_at"]), current)
+                        state = memory.snapshot()
                     results.append({"task_id": task_id, "state": "waiting", "actual_attempt": False,
                                     "reason": access_resolution["reason"], "next_retry_at": access_resolution.get("next_retry_at")})
                     continue
@@ -3073,6 +3136,13 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
                     continue
                 state = memory.snapshot()
                 if resolution["action"] == "wait":
+                    if resolution.get("calm_wait") is True and resolution.get("next_retry_at"):
+                        # Nothing was requested (the owner, the desktop or pacing):
+                        # the question keeps the recheck time, as a raised calm wait does.
+                        current = state["query_tasks"][task_id]
+                        _upsert(memory, "query_tasks", task_id, dict(current, reason=resolution["reason"],
+                                next_retry_at=resolution["next_retry_at"]), current)
+                        state = memory.snapshot()
                     results.append({"task_id": task_id, "state": "waiting", "actual_attempt": False,
                                     "reason": resolution["reason"], "next_retry_at": resolution.get("next_retry_at")})
                     continue
@@ -3239,9 +3309,14 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
             # A read in the owner's signed-in profile may first wait for the
             # one signed-in browser and always closes it gracefully afterwards.
             deadline = timeout_seconds
-            if context["request"].get("transport") == SIGNED_IN_TRANSPORT:
+            if context["request"].get("transport") == SIGNED_IN_TRANSPORT or route == "google-trends":
+                # Every Trends read is signed in, also on the older unshared path (W2).
                 from .native_public_browser import signed_in_budget
                 deadline = max(timeout_seconds, signed_in_budget())
+            elif route == "meta-ads-depth":
+                # One paid run's own bounded preflight and status/output reads.
+                from .meta_depth import HANDLER_SECONDS
+                deadline = max(timeout_seconds, HANDLER_SECONDS)
             try:
                 with trace_source(dict(context, deadline_seconds=deadline)) as trace:
                     with source_phase("handler"):
@@ -3598,7 +3673,7 @@ def _legacy_coverage(state, ids, as_of):
                     route = "meta-ads"
                 elif observation["source"] in {"amazon", "flipkart"}:
                     kind = observation.get("facts", {}).get("list_type")
-                    route = ({"bestsellers": "amazon-bestsellers", "movers-and-shakers": "amazon-movers-and-shakers",
+                    route = ({"bestsellers": "amazon-bestsellers",
                               "product-search": "amazon-search" if observation["source"] == "amazon" else "flipkart-search",
                               "product_search": "amazon-search" if observation["source"] == "amazon" else "flipkart-search"}).get(kind)
                 elif observation["source"] in {"blinkit", "zepto", "instamart"}:

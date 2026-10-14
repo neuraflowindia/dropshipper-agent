@@ -11,16 +11,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from product_radar.models import SafetyError, utc_now
+from product_radar.programme import MODEL_ROUTE_FAILURES
 from product_radar.spend_watch_ai import research_codex_runner
 from product_radar.research_memory import ResearchMemory, key
 from product_radar.source_interpretation import _questions, review_source_results
 from product_radar.runtime_storage import runtime_path
 from product_radar.storage import Journal, load_json
-
-
-MODEL_ROUTE_FAILURES = {"AI_SUBSCRIPTION_LIMIT", "AI_RATE_LIMITED", "AI_MODEL_UNAVAILABLE",
-                       "AI_CHATGPT_SIGN_IN_REQUIRED", "AI_CODEX_NOT_INSTALLED", "AI_LOCAL_PERMISSION_DENIED",
-                       "AI_NETWORK_UNAVAILABLE", "AI_CLI_CONFIGURATION_REJECTED"}
+from complete_practical_reviews import route_wait
 
 
 def main(argv=None):
@@ -39,6 +36,9 @@ def main(argv=None):
     # starve other products/sources. Uncertain saved jobs cannot be relaunched.
     maximum = 1 + len(questions) + sum(len(row["unknown_ids"]) for row in questions)
     for _ in range(maximum):
+        reason = route_wait(runner) if runner is not None else None
+        if reason:
+            break
         result = review_source_results(memory, runner, run_id=args.run_id, skip_targets=skip_targets)
         passes += 1; outcomes.extend(result["outcomes"])
         print(json.dumps({"interpretation_progress": {"pass": passes,

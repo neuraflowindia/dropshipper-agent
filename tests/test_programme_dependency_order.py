@@ -40,7 +40,9 @@ class ProgrammeDependencyOrderTests(unittest.TestCase):
         with patch.object(self.memory, "snapshot", side_effect=AssertionError("No extra history replay")):
             result = programme._programme_stage_plan(state, control,
                 {"programme_turn_sequence": sequence}, at=NOW,
-                inputs=programme._signature(state, control), model_available=available)
+                inputs=programme._signature(state, control), model_available=available,
+                report_pool=lambda: programme._programme_report_pool(self.memory, control, as_of=NOW, state=state,
+                                                                     functional_packets=True))
         self.assertEqual(state, saved)
         self.assertEqual(control, original)
         return result
@@ -59,7 +61,7 @@ class ProgrammeDependencyOrderTests(unittest.TestCase):
         self.fixture.accept()
         value = self.plan()
         self.assertEqual(value["stage_order"][:2], ["profiles", "fit"])
-        self.assertEqual(value["stage_order"][2:], ["acquire", "match", "suppliers", "photos", "reports", "private_staging"])
+        self.assertEqual(value["stage_order"][2:], ["acquire", "match", "crowding", "suppliers", "photos", "reports", "private_staging"])
         self.assertEqual(value["priority_concept_ids"], {"profiles": [self.cid], "fit": [self.cid]})
         self.assertEqual(len(value["stage_order"]), len(set(value["stage_order"])))
 

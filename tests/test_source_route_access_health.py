@@ -1,6 +1,7 @@
 """Source-local access pauses from exact saved proof; no live requests or AI."""
 
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
 import tempfile
@@ -22,7 +23,7 @@ from product_radar.trends_controller import (
 )
 from test_supplier_discovery import CONCEPT, NOW
 from test_supplier_route_acquisition import QUERY, Reader, receipt
-from test_trends_controller import snapshot
+from test_trends_controller import sign_in, snapshot
 
 IMMEDIATE = "2026-10-06T08:01:00+00:00"
 DUE = "2026-10-06T08:05:01+00:00"
@@ -231,6 +232,21 @@ class SupplierAccessHealthTests(_AccessFixtures, unittest.TestCase):
 
 
 class TrendsAccessHealthTests(_AccessFixtures, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.signed_root = self.root / "signed-in"; sign_in(self.signed_root)
+        # Pacing is proved in test_trends_signed_in. Here each counted read is
+        # dated a day apart and long before the rounds, so only access health
+        # decides when Google is read.
+        days = iter(range(1, 400))
+        clock = patch("product_radar.signed_in_pacing.utc_now",
+                      side_effect=lambda: (datetime(2025, 1, 1, tzinfo=timezone.utc) + timedelta(days=next(days))).isoformat())
+        clock.start(); self.addCleanup(clock.stop)
+
+    def handlers(self, capture):
+        return create_trends_handlers(self.memory, data_root=self.root / "trends", capture=capture,
+                                      signed_in_root=self.signed_root)
+
     def capture(self, name="original", **changes):
         term = changes.pop("term", QUERY)
         actual = {"state": "captured", "reason": "Synthetic original transport.", "navigation_status": 200,
@@ -239,7 +255,7 @@ class TrendsAccessHealthTests(_AccessFixtures, unittest.TestCase):
                   "csv_bytes": ("Week," + term + ": (India)\n2026-09-13,12\n2026-09-20,<1\n2026-09-27,20\n").encode(), **changes}
         with patch("product_radar.trends_controller._wrapper_utc_now", return_value=NOW):
             return capture_direct_trends(build_trends_request(term), name, data_root=self.root / "trends",
-                                         snapshot_reader=lambda _request: actual)
+                                         snapshot_reader=lambda _request: actual, transport="signed-in")
 
     def reconcile(self, name="original"):
         handlers = create_trends_handlers(self.memory, data_root=self.root / "trends", capture=forbidden)
@@ -309,7 +325,7 @@ class TrendsAccessHealthTests(_AccessFixtures, unittest.TestCase):
         def capture(request, acquisition_id, **_options):
             calls.append(acquisition_id)
             return self.capture(acquisition_id, term=request["query"], navigation_status=429)
-        handlers = create_trends_handlers(self.memory, data_root=self.root / "trends", capture=capture)
+        handlers = self.handlers(capture)
         self.prove_shared_pause_and_finite_probe("google-trends", handlers["google-trends"], calls)
 
     def test_saved_reconciliation_is_allowed_while_same_route_is_paused(self):
@@ -317,7 +333,7 @@ class TrendsAccessHealthTests(_AccessFixtures, unittest.TestCase):
         def capture(request, acquisition_id, **_options):
             calls.append(acquisition_id)
             return self.capture(acquisition_id, navigation_status=403)
-        handlers = create_trends_handlers(self.memory, data_root=self.root / "trends", capture=capture)
+        handlers = self.handlers(capture)
         prepare_source_tasks(self.memory, [self.question("google-trends")], run_id="paused-replay", as_of=NOW)
         self.run_sources("paused-replay", handlers)
         task_id, task = next(iter(self.memory.snapshot()["query_tasks"].items()))
@@ -340,7 +356,7 @@ class TrendsAccessHealthTests(_AccessFixtures, unittest.TestCase):
             saved = self.capture(acquisition_id, term=request["query"])
             (Path(saved["folder"]) / "multiTimeline.csv").write_bytes(b"Synthetic corruption")
             return saved
-        handlers = create_trends_handlers(self.memory, data_root=self.root / "trends", capture=damaged_capture)
+        handlers = self.handlers(damaged_capture)
         handlers["meta-ads"] = self.healthy
         prepare_source_tasks(self.memory, [self.question("google-trends"), self.question("meta-ads")],
                              run_id="local-proof-error", as_of=NOW)

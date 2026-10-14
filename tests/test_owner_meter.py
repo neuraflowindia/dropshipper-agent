@@ -221,7 +221,21 @@ class FreshStoreMeterTests(unittest.TestCase):
                           result["runs_since_start"]["top_access_block_routes"]), (0, {}))
         self.assertEqual(result["access_waits_now"], [])  # No website is refusing us.
         self.assertEqual(result["activity_now"]["state"], "not_recorded")
+        self.assertEqual(result["trends_check"], "Google Trends: waiting for the owner to sign in.")  # W2 proof gate
+        self.assertEqual(result["platforms"], [])  # W4: no platform waits on the owner
         self.assertFalse((self.project / "data").exists())
+
+    def test_meter_lists_platforms_waiting_on_the_owner(self):
+        from product_radar import dropship_platforms as platforms
+        refresh = platforms.load_refresh(self.memory.root, "dropdash")
+        platforms._save_refresh(self.memory.root, "dropdash",
+                                dict(refresh, wait={"reason": "OWNER_SIGN_IN_REQUIRED", "at": START}))
+        result = programme_meter(self.memory, root=self.project, as_of=LATER)
+        self.assertEqual(result["platforms"], ["Dropdash needs you to sign in (Sign in to research sites)."])
+        (self.memory.root / "dropship_platforms/dropdash/refresh.json").write_text("{corrupt")
+        result = programme_meter(self.memory, root=self.project, as_of=LATER)
+        self.assertIsNone(result["platforms"])
+        self.assertIn("platforms", result["optional_input_failures"])
 
     def test_meter_command_is_read_only_and_reports_a_missing_start(self):
         import run_programme

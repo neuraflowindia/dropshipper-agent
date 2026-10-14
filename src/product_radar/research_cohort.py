@@ -18,8 +18,10 @@ from .research_costs import collection_costs
 VERSION = "current-research-cohort-v1"
 FORECAST_VERSION = "current-cohort-forecast-v1"
 _SOURCES = {"meta-ads": "meta", "amazon-search": "marketplace", "flipkart-search": "marketplace",
-            "amazon-bestsellers": "marketplace", "amazon-movers-and-shakers": "marketplace", "google-trends": "trends",
-            "blinkit": "quickcommerce", "zepto": "quickcommerce", "instamart": "quickcommerce"}
+            "amazon-bestsellers": "marketplace", "google-trends": "trends",
+            "blinkit": "quickcommerce", "zepto": "quickcommerce", "instamart": "quickcommerce",
+            "deodap": "dropship-platforms", "baapstore": "dropship-platforms",
+            "dropship-india": "dropship-platforms", "dropdash": "dropship-platforms", "meta-ads-depth": "meta"}
 
 
 def discovery_questions(state, *, programme_id=None, as_of=None):

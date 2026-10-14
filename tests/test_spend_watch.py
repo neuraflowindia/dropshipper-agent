@@ -125,9 +125,10 @@ class SpendWatchTests(unittest.TestCase):
         self.assertEqual(summary["waits"], [])
         self.assertFalse((self.root / "data").exists())
         self.assertIsNone(money_route_wait(self.root, "quickcommerce"))
-        for route in ("apify", "amazon"):  # Apify's own ledger is its gate; no saved wait here
-            with self.assertRaisesRegex(SafetyError, "SPEND_WATCH_ROUTE_INVALID"):
-                money_route_wait(self.root, route)
+        # The deeper Meta read records its Apify allowance wait here (W11).
+        self.assertIsNone(money_route_wait(self.root, "apify"))
+        with self.assertRaisesRegex(SafetyError, "SPEND_WATCH_ROUTE_INVALID"):
+            money_route_wait(self.root, "amazon")
 
     def test_tampered_or_bad_state_and_logs_fail_closed(self):
         self.observe(55)

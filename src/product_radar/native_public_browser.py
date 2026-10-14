@@ -376,6 +376,7 @@ def native_snapshot(url, expression, folder, *, timeout=45, headed=False, runner
         return _snapshot(url, expression, folder, timeout, headed, runner, ready_expression, download_folder, None)
     from .signed_in_browser import (PROJECT_ROOT, browser_lock, desktop_unavailable, note_desktop_unavailable,
                                     note_sign_in_window, redact_signed_in, research_profile)
+    from .signed_in_saved import protect_saved
     root = PROJECT_ROOT if root is None else root
     if desktop_unavailable(root):
         return _waiting("OWNER_DESKTOP_UNAVAILABLE")
@@ -391,27 +392,27 @@ def native_snapshot(url, expression, folder, *, timeout=45, headed=False, runner
         except SafetyError as error:
             return {"state": "unavailable", "reason": str(error), "navigation_started": False,
                     "stage": "browser_launch", "snapshot": None}
-        result = redact_signed_in(_snapshot(url, expression, folder, timeout, False, runner, ready_expression,
-                                            download_folder, signed_in))
-        _redact_saved(folder / "native_result.json", redact_signed_in)
+        try:
+            result = redact_signed_in(_snapshot(url, expression, folder, timeout, False, runner, ready_expression,
+                                                download_folder, signed_in))
+        except BaseException as error:
+            # Also when interrupted: the saved result loses the account's
+            # identity, or is quarantined unread if it cannot be cleaned. A
+            # failed clean-up never replaces the interruption (or its deadline
+            # proof); it is recorded beside it.
+            try:
+                protect_saved(folder / "native_result.json", redact_signed_in)
+            except (SafetyError, OSError) as failure:
+                note = str(failure) if isinstance(failure, SafetyError) else "SIGNED_IN_REDACTION_FAILED"
+                if isinstance(getattr(error, "native_result", None), dict):
+                    error.native_result["redaction_failure"] = note
+            raise
+        protect_saved(folder / "native_result.json", redact_signed_in)
         if result.get("reason") == "OWNER_DESKTOP_UNAVAILABLE":
             note_desktop_unavailable(root)
         if result.get("reason") == "OWNER_SIGN_IN_WINDOW_OPEN" or result.get("sign_in_window_open") is False:
             note_sign_in_window(root, result.get("reason") == "OWNER_SIGN_IN_WINDOW_OPEN")
         return result
-
-
-def _redact_saved(path, redact):
-    """The saved receipt keeps its own content, minus the account's identity."""
-    if not path.is_file() or path.is_symlink() or path.stat().st_size > MAX_RESULT:
-        return
-    try:
-        original = json.loads(path.read_text(encoding="utf-8-sig"))
-    except ValueError:
-        return
-    if redact(original) != original:
-        from .storage import atomic_json
-        atomic_json(path, redact(original))
 
 
 def _snapshot(url, expression, folder, timeout, headed, runner, ready_expression, download_folder, signed_in):

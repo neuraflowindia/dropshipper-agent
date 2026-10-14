@@ -7,12 +7,14 @@ import hashlib
 from pathlib import Path
 import re
 import time
+from urllib.parse import urlencode
 import uuid
 
 from .accounts import (load_apify_token, load_binding, load_handover, save_binding,
                        load_account_registry, context_for_origin, current_read_funding_context, choose_account, freeze_account_origin)
 from .http_io import HttpFailure
-from .models import SafetyError, decode_json, digest, identifier, json_safe, timestamp, usd, prepared_request, request_stage
+from .models import (PreparedMeta, SafetyError, decode_json, digest, identifier, json_safe, timestamp, usd,
+                     prepared_request, request_stage)
 from .providers.apify import ApifyTransport, capture_mapping, map_prepared_rows, submit_once
 from .runtime_storage import runtime_path
 from .storage import Journal, ShortJournal, atomic_bytes, atomic_json, load_json, safe_path
@@ -24,6 +26,7 @@ TRANSITIONAL = {"READY", "RUNNING", "TIMING-OUT", "ABORTING", "MIGRATING"}
 PAGE_BYTES = 5 * 1024 * 1024
 TOTAL_BYTES = 50 * 1024 * 1024
 BILLING_REUSE_SECONDS = 300
+FINAL_CHARGE_AFTER = timedelta(hours=1)
 
 
 def renewed_read_summary(attempt):
@@ -66,6 +69,30 @@ def load_preparation(root, attempt_id):
     if prepared.attempt_id != attempt_id or envelope.get("config_hash") != prepared.config_hash or envelope.get("execution_mode") != "offline_preparation":
         raise SafetyError("PREPARATION_INVALID")
     return prepared
+
+
+def prepare_meta(config, attempt_id):
+    """The reviewed Meta request as an offline preparation envelope; no provider call."""
+    required = {"schema_version", "stage", "purpose", "term", "actor", "build", "expected_build_id",
+                "reserved_usd", "stage_cap_usd", "trial_cap_usd", "reviewed_at", "metadata"}
+    if set(config) != required or config["schema_version"] != 1 or config["stage"] != "T1-meta" or config["purpose"] not in ("discovery", "validation") or config["stage_cap_usd"] != "0.20" or config["trial_cap_usd"] != "0.75":
+        raise SafetyError("UNREVIEWED_CONFIG")
+    query = {"active_status": "active", "ad_type": "all", "country": "IN", "q": config["term"],
+             "search_type": "keyword_unordered", "media_type": "all"}
+    request = PreparedMeta(
+        attempt_id=identifier(attempt_id), actor=config["actor"], build=config["build"],
+        expected_build_id=config["expected_build_id"], purpose=config["purpose"],
+        input={"urls": [{"url": "https://www.facebook.com/ads/library/?" + urlencode(query)}],
+               "limitPerSource": 5 if config["purpose"] == "discovery" else 10,
+               "scrapeAdDetails": False, "runTag": attempt_id},
+        options={"build": config["build"], "timeout": 300, "maxTotalChargeUsd": config["reserved_usd"], "restartOnError": "false"},
+        reserved_usd=config["reserved_usd"], reviewed_at=config["reviewed_at"], public_metadata_hash=digest(config["metadata"]))
+    return {"schema_version": 1, "execution_mode": "offline_preparation", "request": request.to_dict(),
+            "config_hash": request.config_hash, "remote_attempt_created": False, "credits_used": False,
+            "ready_for_live": False, "blocking_checks": ["owner_credential_confirmation", "account_identity_period_balance",
+                "fresh_account_bound_schema_pricing_build_review", "runtime_charge_and_output_access_preflight"],
+            "local_capture_bounds": {"page_bytes": 5242880, "pages": 10, "records": 1000},
+            "bounded_meta_sample": True, "metadata": config["metadata"]}
 
 
 def checked_pricing(actor, build, prepared, now=None):
@@ -387,8 +414,10 @@ class MetaTrial:
         count = reused = 0
         failures = []
         deadline = self.clock() + 120
+        # A bill confirmed final by a later re-read is never read again, so the
+        # refresh does not grow with every finished run.
         terminal = [(aid, a) for aid, a in self.journal.state()[1].items()
-                    if a["submission"] == "submitted" and a["remote_status"]
+                    if a["submission"] == "submitted" and a["remote_status"] and not a.get("charge_final")
                     and (namespace is None or a["namespace"] == namespace)]
         for attempt_id, attempt in terminal:
             if reuse_recent and self._recent_billing(attempt_id, attempt):
@@ -679,6 +708,7 @@ class MetaTrial:
                         "attempt": self.prepared.attempt_id, "previous_usd": state["charge"], "usd": charge,
                         "evidence": self.transport.last_reference})
                 self.journal.settle_production_attempt(self.prepared.attempt_id)
+                self._confirm_final_charge(state, data, charge)
                 atomic_json(self.folder / "terminal.json", json_safe(data))
                 result_path = self.folder / "result.json"
                 if result_path.exists() and charge is not None:
@@ -694,6 +724,19 @@ class MetaTrial:
                 break
             self.sleep(5)
         raise SafetyError("REMOTE_WAIT_LIMIT_REACHED")
+
+    def _confirm_final_charge(self, before, data, charge):
+        """Mark a bill final when this re-read, an hour or more after the run
+        ended, shows the same amount an earlier read recorded."""
+        if charge is None or before["charge"] is None or usd(before["charge"]) != usd(charge) or before.get("charge_final"):
+            return
+        try:
+            ended = timestamp(data.get("finishedAt"))
+        except SafetyError:
+            return
+        if self.now() - ended >= FINAL_CHARGE_AFTER:
+            self.journal.append("charge-final-" + self.prepared.attempt_id, "charge_final", {
+                "attempt": self.prepared.attempt_id, "evidence": self.transport.last_reference})
 
     def saved_response(self, metadata):
         identifier(metadata["id"])

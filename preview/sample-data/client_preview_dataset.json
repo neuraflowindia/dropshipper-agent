@@ -126,7 +126,7 @@
       "prior_available_core_signals": null,
       "prior_market_signal": "Not shortlisted",
       "retail_listing_band": "₹799–₹1,799",
-      "why_it_surfaced": "Persistent advertiser activity, an Amazon movers placement and a clear search increase support a strong first-week entry.",
+      "why_it_surfaced": "Persistent advertiser activity, an Amazon bestseller placement and a clear search increase support a strong first-week entry.",
       "main_warning": "Battery, charging, heat, mounting strength and electrical claims require client-side review.",
       "compliance_check": "Client Compliance Check Required",
       "coverage_note": "All core signals available; quick-commerce presence is sparse and contextual.",
@@ -150,7 +150,7 @@
       },
       "marketplace": {
         "available": true,
-        "amazon_evidence_type": "Movers & Shakers",
+        "amazon_evidence_type": "Bestseller",
         "amazon_title": "Rechargeable Picture Light with Remote, Gold Finish",
         "amazon_position": 18,
         "amazon_link": "https://example.com/evidence/amazon/demo-002",

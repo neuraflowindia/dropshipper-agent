@@ -82,7 +82,7 @@ class SharedMarketplaceReviewTests(unittest.TestCase):
         self.assertEqual(fixture.owners()[acquisition_id]["state"], "dispatching")
         for _ in range(2):
             fixture.checks(fixture.handlers())
-            fixture.discovery(fixture.handlers())
+            fixture.other(fixture.handlers())
         self.assertEqual([aid for aid, _request in fixture.calls], [acquisition_id])
         self.assertEqual(list(fixture.owners()), [acquisition_id])
 
@@ -99,8 +99,8 @@ class SharedMarketplaceReviewTests(unittest.TestCase):
         updated["description"]["label"] = "Changed assessment target"
         fixture.memory.put("concepts", "sink", updated, previous=old)
         self.assertEqual(fixture.checks(handlers)["handler_calls"], 0)
-        result = fixture.discovery(handlers)
-        self.assertEqual(result["external_handler_calls_this_round"], 1)
+        result = fixture.other(handlers)
+        self.assertEqual(result["handler_calls"], 1)
         self.assertEqual([aid for aid, _request in fixture.calls], [acquisition_id])
         self.assertEqual(list(fixture.owners()), [acquisition_id])
 

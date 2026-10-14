@@ -412,6 +412,19 @@ class QuestionPreparationTests(unittest.TestCase):
         with self.assertRaisesRegex(SafetyError, "RESEARCH_QUESTION_BINDING_CONFLICT"):
             validate_question_record(broken)
 
+    def test_saved_question_of_a_closed_route_stays_readable_history_but_is_never_prepared_again(self):
+        import product_radar.source_coverage as coverage
+        original = self.prepare([self.question()])["records"][0]
+        routes = {route: value for route, value in coverage.ROUTES.items() if route != "google-trends"}
+        with patch.object(coverage, "ROUTES", routes), patch.object(coverage, "CLOSED_ROUTES", frozenset({"google-trends"})):
+            self.assertEqual(validate_question_record(original), original)
+            broken = deepcopy(original)
+            broken["request"]["query"] = "Unrelated changed query"
+            with self.assertRaisesRegex(SafetyError, "RESEARCH_QUESTION_BINDING_CONFLICT"):
+                validate_question_record(broken)
+            with self.assertRaisesRegex(SafetyError, "RESEARCH_QUESTION_ROUTE_INVALID"):
+                self.prepare([self.question(request={"query": "new sink caddy", "country": "IN"})])
+
     def test_empty_batch_is_a_valid_no_op(self):
         before = len(self.events())
         result = self.prepare([])

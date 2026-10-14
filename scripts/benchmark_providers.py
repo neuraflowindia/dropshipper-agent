@@ -7,13 +7,12 @@ from datetime import date
 import json
 from pathlib import Path
 import sys
-from urllib.parse import urlencode
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from product_radar.models import PreparedMeta, SafetyError, digest, identifier, utc_now
+from product_radar.models import SafetyError, digest, identifier, utc_now
 from product_radar.research_sources import prepare_source, AMAZON_CASES
 from product_radar.providers.apify import map_meta_rows
 from product_radar.runtime_storage import runtime_path
@@ -21,34 +20,14 @@ from product_radar.storage import Journal, atomic_json, safe_path
 from product_radar.accounts import (bind_account, load_binding, load_account_registry, bind_registered_account,
                                     account_pool_status, authorise_credential_recovery)
 from product_radar.service import load_policy, calendar_plan
-from product_radar.benchmark import MetaTrial
+from product_radar.benchmark import MetaTrial, prepare_meta
 from product_radar.providers.apify import ApifyTransport
 
 CONFIG = ROOT / "config/benchmarks/meta_first.json"
 
 
-def prepare(config, attempt_id):
-    required = {"schema_version", "stage", "purpose", "term", "actor", "build", "expected_build_id",
-                "reserved_usd", "stage_cap_usd", "trial_cap_usd", "reviewed_at", "metadata"}
-    if set(config) != required or config["schema_version"] != 1 or config["stage"] != "T1-meta" or config["purpose"] not in ("discovery", "validation") or config["stage_cap_usd"] != "0.20" or config["trial_cap_usd"] != "0.75":
-        raise SafetyError("UNREVIEWED_CONFIG")
-    query = {"active_status": "active", "ad_type": "all", "country": "IN", "q": config["term"],
-             "search_type": "keyword_unordered", "media_type": "all"}
-    request = PreparedMeta(
-        attempt_id=identifier(attempt_id), actor=config["actor"], build=config["build"],
-        expected_build_id=config["expected_build_id"], purpose=config["purpose"],
-        input={"urls": [{"url": "https://www.facebook.com/ads/library/?" + urlencode(query)}],
-               "limitPerSource": 5 if config["purpose"] == "discovery" else 10,
-               "scrapeAdDetails": False, "runTag": attempt_id},
-        options={"build": config["build"], "timeout": 300, "maxTotalChargeUsd": config["reserved_usd"], "restartOnError": "false"},
-        reserved_usd=config["reserved_usd"], reviewed_at=config["reviewed_at"], public_metadata_hash=digest(config["metadata"]))
-    return {"schema_version": 1, "execution_mode": "offline_preparation", "request": request.to_dict(),
-            "config_hash": request.config_hash, "remote_attempt_created": False, "credits_used": False,
-            "ready_for_live": False, "blocking_checks": ["owner_credential_confirmation", "account_identity_period_balance",
-                "fresh_account_bound_schema_pricing_build_review", "runtime_charge_and_output_access_preflight"],
-            "local_capture_bounds": {"page_bytes": 5242880, "pages": 10, "records": 1000},
-            "bounded_meta_sample": True, "metadata": config["metadata"]}
-
+# The reviewed Meta preparation is shared with the automatic deeper Meta read.
+prepare = prepare_meta
 
 def prepare_planned_action(plan, action, *, production=True):
     """Save or recover the exact plan request without making a provider call."""

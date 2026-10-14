@@ -99,19 +99,20 @@ def _object(value):
     return _json(value)
 
 
-def _route(value):
+def _route(value, *, history=False):
     # Lazy import: the future dispatcher may itself import these pure helpers.
-    from .source_coverage import ROUTES
-    if not isinstance(value, str) or value not in ROUTES:
+    # A closed route is accepted only when re-verifying saved history.
+    from .source_coverage import CLOSED_ROUTES, ROUTES
+    if not isinstance(value, str) or value not in ROUTES and not (history and value in CLOSED_ROUTES):
         raise SafetyError("RESEARCH_QUESTION_ROUTE_INVALID")
     return value
 
 
-def _request_contract(route, request, method, capture_options, *, supporting=False):
+def _request_contract(route, request, method, capture_options, *, supporting=False, history=False):
     # Supporting reads have physical ownership, but must never enter the
     # fourteen demand/source question routes or acquire market votes.
     if not supporting or route != "public_image_http":
-        _route(route)
+        _route(route, history=history)
     if not isinstance(method, str) or method not in _METHODS:
         raise SafetyError("RESEARCH_REQUEST_METHOD_INVALID")
     value = _object(request)
@@ -177,7 +178,7 @@ def _request_contract(route, request, method, capture_options, *, supporting=Fal
     return value, capture, contract
 
 
-def physical_request_fingerprint(route, request, *, method="GET", capture_options=None):
+def physical_request_fingerprint(route, request, *, method="GET", capture_options=None, history=False):
     """Hash complete physical scope; this does not prove access or freshness.
 
     Inputs must describe the actual adapter request, including any transport,
@@ -185,8 +186,9 @@ def physical_request_fingerprint(route, request, *, method="GET", capture_option
     Consumer-only information is rejected, not heuristically stripped. URL host
     case and fragments use the existing public destination normalization; query
     strings, words, numbers, option values and list order are otherwise exact.
+    ``history`` re-verifies a saved record of a closed route; never a new read.
     """
-    return digest(_request_contract(route, request, method, capture_options, supporting=True)[2])
+    return digest(_request_contract(route, request, method, capture_options, supporting=True, history=history)[2])
 
 
 def parse_fingerprint(capture_hash, parser_contract):
@@ -368,7 +370,8 @@ def validate_question_record(saved):
             or saved.get("binding_hash") != digest(binding) or saved.get("id") != key("research-question", binding)
             or any(saved.get(field) != binding.get(field) for field in ("subject", "route", "purpose", "physical_request_fingerprint"))
             or physical_request_fingerprint(saved.get("route"), saved.get("request"), method=saved.get("method"),
-                                             capture_options=saved.get("capture_options")) != binding.get("physical_request_fingerprint")):
+                                             capture_options=saved.get("capture_options"), history=True)
+               != binding.get("physical_request_fingerprint")):
         raise SafetyError("RESEARCH_QUESTION_BINDING_CONFLICT")
     wordings = saved.get("wording_candidates")
     if not isinstance(wordings, list):
@@ -378,7 +381,7 @@ def validate_question_record(saved):
         if not isinstance(wording, dict) or set(wording) != {"id", "text", "request", "method", "capture_options", "physical_request_fingerprint"}:
             raise SafetyError("RESEARCH_QUESTION_BINDING_CONFLICT")
         fingerprint = physical_request_fingerprint(saved["route"], wording["request"], method=wording["method"],
-                                                   capture_options=wording["capture_options"])
+                                                   capture_options=wording["capture_options"], history=True)
         if (wording["physical_request_fingerprint"] != fingerprint
                 or wording["id"] != key("question-wording", [wording["text"], fingerprint])):
             raise SafetyError("RESEARCH_QUESTION_BINDING_CONFLICT")

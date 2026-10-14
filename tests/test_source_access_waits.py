@@ -53,7 +53,7 @@ class SourceAccessWaitTests(unittest.TestCase):
 
     def prepare(self, name, *routes, term="sink caddy"):
         rows = [{"route": route, "request": build_marketplace_request(route, department="home-and-kitchen")
-                 if route in {"amazon-bestsellers", "amazon-movers-and-shakers"}
+                 if route == "amazon-bestsellers"
                  else {"query": term, "country": "IN"}, "concept_ids": ["sink"]}
                 for route in routes]
         prepare_source_tasks(self.memory, rows, run_id=name, as_of=self.now)
@@ -68,13 +68,15 @@ class SourceAccessWaitTests(unittest.TestCase):
         scope = source_access_scope("https://www.amazon.in/s?k=sink")
         return source_access_wait(self.memory.snapshot(), scope, as_of=self.now)
 
-    def test_first_429_suppresses_other_amazon_routes_and_discovery_but_flipkart_continues(self):
+    def test_first_429_suppresses_other_amazon_routes_but_flipkart_continues(self):
         self.execute(self.prepare("first", "amazon-search"))
-        result = self.execute(self.prepare("rest", "amazon-bestsellers", "amazon-movers-and-shakers", "flipkart-search"))
+        result = self.execute(self.prepare("rest", "amazon-bestsellers", "flipkart-search"))
         self.assertEqual(result["handler_calls"], 1)
         self.assertEqual([r[0] for r in self.calls], ["amazon-search", "flipkart-search"])
+        # Amazon and Flipkart are crowding reads only (D4): discovery plans none of them.
         cycle = prepare_discovery_cycle(self.memory, "discovery", fixture(), handlers=self.handlers,
-                                        include_lists=True, action_limit=2, as_of=self.now)
+                                        action_limit=2, as_of=self.now)
+        self.assertEqual(cycle["planned_actions"], [])
         result = advance_discovery_cycle(self.memory, cycle["id"], handlers=self.handlers, as_of=self.now,
                                          admission=lambda *_a, **_k: None, shared_marketplace=True)
         self.assertEqual(result["external_handler_calls_this_round"], 0)
@@ -116,16 +118,11 @@ class SourceAccessWaitTests(unittest.TestCase):
         self.execute(self.prepare("new-list", "amazon-bestsellers"))
         self.assertEqual(len(self.calls), 2)
 
-    def test_discovery_first_refusal_also_suppresses_product_list_requests(self):
-        cycle = prepare_discovery_cycle(self.memory, "discovery-first", fixture(),
-            handlers={"amazon-search": self.handlers["amazon-search"]}, include_lists=False,
-            action_limit=1, as_of=self.now)
-        with patch("product_radar.source_coverage.utc_now", return_value=self.now):
-            result = advance_discovery_cycle(self.memory, cycle["id"], handlers=self.handlers, as_of=self.now,
-                admission=lambda *_a, **_k: None, shared_marketplace=True)
-        self.assertEqual(result["external_handler_calls_this_round"], 1)
-        self.execute(self.prepare("lists", "amazon-bestsellers", "amazon-movers-and-shakers", "flipkart-search"))
-        self.assertEqual([r[0] for r in self.calls], ["amazon-search", "flipkart-search"])
+    def test_list_first_refusal_also_suppresses_product_search_requests(self):
+        result = self.execute(self.prepare("list-first", "amazon-bestsellers"))
+        self.assertEqual(result["handler_calls"], 1)
+        self.execute(self.prepare("searches", "amazon-search", "flipkart-search"))
+        self.assertEqual([r[0] for r in self.calls], ["amazon-bestsellers", "flipkart-search"])
 
     def active_failure(self):
         state = self.memory.snapshot()
@@ -288,8 +285,10 @@ class SourceAccessWaitTests(unittest.TestCase):
     def test_one_scope_probe_claim_is_joined_cas_not_a_repeat_launch_voucher(self):
         self.execute(self.prepare("first", "amazon-search")); self.now = DUE
         resolved = []
-        for caller, route in (("list-caller", "amazon-bestsellers"), ("movers-caller", "amazon-movers-and-shakers")):
-            context = {"task_id": caller, "route": route, "request": build_marketplace_request(route, department="home-and-kitchen"),
+        for caller, route in (("list-caller", "amazon-bestsellers"), ("search-caller", "amazon-search")):
+            request = (build_marketplace_request(route, department="home-and-kitchen") if route == "amazon-bestsellers"
+                       else build_marketplace_request(route, term="garbage bags"))
+            context = {"task_id": caller, "route": route, "request": request,
                        "acquisition_id": caller, "as_of": self.now, "concept_ids": [], "description_hashes": {}}
             resolution = self.handlers[route]["resolve_marketplace"](context)
             admission = self.handlers[route]["marketplace_admission"](context, resolution)

@@ -110,7 +110,7 @@ def main(argv=None):
     group.add_argument("--stage-public-receipt", type=Path)
     group.add_argument("--stage-inventory", type=Path)
     group.add_argument("--prepare-branch")
-    group.add_argument("--capture-list", choices=("amazon-bestsellers", "amazon-movers-and-shakers"))
+    group.add_argument("--capture-list", choices=("amazon-bestsellers",))
     parser.add_argument("--branch-id")
     parser.add_argument("--example", action="append")
     parser.add_argument("--material-id", action="append")

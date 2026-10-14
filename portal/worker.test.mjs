@@ -70,8 +70,8 @@ test('signed-out pages and direct files deny before storage reads, even with for
   }
 });
 
-test('wrong audience, unapproved Gmail, absent identity and identity failures deny', async () => {
-  for (const ctx of [context('client@example.com', 'other-aud'), context('unknown@gmail.com'),
+test('wrong audience, unapproved email, absent identity and identity failures deny', async () => {
+  for (const ctx of [context('client@example.com', 'other-aud'), context('unknown@example.net'),
     { access: { aud: 'approved-worker-aud', getIdentity: async () => undefined } },
     { access: { aud: 'approved-worker-aud', getIdentity: async () => { throw new Error('private error'); } } }]) {
     const { env, reads } = environment();

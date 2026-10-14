@@ -111,6 +111,8 @@ def current_intake_records(state, record, *, pool=None):
     result = []
     for ref in _record_refs(record, "reporting_intake_ids"):
         row = _binding_record(state["batch_runs"].get(ref), INTAKE_KIND, "reporting-intake")
+        if row.get("expired") is not None:
+            continue  # Expired with a recorded reason: the type is judged again.
         binding = row["binding"]; cid = binding.get("concept_id")
         if (row["id"] != ref or binding["client_id"] != record["client_id"]
                 or not _hash(binding.get("meaning_hash")) or not _hash(binding.get("eligibility_hash"))
@@ -125,6 +127,26 @@ def current_intake_records(state, record, *, pool=None):
             continue
         result.append(row)
     return result
+
+
+def expire_intake_records(memory, refs, *, as_of, reason):
+    """Expire saved intake records in one save, each with the recorded reason.
+
+    The binding (and so the record's id) is unchanged; readers skip an expired
+    record and the type is judged again at the next intake refresh. Already
+    expired records are left as they are. Returns the ids expired now.
+    """
+    timestamp(as_of)
+    if not isinstance(reason, str) or not reason.strip() or len(reason) > 500:
+        raise SafetyError("INVENTORY_EXPIRY_REASON_INVALID")
+    state = memory.snapshot(); changes = []
+    for ref in sorted(set(refs)):
+        row = _binding_record(state["batch_runs"].get(identifier(ref)), INTAKE_KIND, "reporting-intake")
+        if row.get("expired") is None:
+            changes.append(change("batch_runs", ref, dict(row, expired={"at": as_of, "reason": reason}), row))
+    if changes:
+        memory.commit(key("expire-reporting-intake", [[row["id"], row["previous_hash"]] for row in changes]), changes)
+    return [row["id"] for row in changes]
 
 
 def reporting_intake_concept_ids(state, record, *, pool=None):
@@ -348,16 +370,23 @@ def refresh_inventory_intake(memory, record, *, as_of, pool=None, subject_limit=
                     "update_verdict": deepcopy(verdict)}
                 ref = key("reporting-intake", binding)
                 row = {"id": ref, "kind": INTAKE_KIND, "binding": binding, "binding_hash": digest(binding), "admitted_at": as_of}
-                if ref not in state["batch_runs"]:
-                    changes.append(change("batch_runs", ref, row)); state["batch_runs"][ref] = row
+                old = state["batch_runs"].get(ref)
+                if old is None or old.get("expired") is not None:
+                    # An expired intake judged again to the same binding is admitted afresh.
+                    changes.append(change("batch_runs", ref, row, old)); state["batch_runs"][ref] = row
                     created_intake += 1
     # Current-format stock is the only stock explicit turns can allocate. Admit
     # every such eligible row now, not only rows the (possibly far behind)
     # change cursor reaches. Unchanged bindings are not rewritten, and no
     # extra work obligations are created for them here.
     from .report_examples import RECOMMENDATION_CONTRACT
+    # An expired intake's type is judged again now, whatever the cursor reaches.
+    rejudged = {row["binding"].get("concept_id") for row in state["batch_runs"].values()
+                if row.get("kind") == INTAKE_KIND and row.get("expired") is not None
+                and row.get("binding", {}).get("client_id") == client}
     for cid in sorted(cid for cid, row in eligible.items()
-                      if row.get("recommendation_contract") == RECOMMENDATION_CONTRACT and cid not in ids):
+                      if (row.get("recommendation_contract") == RECOMMENDATION_CONTRACT or cid in rejudged)
+                      and cid not in ids):
         admit(cid)
     for cid in ids:
         admit(cid)
@@ -527,6 +556,7 @@ def admit_selected_inventory_work(memory, record, *, as_of, pool, limit=10):
         if not product:
             prior = [row["binding"] for row in state["batch_runs"].values()
                      if row.get("kind") == INTAKE_KIND and row.get("binding", {}).get("client_id") == record["client_id"]
+                     and row.get("expired") is None
                      and row["binding"].get("concept_id") == cid and row["binding"].get("meaning_hash") == _meaning(state, cid)
                      and row["binding"].get("priority_support")]
             if prior:

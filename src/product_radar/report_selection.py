@@ -13,6 +13,7 @@ import re
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
+from .crowding import crowding_for, crowding_known, load_thresholds as load_crowding_thresholds
 from .discovery import latest_observations
 from .models import SafetyError, digest, identifier, timestamp, utc_now
 from .material_updates import material_snapshot, review_supplier_update, review_material_update, prepare_material_update
@@ -1187,6 +1188,7 @@ def _build_report_pool(memory, as_of, client_id, *, fit_policy_id, recommendatio
     material_identities = alias_projection(state)
     published = _seen(state, client_id, material_identities)
     eligible, facts, update_work = [], {}, []
+    crowding_thresholds = load_crowding_thresholds()
     for product in sorted(summary["products"], key=lambda row: row["id"]):
         concept_id, codes, reasons = product["id"], [], []
         try:
@@ -1243,6 +1245,14 @@ def _build_report_pool(memory, as_of, client_id, *, fit_policy_id, recommendatio
                                     "positive_signal_needed": product["market"]["positive_families"] == 0, "blocking": True})
         elif product["market"]["positive_families"] < 1:
             codes.append("weak_market_signal"); reasons.append("Two assessable source families exist, but neither supplies a positive signal.")
+        if functional and concept_id in assessments and fit["eligible"]:
+            # Owner rule (D4, A2): not report-eligible until the free Amazon and
+            # Flipkart crowding check is known, whatever ranking is used. An
+            # older-contract type (no accepted meaning, so no crowding answer) can
+            # only fill an older-format report; that path is not gated here.
+            if not crowding_known(crowding_for(state, concept_id, thresholds=crowding_thresholds)):
+                codes.append("crowding_check_pending")
+                reasons.append("The free Amazon and Flipkart crowding check is not finished yet.")
         if not suppliers["effort_satisfied"]:
             codes.append("supplier_search_required"); reasons.append("No accepted cursory supplier search is linked to this product yet.")
             # A passing checklist queues its supplier search at once, beside

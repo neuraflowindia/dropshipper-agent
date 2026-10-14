@@ -21,20 +21,27 @@ FUNCTIONAL_CONTRACT = "saved-source-routes-v2"
 FUNCTIONAL_ROUTE_PROOF_CONTRACT = "functional-source-route-proof-v1"
 CONTRACTS = (CONTRACT, FUNCTIONAL_CONTRACT)
 FIELDS = ("source_route_contract", "source_route_checks")
+# An internal follow-up read the client sees inside another route's row: the
+# deeper Meta read counts in the single Facebook Ads Library row (W11).
+FOLDED_ROUTES = {"meta-ads-depth": "meta-ads"}
+DEEPER_META_NOTE = " Includes ads from a deeper read of the Ads Library."
 # Client-facing route rows. A retired route is no longer part of the service,
-# so new packets omit it; internal records keep its history, and packets
-# frozen before it retired keep their original fourteen rows.
-CLIENT_ROUTES = tuple(route for route in ROUTES if route not in RETIRED_SUPPLIER_ROUTES)
+# so new packets omit it; internal records keep its history, and a packet with
+# a row for every client-facing route (retired ones included) stays readable.
+PACKET_ROUTES = tuple(route for route in ROUTES if route not in FOLDED_ROUTES)
+CLIENT_ROUTES = tuple(route for route in PACKET_ROUTES if route not in RETIRED_SUPPLIER_ROUTES)
 MAX_BLOCK_BYTES = 64 * 1024
 MAX_DECIMAL_LENGTH = 32
 DECIMAL_TEXT = re.compile(r"(?:0|[1-9][0-9]*)(?:\.[0-9]*[1-9])?\Z")
 ROUTE_LABELS = {
     "meta-ads": "Facebook Ads Library", "amazon-bestsellers": "Amazon India Bestsellers",
-    "amazon-movers-and-shakers": "Amazon India Movers & Shakers", "amazon-search": "Amazon India product search",
+    "amazon-search": "Amazon India product search",
     "flipkart-search": "Flipkart product search", "google-trends": "Google Trends India",
     "blinkit": "Blinkit", "zepto": "Zepto", "instamart": "Instamart",
     "google-suppliers": "Google supplier search", "google-maps": "Google Maps supplier search",
     "indiamart": "IndiaMART", "tradeindia": "TradeIndia", "company-pages": "Supplier company pages",
+    "deodap": "DeoDap", "baapstore": "BaapStore", "dropship-india": "Dropship India", "dropdash": "Dropdash",
+    "meta-ads-depth": "Facebook Ads Library (deeper read)",
 }
 METRICS = {
     "relevant_ads": ("Relevant ads in saved sample", "ads"),
@@ -291,7 +298,7 @@ def route_for_observation(observation, captures):
     if source == "meta":
         return "meta-ads"
     if source == "amazon":
-        return {"bestsellers": "amazon-bestsellers", "movers-and-shakers": "amazon-movers-and-shakers",
+        return {"bestsellers": "amazon-bestsellers",
                 "product_search": "amazon-search", "product-search": "amazon-search"}.get(kind)
     if source == "flipkart" and kind in ("product_search", "product-search"):
         return "flipkart-search"
@@ -520,8 +527,8 @@ def source_route_facts(state, concept_id, coverage, product, relevant, as_of, *,
             routed.setdefault(route, []).append((observation_id, observation))
     output = []
     for row in coverage:
-        if row["route"] in RETIRED_SUPPLIER_ROUTES and not include_retired:
-            continue  # Not part of the service: no client row.
+        if row["route"] in RETIRED_SUPPLIER_ROUTES and not include_retired or row["route"] in FOLDED_ROUTES:
+            continue  # Not part of the service, or shown inside another row: no client row.
         route, outcome, actual = row["route"], row["state"], row["actual_attempt"]
         state_label, detail = outcome_display(outcome, actual)
         refs = {ref for ref in row["evidence_refs"] if any(ref in state.get(table, {}) for table in _TABLES)}
@@ -540,6 +547,9 @@ def source_route_facts(state, concept_id, coverage, product, relevant, as_of, *,
                 measurements.append(_metric("relevant_ads", len(used), used))
                 measurements.extend(_metric(name, signal.get(name), used) for name in
                     ("advertisers", "active_ads", "unknown_active_status", "missing_advertiser_ids"))
+                if any(isinstance(row.get("facts"), dict) and row["facts"].get("source_route") == "meta-ads-depth"
+                       for row in relevant.values()):
+                    detail += DEEPER_META_NOTE  # its ads count here once, never in a row of their own
         elif examples:
             unique = {}
             for observation_id, observation in examples:
@@ -556,7 +566,7 @@ def source_route_facts(state, concept_id, coverage, product, relevant, as_of, *,
                          if observation["facts"].get("price", {}).get("displayed") is not None
                          and str(observation["facts"]["price"]["displayed"]).strip()]
             measurements.append(_metric("displayed_prices", len(displayed), used))
-            if route in ("amazon-bestsellers", "amazon-movers-and-shakers"):
+            if route == "amazon-bestsellers":
                 from .marketplace_browser import verified_list_observation
                 ranks = [(i, o["facts"]["position"]) for i, o in unique.values()
                          if verified_list_observation(o) and type(o["facts"].get("position")) is int]
@@ -633,7 +643,7 @@ def validate_route_facts(product):
         raise SafetyError("LIVE_SOURCE_ROUTE_CONTRACT_INVALID")
     rows, revisions = product.get("source_route_checks"), product.get("source_revisions", {})
     if (not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows)
-            or [row.get("route") for row in rows] not in (list(CLIENT_ROUTES), list(ROUTES))):
+            or [row.get("route") for row in rows] not in (list(CLIENT_ROUTES), list(PACKET_ROUTES))):
         raise SafetyError("LIVE_SOURCE_ROUTE_FACTS_INVALID")
     try:
         if len(canonical(rows)) > MAX_BLOCK_BYTES:

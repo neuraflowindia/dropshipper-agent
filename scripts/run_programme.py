@@ -67,7 +67,7 @@ def compact_progress(row):
 
 
 def _main(argv=None, *, memory=None, runner=None, handlers=None, steps=None, discovery_step=None,
-         private_staging=None, backup_step=None, root=ROOT):
+         private_staging=None, backup_step=None, platform_step=None, root=ROOT):
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--programme-id")
     parser.add_argument("--activity", action="store_true", help="Read the small current-activity record; no research history or provider calls.")
@@ -208,6 +208,7 @@ def _main(argv=None, *, memory=None, runner=None, handlers=None, steps=None, dis
                                                stop_on_interrupt=True)
             except (SafetyError, OSError) as error:
                 setup_failures["model"] = str(error) if isinstance(error, SafetyError) else "AI_CONFIGURATION_UNREADABLE"
+        installed_sources = handlers is None
         if handlers is None:
             client = None
             if args.funded_quickcommerce_fallback:
@@ -240,6 +241,10 @@ def _main(argv=None, *, memory=None, runner=None, handlers=None, steps=None, dis
                 discovery_step = create_catalogue_discovery_step(**seed_options, **discovery_options)
             except (SafetyError, OSError) as error:
                 setup_failures["catalogue_discovery"] = str(error) if isinstance(error, SafetyError) else "DISCOVERY_CATALOGUE_UNREADABLE"
+        if platform_step is None and installed_sources:
+            # With the installed sources, every round also advances the four
+            # dropshipping platforms (W4) in their own lane, whatever discovery does.
+            from product_radar.platform_roles import platform_step
         if private_staging is None:
             try:
                 from product_radar.draft_automation import load_draft_automation_storage, private_staging_callback
@@ -263,7 +268,8 @@ def _main(argv=None, *, memory=None, runner=None, handlers=None, steps=None, dis
             while args.max_cycles is None or completed < args.max_cycles:
                 result = advance_ready_programme_turn(memory, programme_id=programme_id, location=location,
                     root=root, runner=runner, handlers=handlers, source_limit=args.source_actions, steps=steps,
-                    turn_policy=policy, discovery_step=discovery_step, private_staging=private_staging,
+                    turn_policy=policy, discovery_step=discovery_step, platform_step=platform_step,
+                    private_staging=private_staging,
                     backup_step=backup_step, render_pdf=render, inspect_pdf=inspect_pdf, setup_failures=setup_failures,
                     on_progress=lambda row: print(json.dumps({"programme_progress": compact_progress(row)}), flush=True))
                 if result.get("round_completed"):
@@ -280,7 +286,7 @@ def _main(argv=None, *, memory=None, runner=None, handlers=None, steps=None, dis
             return 0
         result = advance_programme(memory, programme_id, root=root, runner=runner, handlers=handlers,
             max_cycles=args.max_cycles, source_limit=args.source_actions, steps=steps,
-            discovery_step=discovery_step,
+            discovery_step=discovery_step, platform_step=platform_step,
             private_staging=private_staging,
             backup_step=backup_step,
             render_pdf=render, inspect_pdf=inspect_pdf,

@@ -3,7 +3,13 @@
 The existing browser/CSV verifier remains the collector. This adapter adds
 physical ownership and term-level proof without inventing a product listing,
 turning no-data into weak demand, or replacing an uncertain original browser.
-Legacy unflagged handlers and original two-field capture receipts stay intact.
+Original two-field capture receipts stay intact.
+
+Every shared Trends read is a signed-in read (Plan R10 W2): the bound request
+carries ``transport="signed-in-browser"`` (so the owner's signed-in identity
+holds its own access waits, and earlier hidden-browser acquisitions are saved
+history, never adopted), and a read is admitted only when the owner's sign-in,
+the desktop and pacing allow it (``trends_signed_in``).
 """
 
 from datetime import timedelta
@@ -11,27 +17,29 @@ from pathlib import Path
 import stat
 
 from .models import SafetyError, decode_json, digest, timestamp, utc_now
-from .research_memory import key
 from .research_questions import physical_request_fingerprint
 from .storage import load_json, safe_path
 from .trends_capture import explore_url
-from .trends_controller import build_trends_request, create_trends_handlers, reconcile_direct_trends
+from .trends_controller import build_trends_request, plain_trends_handlers, reconcile_direct_trends, source_state
 
 BRIDGE = "verified-trends-response-v1"
 
 
 def build_shared_trends_request(query, *, country="IN"):
+    from .source_coverage import SIGNED_IN_TRANSPORT
     request = build_trends_request(query, country=country)
-    return dict(request, url=explore_url(request["query"]), date="today 12-m", property="web", category=0)
+    return dict(request, url=explore_url(request["query"]), date="today 12-m", property="web", category=0,
+                transport=SIGNED_IN_TRANSPORT)
 
 
 def prepare_shared_trends(context):
+    """The signed-in physical request for a planned two-field Trends question."""
     request = context["request"]
     if context["route"] != "google-trends" or not isinstance(request, dict):
         raise SafetyError("DIRECT_TRENDS_REQUEST_INVALID")
     wanted = build_shared_trends_request(request.get("query"), country=request.get("country", "IN"))
-    legacy = build_trends_request(wanted["query"])
-    if request != wanted and request != legacy:
+    plain = build_trends_request(wanted["query"])
+    if request != wanted and request != plain:
         raise SafetyError("DIRECT_TRENDS_REQUEST_INVALID")
     return wanted
 
@@ -62,7 +70,7 @@ def record_trends_response(memory, acquisition_id, *, folder, as_of):
         count = len(parsed["parsed"]["series"])
     complete = (receipt["state"] in {"usable", "no_data"} and receipt["scope_verified"] is True
                 and receipt["dispatch_started"] is True and receipt.get("owned_process_exited") is True)
-    source_state = "empty" if receipt["state"] == "no_data" else receipt["state"]
+    state_seen = source_state(receipt)
     transport = load_json(Path(folder) / "transport.json", 2 * 1024 * 1024) if "transport.json" in artifacts else {}
     for stage_id in owner["response_ids"]:
         previous = _stage(state, owner, stage_id)
@@ -73,7 +81,7 @@ def record_trends_response(memory, acquisition_id, *, folder, as_of):
                 "recognized": complete, "delivered_count": count, "intentional_limit": False}
     data = {"bridge_contract": BRIDGE, "receipt": proof, "artifacts": artifacts,
             "observed_at": receipt["observed_at"], "dispatch_started": receipt["dispatch_started"],
-            "source_state": source_state, "coverage": coverage, "complete": complete, "captures": [],
+            "source_state": state_seen, "parse_reason": receipt["reason"], "coverage": coverage, "complete": complete, "captures": [],
             "response_hash": digest({name: ref for name, ref in artifacts.items()
                                      if name in {"multiTimeline.csv", "scope.json", "deadline_scope.json"}}),
             "expense_proof": {"collection_channel": "direct_local", "provider_requests": 0,
@@ -81,8 +89,8 @@ def record_trends_response(memory, acquisition_id, *, folder, as_of):
             "access": {"http_status": receipt.get("navigation_status"),
                        "retry_after": transport.get("navigation_retry_after", transport.get("retry_after")),
                        "owned_process_exited": receipt.get("owned_process_exited")}}
-    status = ("completed_empty" if complete and source_state == "empty" else
-              "failed_access" if source_state == "blocked" and receipt.get("owned_process_exited") is True else
+    status = ("completed_empty" if complete and state_seen == "empty" else
+              "failed_access" if state_seen == "blocked" and receipt.get("owned_process_exited") is True else
               "response_saved" if receipt["dispatch_started"] is True else "execution_unknown")
     return _commit_stage(memory, owner, "response", data, as_of,
         {"state": status, "active_parse_id": None, "parse_state": "not_started"}, files=files)
@@ -112,72 +120,96 @@ def validate_trends_term_receipt(memory, request, acquisition_id, receipt):
     original = reconcile_direct_trends(Path(receipt["reference"]).parent)
     if (original["request"] != build_trends_request(expected["query"])
             or original["acquisition_id"] != acquisition_id or original["observed_at"] != receipt["observed_at"]
-            or ("empty" if original["state"] == "no_data" else original["state"]) != receipt["state"]):
+            or source_state(original) != receipt["state"]):
         raise SafetyError("DIRECT_TRENDS_TERM_PROOF_INVALID")
     return response
 
 
-def create_shared_trends_handlers(memory, *, data_root=None, transport="auto", capture=None, replay=None):
-    from .source_acquisitions import (_owners, _response, _record, _install_legacy_origin,
-                                     claim_source_acquisition)
+def release_replaced_trends_waits(memory, *, as_of):
+    """Cutover (W13): Trends questions whose retry time was set by the replaced
+    hidden-browser route (its bound request has no signed-in transport) may be
+    asked again at once in the owner's signed-in profile. Questions in flight
+    or awaiting reconciliation are left alone. Returns the released ids."""
+    from .research_memory import change, key
+    state = memory.snapshot()
+    released = replaced_trends_waits(state, as_of=as_of)
+    changes = [change("query_tasks", task_id, dict(state["query_tasks"][task_id], next_retry_at=None),
+                      state["query_tasks"][task_id]) for task_id in released]
+    if changes:
+        memory.commit(key("trends-signed-in-cutover", released), changes)
+    return released
+
+
+def replaced_trends_waits(state, *, as_of):
+    """Read-only: the Trends questions ``release_replaced_trends_waits`` would release."""
+    from .source_coverage import SIGNED_IN_TRANSPORT
+    return [task_id for task_id, task in sorted(state["query_tasks"].items())
+            if task.get("kind") == "all_source_task_v1" and task.get("route") == "google-trends"
+            and task.get("status") != "dispatching" and not task.get("reconcile_required")
+            and task.get("next_retry_at") and timestamp(task["next_retry_at"]) > timestamp(as_of)
+            and (task.get("source_physical_request") or {}).get("transport") != SIGNED_IN_TRANSPORT]
+
+
+def create_shared_trends_handlers(memory, *, data_root=None, capture=None, replay=None, signed_in_root=None):
+    """``signed_in_root`` holds the signed-in browser's records (the project by default)."""
+    from .signed_in_attempts import SignedInWait, collectable
+    from .signed_in_browser import PROJECT_ROOT, signed_in_recheck_at
+    from .source_acquisitions import _owners, _response, _record, claim_source_acquisition
     from .source_coverage import (marketplace_access_admission, guard_shared_source_launch,
                                  acquisition_access_scope, source_access_wait, _record_marketplace_access)
+    from .trends_signed_in import (begin_signed_in_read, not_started_pending, release_unsent_read, reopen_unsent,
+                                   signed_in_hold, unsent_read)
+    signed_in_root = PROJECT_ROOT if signed_in_root is None else signed_in_root
     root = safe_path(data_root or (memory.root / "direct_trends"))
-    legacy = create_trends_handlers(memory, data_root=root, transport=transport, capture=capture, replay=replay)["google-trends"]
+    plain = plain_trends_handlers(memory, data_root=root, capture=capture, replay=replay,
+                                  signed_in_root=signed_in_root, paced=False)["google-trends"]
 
     def collect(context, *, reconcile=False):
         request = prepare_shared_trends(context); aid = context["acquisition_id"]
-        folder = safe_path(root / aid)
+        folder = safe_path(root / aid); counted = None
         if not reconcile:
-            guard_shared_source_launch(memory, context, request)
-        plain = dict(context, request=build_trends_request(request["query"]))
-        receipt = legacy["reconcile" if reconcile else "handler"](plain)
+            # Counted before the launch guard: no second read can slip in
+            # between the hold and this read starting.
+            counted = begin_signed_in_read(signed_in_root, as_of=context["as_of"])
+            try:
+                guard_shared_source_launch(memory, context, request)
+            except BaseException:
+                release_unsent_read(signed_in_root, counted)
+                raise
+        two_field = dict(context, request=build_trends_request(request["query"]))
+        try:
+            receipt = plain["reconcile" if reconcile else "handler"](two_field)
+        except SignedInWait as error:
+            release_unsent_read(signed_in_root, counted)
+            unsent_read(memory, root, aid, error, signed_in_root=signed_in_root, as_of=context["as_of"])
+            raise
         commit_at = max(context["as_of"], utc_now(timespec="microseconds"), key=timestamp)
         bridged = record_trends_response(memory, aid, folder=folder, as_of=commit_at)
         response_id = bridged["stage_id"]
         response = memory.snapshot()["source_checks"][response_id]
         _record_marketplace_access(memory, aid, response_id, as_of=commit_at)
+        if not reconcile:
+            route_wait(aid, commit_at)
         return dict(receipt, term_capture_ref={"id": response_id, "hash": digest(response)})
 
-    def adopt_original(context, request):
-        state = memory.snapshot(); origins = {}
-        for rid, row in state["query_tasks"].items():
-            if row.get("kind") != "all_source_task_v1" or not row.get("acquisition_id"):
-                continue
-            # Authenticate before filtering mutable lookup fields. Otherwise
-            # a damaged route/query can hide an uncertain original and grant
-            # an unrelated replacement browser ownership of the same search.
-            if (row.get("request_hash") != digest(row.get("request"))
-                    or rid != key("source-task", [row.get("run_id"), row.get("route"), row.get("request")])):
-                raise SafetyError("DIRECT_TRENDS_LEGACY_ORIGIN_INVALID")
-            if row.get("route") != "google-trends":
-                continue
-            if prepare_shared_trends(row) != request:
-                continue
-            if not row.get("dispatched_at"):
-                raise SafetyError("DIRECT_TRENDS_LEGACY_ORIGIN_INVALID")
-            timestamp(row["dispatched_at"])
-            origins[row["acquisition_id"]] = ("query_tasks", rid, row)
-        for rid, row in state["trends_evidence"].items():
-            metadata = row.get("parsed", {}).get("metadata", {})
-            if (metadata.get("term") == request["query"] and metadata.get("geo") == "IN"
-                    and metadata.get("property") == "web" and metadata.get("kind") == "search_term"
-                    and metadata.get("scope_verified") is True
-                    and metadata.get("time_range") == "today 12-m" and row.get("acquisition_id")):
-                origins.setdefault(row["acquisition_id"], ("trends_evidence", rid, row))
-        if len(origins) > 1:
-            return {"action": "wait", "reason": "DIRECT_TRENDS_LEGACY_ORIGINS_NEED_REVIEW"}
-        if origins:
-            aid, (table, rid, row) = next(iter(origins.items()))
-            _install_legacy_origin(memory, state, "google-trends", request, table=table, record_id=rid,
-                saved=row, acquisition_id=aid, owner_id=rid, as_of=context["as_of"], artifact_roots=[root])
-        return None
+    def route_wait(aid, at):
+        """Keep the signed-in route's wait for the plain status line; a busy
+        record only delays that line, never the read."""
+        from .trends_proof_gate import note_route_wait
+        wait = source_access_wait(memory.snapshot(), acquisition_access_scope(_record(memory.snapshot(), aid)), as_of=at)
+        response = memory.snapshot()["source_checks"].get((wait or {}).get("response_id"), {})
+        try:
+            note_route_wait(signed_in_root, response.get("parse_reason") or (wait or {}).get("reason") or "",
+                            wait["next_retry_at"] if wait and wait["phase"] == "waiting" else None)
+        except (SafetyError, OSError):
+            pass
+
+    def held(aid, hold):
+        return {"action": "wait", "acquisition_id": aid, "calm_wait": True, "reason": hold["reason"],
+                "next_retry_at": hold["next_retry_at"]}
 
     def resolve(context):
         request = prepare_shared_trends(context)
-        if not _owners(memory.snapshot(), physical_request_fingerprint("google-trends", request)):
-            waiting = adopt_original(context, request)
-            if waiting: return waiting
         claim = claim_source_acquisition(memory, "google-trends", request, owner_id=context["task_id"],
             as_of=context["as_of"], artifact_roots=[root], collection_channel="direct_local", incremental_collection_fee="known_zero",
             original_acquisition_id=None if context.get("refresh_due_at") else context["acquisition_id"],
@@ -185,7 +217,18 @@ def create_shared_trends_handlers(memory, *, data_root=None, transport="auto", c
         aid = claim["acquisition_id"]; owner = _record(memory.snapshot(), aid)
         if claim["action"] == "refresh_due":
             return {"action": "wait", "acquisition_id": aid, "reason": "DIRECT_TRENDS_REFRESH_DUE"}
-        if owner["state"] == "reserved" and not owner["stage_ids"] and not (root / aid).exists():
+        if not_started_pending(root, aid, memory.snapshot(), owner):
+            # A signed-in start that never navigated, not yet reopened.
+            try:
+                reopen_unsent(memory, root, aid, context["as_of"])
+            except (SafetyError, OSError):
+                return held(aid, {"reason": "SIGNED_IN_START_RECOVERY_PENDING", "next_retry_at": signed_in_recheck_at(
+                    signed_in_root, "SIGNED_IN_START_RECOVERY_PENDING", as_of=context["as_of"])})
+            owner = _record(memory.snapshot(), aid)
+        if collectable(memory.snapshot(), owner) and not (root / aid).exists():
+            hold = signed_in_hold(signed_in_root, as_of=context["as_of"])
+            if hold:
+                return held(aid, hold)
             return {"action": "collect", "acquisition_id": aid, "request": request, "access_scope": acquisition_access_scope(owner)}
         try:
             receipt = collect(dict(context, acquisition_id=aid, request=request, record_dispatch=None), reconcile=True)
@@ -195,6 +238,9 @@ def create_shared_trends_handlers(memory, *, data_root=None, transport="auto", c
             return {"action": "wait", "acquisition_id": aid, "reason": "DIRECT_TRENDS_ORIGINAL_RECEIPT_PENDING"}
         wait = source_access_wait(memory.snapshot(), acquisition_access_scope(owner), as_of=context["as_of"])
         if not context.get("reconciling") and wait and wait["phase"] == "due" and wait["acquisition_id"] == aid:
+            hold = signed_in_hold(signed_in_root, as_of=context["as_of"])
+            if hold:
+                return held(aid, hold)
             recovery = {name: wait[name] for name in ("failure_id", "failure_hash", "response_id", "response_hash", "next_retry_at")}
             renewed = claim_source_acquisition(memory, "google-trends", request, owner_id=context["task_id"],
                 as_of=context["as_of"], artifact_roots=[root], collection_channel="direct_local", incremental_collection_fee="known_zero",
@@ -216,13 +262,14 @@ def create_shared_trends_handlers(memory, *, data_root=None, transport="auto", c
         wait = source_access_wait(state, acquisition_access_scope({"binding": {"route": "google-trends", "request": request}}), as_of=context["as_of"])
         local = bool(response and response["complete"])
         fresh = local and timedelta(0) <= timestamp(context["as_of"]) - timestamp(response["observed_at"]) < timedelta(days=7)
-        ready = owner is None or owner["state"] == "reserved" and not owner["stage_ids"]
+        ready = owner is None or collectable(state, owner) or not_started_pending(root, aid, state, owner)
         if wait:
             ready = (wait["phase"] == "due" and (ready or wait["acquisition_id"] == aid)
                      or wait["phase"] == "probe_pending" and ready and wait["probe"]["acquisition_id"] == aid)
-        return {"ready": bool(ready or fresh), "local_saved": bool(fresh),
-                "next_retry_at": wait["next_retry_at"] if wait and wait["phase"] == "waiting" else None,
-                "reason": wait["reason"] if wait else None,
+        hold = signed_in_hold(signed_in_root, as_of=context["as_of"]) if ready and not fresh else None
+        return {"ready": bool(ready and not hold or fresh), "local_saved": bool(fresh),
+                "next_retry_at": wait["next_retry_at"] if wait and wait["phase"] == "waiting" else hold["next_retry_at"] if hold else None,
+                "reason": hold["reason"] if hold else wait["reason"] if wait else None,
                 "signal": {"acquisition_id": aid, "state": owner["state"] if owner else None,
                            "response_id": owner.get("active_response_id") if owner else None, "wait": wait,
                            "complete": bool(response and response["complete"]),

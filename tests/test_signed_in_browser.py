@@ -270,13 +270,33 @@ class SignedInBrowserTests(unittest.TestCase):
         with self.assertRaisesRegex(SafetyError, "RECORD_INVALID"):
             signed.desktop_unavailable(self.root)
 
+    def test_every_calm_wait_carries_its_recheck_time(self):
+        # The desktop and window waits end with their saved rechecks; others are looked at again in two minutes.
+        signed.note_desktop_unavailable(self.root, at="2026-10-14T22:00:00+00:00")
+        self.assertEqual(signed.signed_in_recheck_at(self.root, "OWNER_DESKTOP_UNAVAILABLE", as_of="2026-10-14T22:01:00+00:00"),
+                         "2026-10-14T22:02:00+00:00")
+        signed.note_sign_in_window(self.root, True, opened=True, at="2026-10-14T22:00:30+00:00")
+        self.assertEqual(signed.signed_in_recheck_at(self.root, "OWNER_SIGN_IN_WINDOW_OPEN", as_of="2026-10-14T22:01:00+00:00"),
+                         "2026-10-14T22:02:30+00:00")
+        for reason in ("OWNER_SIGN_IN_REQUIRED", "SIGNED_IN_BROWSER_BUSY", "NATIVE_PUBLIC_ARTIFACT_EXISTS"):
+            self.assertEqual(signed.signed_in_recheck_at(self.root, reason, as_of="2026-10-14T22:01:00+00:00"),
+                             "2026-10-14T22:03:00+00:00")
+        # A recheck that has already passed (the desktop came back) is looked at again in two minutes, never in the past.
+        self.assertEqual(signed.signed_in_recheck_at(self.root, "OWNER_DESKTOP_UNAVAILABLE", as_of="2026-10-14T23:00:00+00:00"),
+                         "2026-10-14T23:02:00+00:00")
+        signed.note_sign_in_window(self.root, False, at="2026-10-14T22:05:00+00:00")
+        self.assertEqual(signed.signed_in_recheck_at(self.root, "OWNER_SIGN_IN_WINDOW_OPEN", as_of="2026-10-14T22:06:00+00:00"),
+                         "2026-10-14T22:08:00+00:00")
+        with patch.object(signed, "utc_now", return_value="2026-10-14T22:06:00+00:00"):
+            self.assertEqual(signed.signed_in_recheck_at(self.root, "OWNER_SIGN_IN_REQUIRED"), "2026-10-14T22:08:00+00:00")
+
     def test_redaction_removes_account_identity_but_keeps_pages_usable(self):
-        html = ('<a aria-label="Google Account: Research Owner&#10;(owner.research@gmail.com)" href="https://accounts.google.com/'
+        html = ('<a aria-label="Google Account: Research Owner&#10;(owner.research@example.com)" href="https://accounts.google.com/'
                 'SignOutOptions?hl=en&amp;authuser=0&amp;continue=x"><img srcset="/logo@2x.png 2x"></a>'
-                '<script id="__NEXT_DATA__">{"props":{"email":"owner.research@gmail.com","glid":"123",'
-                '"next":"https:\\/\\/x.in\\/?email=owner%40gmail.com\\u0026page=2"}}</script>')
-        value = {"html": html, "rows": [{"text": "owner.research@gmail.com", "count": 3}], "flag": True,
-                 "url": "https://accounts.google.com/o?login_hint=owner.research%40gmail.com&username=owner&x=1#email=a"}
+                '<script id="__NEXT_DATA__">{"props":{"email":"owner.research@example.com","glid":"123",'
+                '"next":"https:\\/\\/x.in\\/?email=owner%40example.com\\u0026page=2"}}</script>')
+        value = {"html": html, "rows": [{"text": "owner.research@example.com", "count": 3}], "flag": True,
+                 "url": "https://accounts.google.com/o?login_hint=owner.research%40example.com&username=owner&x=1#email=a"}
         clean = signed.redact_signed_in(value)
         flat = json.dumps(clean)
         for secret in ("owner.research", "Research Owner", "owner%40", "username=owner"):

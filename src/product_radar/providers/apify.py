@@ -87,6 +87,11 @@ class ApifyTransport:
         # the operator can supply Console facts without widening token scope.
         return self.request("GET", "/v2/users/me/usage/monthly", byte_limit=524288)
 
+    def limits(self):
+        # Free account read: the current monthly usage cycle, its usage limit
+        # and the usage so far (GET /v2/users/me/limits). A narrow key may be refused.
+        return self.request("GET", "/v2/users/me/limits", byte_limit=65536)
+
     def dataset_page(self, dataset_id, offset=0, limit=100):
         if type(offset) is not int or type(limit) is not int or not 0 <= offset < 1000 or not 1 <= limit <= min(100, 1000 - offset):
             raise SafetyError("DATASET_RANGE_REFUSED")

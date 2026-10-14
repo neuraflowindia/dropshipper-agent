@@ -37,7 +37,7 @@ _TRENDS_SCOPE_FIELDS = ("term", "geo", "time_range", "property", "kind", "collec
 _TRENDS_RELATED_FIELDS = _TRENDS_SCOPE_FIELDS + ("widget", "displayed_section")
 _PRIVATE = {".git", ".codex", ".agents", ".aws", ".venv", "node_modules", "__pycache__",
             "profiles", "browser-profile", "native-profile", "research-browser-profile",
-            "signed-in-quarantine"}  # indiamart_redaction.QUARANTINE: saved signed-in results never cleaned
+            "signed-in-quarantine"}  # signed_in_saved.QUARANTINE: signed-in results that could not be cleaned
 _PRIVATE_FILES = {"auth.json", "credentials.json", "tokens.json", "apify_accounts.json",
                   "providers.env", "quickcommerce.env", "cookies.json", "login.json"}
 _SECRET_FIELDS = {"password", "api_key", "apikey", "access_token", "refresh_token", "id_token",
@@ -47,7 +47,7 @@ _NATIVE_PROOF_SCRIPTS = {"native_expression.js", "native_ready.js"}
 _SOURCE_AREAS = {"direct_marketplace", "direct_trends", "direct_meta", "supplier_routes", "supplier_pages",
                  "quickcommerce_captures", "quickcommerce_free", "all_source_dispatch", "trends_captures",
                  "trends_browser", "marketplace_browser", "amazon_trials", "image_captures",
-                 "trends_checks", "supplier_searches"}
+                 "trends_checks", "supplier_searches", "dropship_platforms", "meta_depth"}
 _MODEL_FILES = ("intent.json", "result.json", "completion.json", "failure.json", "runner_execution.json",
                 "execution_failure.json", "runner_preflight.json", "derived_result.json", "retries.json")
 _PROOF_FILES = {"snapshot.json", "scope.json", "transport.json", "parsed.json", "interpretation.json",
@@ -72,7 +72,9 @@ _TESTS = ("tests/test_source_exhausted_preparation.py", "tests/test_source_prepa
 _PUBLIC_SETTINGS = ("config/service.json", "config/research/catalogue.json",
                     "config/research/catalogue_branch_inventory_2026-10-08.json", "config/ai/codex_luna.json",
                     "config/operations/backup.json", "config/research/collection_cost_baseline.json",
-                    "config/research/spend_watch.json")
+                    "config/research/spend_watch.json", "config/research/signed_in_reads.json",
+                    "config/research/dropship_platforms.json", "config/research/crowding.json",
+                    "config/research/apify_allocation.json", "config/benchmarks/meta_first.json")
 _DEPENDENCIES = ("requirements-research.txt", "requirements-preview.txt")
 _ASSETS = ("media/NeuraFlow/long_maroon_path_transparent_1024.png",
            "assets/windows/neuraflow-dropshipper.ico", "assets/windows/neuraflow-dropshipper.png")
@@ -560,10 +562,13 @@ class _Selection:
 
     def acquisition(self, acquisition_id, route, origin):
         """Original known route locations also retain pre-import/crash proof."""
-        if route in {"amazon-bestsellers", "amazon-movers-and-shakers", "amazon-search", "flipkart-search"}:
+        if route in {"amazon-bestsellers", "amazon-search", "flipkart-search"}:
             folders = [self.memory / "direct_marketplace" / acquisition_id]
         elif route == "meta-ads":
             folders = [self.memory / "direct_meta" / acquisition_id]
+        elif route == "meta-ads-depth":
+            # The per-question receipt; the paid run's own files are kept with its ledger attempt.
+            folders = [self.memory / "meta_depth" / acquisition_id]
         elif route == "google-trends":
             folders = [self.memory / "direct_trends" / acquisition_id]
         elif route in {"blinkit", "zepto", "instamart"}:
@@ -571,6 +576,9 @@ class _Selection:
                        self.memory / "quickcommerce_free/acquisitions" / acquisition_id]
         elif route in {"google-suppliers", "google-maps", "indiamart", "tradeindia", "company-pages"}:
             folders = [self.memory / "supplier_routes" / acquisition_id]
+        elif route in {"deodap", "baapstore", "dropship-india", "dropdash"}:
+            # The per-type match receipt; the platforms' raw reads stay in their own rolling folders.
+            folders = [self.memory / "dropship_platforms/matches" / acquisition_id]
         else:
             return
         for folder in folders:
@@ -1149,6 +1157,21 @@ class _Selection:
             elif relative == "config/research/spend_watch.json":
                 from .spend_watch import validate_settings
                 validate_settings(value)
+            elif relative == "config/research/signed_in_reads.json":
+                from .signed_in_pacing import validate_pacing_settings
+                validate_pacing_settings(value)
+            elif relative == "config/research/dropship_platforms.json":
+                from .dropship_platforms import validate_settings
+                validate_settings(value)
+            elif relative == "config/research/crowding.json":
+                from .crowding import validate_thresholds
+                validate_thresholds(value)
+            elif relative == "config/research/apify_allocation.json":
+                from .meta_depth_money import validate_allocation
+                validate_allocation(value)
+            elif relative == "config/benchmarks/meta_first.json":
+                from .meta_depth import validate_reviewed_config
+                validate_reviewed_config(value)
             elif relative.endswith("/origin.json"):
                 if (set(value) != {"schema_version", "attempt_id", "config_hash", "account_id", "namespace", "generation"}
                         or type(value["schema_version"]) is not int or value["schema_version"] != 1

@@ -26,12 +26,12 @@ from test_report_selection import NOW
 
 
 def request(route="amazon-bestsellers", **kwargs):
-    return build_marketplace_request(route, **({"department": "kitchen"} if route in ("amazon-bestsellers", "amazon-movers-and-shakers") else {"term": "sink caddy"}), **kwargs)
+    return build_marketplace_request(route, **({"department": "kitchen"} if route == "amazon-bestsellers" else {"term": "sink caddy"}), **kwargs)
 
 
 def snapshot(req, **changes):
     flipkart = req["route"] == "flipkart-search"
-    title = "Movers & Shakers in Home & Kitchen" if req["route"] == "amazon-movers-and-shakers" else "Best Sellers in Home & Kitchen"
+    title = "Best Sellers in Home & Kitchen"
     product = "https://www.flipkart.com/sink-caddy/p/itm123456?pid=HOM123456789&lid=tracking" if flipkart else "https://www.amazon.in/Seller-Finish/dp/B012345678?ref_=tracking"
     card = {"card_ref": "card-0", "rank_text": "#1", "title": "Sink caddy pack of 2", "product_url": product,
             "raw_price": "₹1,299.00", "raw_price_truncated": False,
@@ -47,8 +47,8 @@ def transport(snap, **changes):
 
 
 class MarketplaceParserTests(unittest.TestCase):
-    def test_all_four_routes_preserve_actual_identity_quotes_pack_and_photos(self):
-        for route in ("amazon-bestsellers", "amazon-movers-and-shakers", "amazon-search", "flipkart-search"):
+    def test_all_three_routes_preserve_actual_identity_quotes_pack_and_photos(self):
+        for route in ("amazon-bestsellers", "amazon-search", "flipkart-search"):
             with self.subTest(route=route):
                 req = request(route); parsed = parse_marketplace_snapshot(snapshot(req), req)
                 self.assertEqual(parsed["state"], "usable")
@@ -91,9 +91,10 @@ class MarketplaceParserTests(unittest.TestCase):
         self.assertEqual(parse_marketplace_snapshot(snapshot(req, cards=[], card_count=0), req)["state"], "insufficient")
         req = request()
         self.assertEqual(parse_marketplace_snapshot(snapshot(req, cards=[], card_count=0, empty=True), req)["state"], "insufficient")
-        req = request("amazon-movers-and-shakers")
-        empty = snapshot(req, cards=[], card_count=0, empty=True, text="Sorry, there are no movers and shakers available in this category. Please check back later.")
-        self.assertEqual(parse_marketplace_snapshot(empty, req)["state"], "empty")
+        # Amazon Movers & Shakers is retired (Plan R10 W6): no request, parser or list scope remains.
+        with self.assertRaisesRegex(SafetyError, "MARKETPLACE_REQUEST_INVALID"):
+            build_marketplace_request("amazon-movers-and-shakers", department="kitchen")
+        self.assertFalse(verified_list_observation({"source": "amazon", "facts": {"list_type": "movers-and-shakers"}}))
 
     def test_missing_fields_or_a_search_rank_do_not_become_list_proof(self):
         req = request(); snap = snapshot(req)

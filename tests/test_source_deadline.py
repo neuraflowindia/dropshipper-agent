@@ -733,7 +733,8 @@ class SourceDeadlineTests(unittest.TestCase):
         reader = self.successful_saved_reader(kind, request, folder, status=status, wrong_scope=wrong_scope)
         module = "product_radar.marketplace_browser.parse_marketplace_snapshot" if kind == "marketplace" else "product_radar.trends_controller._interpret"
         with patch(module, side_effect=SourceActionDeadline()), self.assertRaises(SourceActionDeadline):
-            collector(request, name, data_root=self.root / kind, snapshot_reader=reader)
+            collector(request, name, data_root=self.root / kind, snapshot_reader=reader,
+                      **({"transport": "signed-in"} if kind == "trends" else {}))  # the only Trends route (W2)
         return request, folder
 
     def test_post_native_marketplace_extraction_recovery_is_additive_and_installed_reconciler_is_zero_call(self):

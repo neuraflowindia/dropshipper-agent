@@ -8,7 +8,7 @@
   },
   "renderer": "Google Chrome headless print-to-PDF",
   "commercial_config_sha256": "e897539626cb88274e09f34e8bd90cbe32a20304c555cf9e2423d4dfbd8e8f72",
-  "sample_data_sha256": "400c648e35fda0bacf1838c9e429f7427c393a217dc17000df098e11359b766b",
+  "sample_data_sha256": "e15f4f46772eefb66af400933b6f97ae807ce8825dd61b877fbb8da45edd1787",
   "disclosure": "Illustrative preview using sample data; not a live market-research report.",
   "disclosure_artifact": "NeuraFlow_Product_Opportunity_Radar_Service_Overview_2026-08-15.pdf",
   "disclosure_page": 4,
@@ -20,8 +20,8 @@
     },
     "sample_dataset": {
       "path": "preview/sample-data/client_preview_dataset.json",
-      "sha256": "400c648e35fda0bacf1838c9e429f7427c393a217dc17000df098e11359b766b",
-      "bytes": 60354
+      "sha256": "e15f4f46772eefb66af400933b6f97ae807ce8825dd61b877fbb8da45edd1787",
+      "bytes": 60352
     },
     "logo": {
       "path": "media/NeuraFlow/long_maroon_path_transparent_1024.png",
@@ -30,13 +30,13 @@
     },
     "p5_report": {
       "path": "outputs/client-preview/NeuraFlow_Product_Opportunity_Brief_Illustrative_2026-08-15.pdf",
-      "sha256": "4cdd5081b53007a6f5e2ec4ebbd470046e93ee0e2d743d1f332ad328a601a66b",
-      "bytes": 2044549
+      "sha256": "0a864c7614e12a97dbba162d70ed48fee150f566ad2652452953cf82b48a10f3",
+      "bytes": 2044061
     },
     "p4_workbook": {
       "path": "outputs/client-preview/NeuraFlow_Product_Opportunity_Evidence_Illustrative_2026-08-15.xlsx",
-      "sha256": "a0cea05454565986db3b6e8421c29c66dbcc76455e57d6f8bfc9dc136a609066",
-      "bytes": 110425
+      "sha256": "4f87cbfffd626db8ae2f92b8991dd3ecfc829c5b43e3d9fc6987af9db94de347",
+      "bytes": 110409
     },
     "p5_page_02": {
       "path": "media/client-preview/pdf-review/pages/page-02.png",
@@ -101,8 +101,8 @@
       "filename": "NeuraFlow_Product_Opportunity_Brief_Illustrative_2026-08-15.pdf",
       "role": "illustrative weekly report",
       "client_shareable": true,
-      "bytes": 2044549,
-      "sha256": "4cdd5081b53007a6f5e2ec4ebbd470046e93ee0e2d743d1f332ad328a601a66b",
+      "bytes": 2044061,
+      "sha256": "0a864c7614e12a97dbba162d70ed48fee150f566ad2652452953cf82b48a10f3",
       "page_count": 20
     },
     {
@@ -110,8 +110,8 @@
       "filename": "NeuraFlow_Product_Opportunity_Evidence_Illustrative_2026-08-15.xlsx",
       "role": "illustrative evidence workbook",
       "client_shareable": true,
-      "bytes": 110425,
-      "sha256": "a0cea05454565986db3b6e8421c29c66dbcc76455e57d6f8bfc9dc136a609066"
+      "bytes": 110409,
+      "sha256": "4f87cbfffd626db8ae2f92b8991dd3ecfc829c5b43e3d9fc6987af9db94de347"
     },
     {
       "path": "outputs/client-preview/NeuraFlow_Monthly_Service_Offer_2026-08-15.pdf",

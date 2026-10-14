@@ -265,7 +265,7 @@ class AccountRedactionTests(unittest.TestCase):
         self.assertEqual(len(held), 2)
         self.assertTrue(all(row.name.endswith("-native-native_result.json.unread") for row in held))
         path.write_bytes(b"{}")
-        with patch("product_radar.indiamart_redaction.MAX_SAVED", 1):
+        with patch("product_radar.signed_in_saved.MAX_SAVED", 1):
             self.assertEqual(protect_saved(path), "quarantined")
 
     def test_a_result_that_can_be_neither_cleaned_nor_moved_fails_closed(self):
@@ -292,7 +292,7 @@ class SignedInPacingTests(unittest.TestCase):
     def test_indiamart_rules_are_one_read_per_30_seconds_and_150_a_day(self):
         self.assertEqual(pacing.pacing_rules("indiamart"), {"min_interval_seconds": 30, "daily_ceiling": 150})
         with self.assertRaisesRegex(SafetyError, "SIGNED_IN_PACING_RULES_MISSING"):
-            pacing.pacing_rules("dropdash")
+            pacing.pacing_rules("google")  # the plain Google account page is never read
 
     def test_spacing_holds_a_second_read_for_30_seconds_to_the_exact_instant(self):
         self.assertIsNone(pacing.signed_in_pace(self.root, "indiamart", as_of=self.at))
@@ -300,8 +300,9 @@ class SignedInPacingTests(unittest.TestCase):
         self.assertEqual(pacing.reserve_signed_in_read(self.root, "indiamart", at=start), start)
         hold = {"reason": "SIGNED_IN_READ_SPACING", "next_retry_at": "2026-10-14T10:00:30.750000+00:00"}
         self.assertEqual(pacing.signed_in_pace(self.root, "indiamart", as_of=self.later(30)), hold)
-        with self.assertRaisesRegex(SafetyError, "SIGNED_IN_READ_SPACING"):
+        with self.assertRaisesRegex(SafetyError, "SIGNED_IN_READ_SPACING") as refused:
             pacing.reserve_signed_in_read(self.root, "indiamart", at=self.later(10))
+        self.assertEqual(refused.exception.next_retry_at, hold["next_retry_at"])  # the hold keeps its time
         self.assertIsNone(pacing.signed_in_pace(self.root, "indiamart", as_of=hold["next_retry_at"]))
 
     def test_daily_ceiling_holds_until_the_oldest_counted_read_is_24_hours_old(self):
@@ -325,12 +326,23 @@ class SignedInPacingTests(unittest.TestCase):
 
     def test_invalid_settings_or_records_fail_closed(self):
         settings = self.root / "settings.json"
-        for value in ({"schema_version": 1, "kind": "signed-in-read-pacing-v1", "sites": {"indiamart": {"min_interval_seconds": 0, "daily_ceiling": 150}}},
-                      {"schema_version": 1, "kind": "signed-in-read-pacing-v1", "sites": {"unknown-site": {"min_interval_seconds": 30, "daily_ceiling": 1}}},
-                      {"schema_version": 2, "kind": "signed-in-read-pacing-v1", "sites": {}}, []):
+        good = load_json(pacing.SETTINGS)
+        share = good["round"]
+        for value in (dict(good, sites={"indiamart": {"min_interval_seconds": 0, "daily_ceiling": 150}}),
+                      dict(good, sites={"unknown-site": {"min_interval_seconds": 30, "daily_ceiling": 1}}),
+                      dict(good, schema_version=2), dict(good, kind="signed-in-read-pacing-v1"),
+                      {name: value for name, value in good.items() if name != "round"},
+                      dict(good, round=dict(share, signed_in_seconds=30)),
+                      dict(good, round=dict(share, signed_in_seconds="300")),
+                      dict(good, round=dict(share, site_reads={"indiamart": 0})),
+                      dict(good, round=dict(share, site_reads={"unknown-site": 4})),
+                      dict(good, round=dict(share, extra=1)), []):
             atomic_json(settings, value)
             with patch.object(pacing, "SETTINGS", settings), self.assertRaisesRegex(SafetyError, "SIGNED_IN_PACING_SETTINGS_INVALID"):
                 pacing.pacing_rules("indiamart")
+            with patch.object(pacing, "SETTINGS", settings), self.assertRaisesRegex(SafetyError, "SIGNED_IN_PACING_SETTINGS_INVALID"):
+                pacing.round_settings()
+        self.assertEqual(pacing.round_settings(), {"signed_in_seconds": 300, "site_reads": {"indiamart": 4}})
         for value in ({"schema_version": 1, "reads": {"indiamart": ["not a time"]}},
                       {"schema_version": 1, "reads": {"unknown-site": []}}, {"schema_version": 1}):
             pacing._path(self.root).parent.mkdir(parents=True, exist_ok=True)

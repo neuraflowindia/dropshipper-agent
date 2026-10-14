@@ -101,7 +101,7 @@ def is_positive_meta(meta: dict) -> bool:
 def is_positive_marketplace(marketplace: dict) -> bool:
     if not marketplace["available"]:
         return False
-    if marketplace["amazon_evidence_type"] in {"Bestseller", "Movers & Shakers"}:
+    if marketplace["amazon_evidence_type"] == "Bestseller":
         return True
     both_relevant = (
         marketplace["amazon_position"] is not None

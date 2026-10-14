@@ -343,11 +343,11 @@ class SpecificModelLaneReadinessTests(unittest.TestCase):
         from product_radar.catalogue_discovery import create_catalogue_discovery_step, prepare_catalogue_seed_cycle
         from test_catalogue_seed import SeedRunner
         fixture = discovery_fixtures.DiscoveryTests(); fixture.setUp(); self.addCleanup(fixture.doCleanups)
-        handlers = {"amazon-search": fixture.handler()}
+        handlers = {"meta-ads": fixture.handler()}
         cycle = fixture.prepare(handlers=handlers); fixture.advance(cycle, handlers)
         record = programme.prepare_programme(fixture.memory, "programme-one", concept_ids=[], as_of=discovery_fixtures.NOW)
         self.spend(fixture.memory, record["programme_id"], discovery_fixtures.NOW)
-        step = create_catalogue_discovery_step(fixture.catalogue, include_lists=False)
+        step = create_catalogue_discovery_step(fixture.catalogue)
         self.assertEqual(self.hint(fixture.memory, record, discovery_fixtures.NOW, object(), discovery_step=step)["purpose"], "A")
         seed = seed_fixtures.SeedDiscoveryTests(); seed.setUp(); self.addCleanup(seed.doCleanups)
         manifest = seed.manifest(seed.prepared())
