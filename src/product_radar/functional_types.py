@@ -120,14 +120,12 @@ def _verified_definition(record):
     return definition
 
 
-def effective_functional_definition(state, concept_id):
-    """Read accepted meaning or an explicitly unaccepted legacy compatibility view.
+def _definition_envelopes(state):
+    """Every authenticated definition envelope in saved order, up to the first bad one.
 
-    Marketing wording, price and observation dates cannot silently alter an
-    accepted definition. A meaningful change needs a new explicit revision.
-    Callers must retain the accepted/basis marker, not relabel the legacy view.
+    Returns (rows, error): the scan stops at the first invalid envelope, as
+    the per-type reader does, and keeps that exception to raise in place.
     """
-    concept = _concept(state, concept_id)
     rows = []
     for definition_id, record in iter_functional_definitions(state):
         # Authenticate the cheap envelope before trusting its routing field.
@@ -135,15 +133,45 @@ def effective_functional_definition(state, concept_id):
         # silently restore the broader legacy view. Do not resolve source/job
         # dependencies for unrelated concepts during this scan.
         try:
-            expected_id = key("functional-definition", {field: record[field] for field in _DEFINITION_INTENT_FIELDS})
-        except (KeyError, TypeError):
-            raise SafetyError("FUNCTIONAL_DEFINITION_RECORD_INVALID") from None
-        if record.get("record_hash") != digest({k: v for k, v in record.items() if k != "record_hash"}):
-            raise SafetyError("FUNCTIONAL_DEFINITION_HASH_MISMATCH")
-        if definition_id != expected_id:
-            raise SafetyError("FUNCTIONAL_DEFINITION_BINDING_MISMATCH")
-        if record.get("concept_id") == concept_id:
-            rows.append((definition_id, record))
+            try:
+                expected_id = key("functional-definition", {field: record[field] for field in _DEFINITION_INTENT_FIELDS})
+            except (KeyError, TypeError):
+                raise SafetyError("FUNCTIONAL_DEFINITION_RECORD_INVALID") from None
+            if record.get("record_hash") != digest({k: v for k, v in record.items() if k != "record_hash"}):
+                raise SafetyError("FUNCTIONAL_DEFINITION_HASH_MISMATCH")
+            if definition_id != expected_id:
+                raise SafetyError("FUNCTIONAL_DEFINITION_BINDING_MISMATCH")
+        except (SafetyError, KeyError, TypeError, ValueError, AttributeError) as error:
+            # A data error is fixed by these saved records; the reader raises it in order.
+            return rows, error
+        rows.append((definition_id, record))
+    return rows, None
+
+
+def effective_functional_definition(state, concept_id):
+    """Read accepted meaning or an explicitly unaccepted legacy compatibility view.
+
+    Marketing wording, price and observation dates cannot silently alter an
+    accepted definition. A meaningful change needs a new explicit revision.
+    Callers must retain the accepted/basis marker, not relabel the legacy view.
+    Inside one pure read scope the same answer is reused for the same tables.
+    """
+    from .read_memo import remember
+    return remember("effective_functional_definition", state, (concept_id,),
+                    lambda: _effective_functional_definition(state, concept_id),
+                    tables=("concepts", "source_checks"))
+
+
+def _effective_functional_definition(state, concept_id):
+    from .read_memo import remember
+    concept = _concept(state, concept_id)
+    envelopes, error = remember("functional_definition_envelopes", state, (),
+                                lambda: _definition_envelopes(state), tables=("source_checks",), copy=False)
+    rows = [(definition_id, record) for definition_id, record in envelopes if record.get("concept_id") == concept_id]
+    if error is not None:
+        if type(error) is SafetyError:
+            raise SafetyError(*error.args) from None
+        raise error
     if rows:
         revisions = [record.get("revision") for _, record in rows]
         if any(type(value) is not int or value < 1 for value in revisions) or len(set(revisions)) != len(revisions):
@@ -504,17 +532,14 @@ def functional_role_context(state, concept_id, *, role="C"):
     identifier(concept_id)
     if role not in ("C", "E"):
         raise SafetyError("FUNCTIONAL_ROLE_CONTEXT_UNSUPPORTED")
-    found = False
-    for definition_id, record in iter_functional_definitions(state):
-        try:
-            expected_id = key("functional-definition", {field: record[field] for field in _DEFINITION_INTENT_FIELDS})
-        except (KeyError, TypeError):
-            raise SafetyError("FUNCTIONAL_DEFINITION_RECORD_INVALID") from None
-        if record.get("record_hash") != digest({k: v for k, v in record.items() if k != "record_hash"}):
-            raise SafetyError("FUNCTIONAL_DEFINITION_HASH_MISMATCH")
-        if definition_id != expected_id:
-            raise SafetyError("FUNCTIONAL_DEFINITION_BINDING_MISMATCH")
-        found = found or record.get("concept_id") == concept_id
+    from .read_memo import remember
+    envelopes, error = remember("functional_definition_envelopes", state, (),
+                                lambda: _definition_envelopes(state), tables=("source_checks",), copy=False)
+    if error is not None:
+        if type(error) is SafetyError:
+            raise SafetyError(*error.args) from None
+        raise error
+    found = any(record.get("concept_id") == concept_id for _, record in envelopes)
     if not found:
         return None
     meaning, memberships, pending = _membership_records(state, concept_id, as_of=None)

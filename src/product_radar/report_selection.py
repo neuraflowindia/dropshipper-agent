@@ -1128,7 +1128,16 @@ def build_report_pool(memory, as_of=None, client_id="default", *, fit_policy_id=
     product_facts contains the eligible pool's rows, not a selected issue: the
     caller selects matching concept IDs after allocation before building its
     dataset. facts_by_concept also retains examined-but-ineligible facts.
+    One build reads one unchanging state, so its pure per-type readers reuse
+    their answers within this call only (see read_memo); nothing is kept after.
     """
+    from .read_memo import pure_read_scope
+    with pure_read_scope():
+        return _build_report_pool(memory, as_of, client_id, fit_policy_id=fit_policy_id,
+                                  recommendation_contract=recommendation_contract)
+
+
+def _build_report_pool(memory, as_of, client_id, *, fit_policy_id, recommendation_contract):
     as_of = as_of or utc_now()
     timestamp(as_of); identifier(client_id)
     if recommendation_contract not in (None, "functional-type-examples-v1"):

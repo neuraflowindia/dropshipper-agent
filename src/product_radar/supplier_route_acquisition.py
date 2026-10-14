@@ -10,9 +10,10 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from hashlib import sha256
 from html.parser import HTMLParser
+import json
 from pathlib import Path
 import re
-from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlsplit
+from urllib.parse import parse_qs, unquote, unquote_plus, urlencode, urljoin, urlsplit
 
 from .discovery import normalise, tokens
 from .models import SafetyError, canonical, digest, identifier, timestamp, utc_now
@@ -24,11 +25,20 @@ from .supplier_capture import _allowed_url
 from .supplier_capture_store import (MAX_CAPTURE_BYTES, _capture_key, _product,
     _validate as _validate_bundle_record, capture_saved_supplier_bundle, load_saved_supplier_capture)
 from .supplier_discovery import _parse_receipt, _search_url
-from .supplier_effort import _receipt_ref, failed_reader_receipt, record_supplier_effort
+from .supplier_effort import RETIRED_SUPPLIER_ROUTES, _receipt_ref, failed_reader_receipt, record_supplier_effort
 
 VERSION = "supplier-public-routes-v1"
-PARSER_VERSION = 4
+# Version 5: Google's "enable JavaScript" search gate and its consent, sign-in
+# and "sorry" interstitials, and IndiaMART's sign-in (OTP) wall, are access
+# challenges, not an unreadable layout; a rendered Maps search URL rewritten to
+# /maps/search/<query>/@... is matched on its decoded query segment. Earlier
+# versions replay unchanged.
+PARSER_VERSION = 5
+# Every supplier search route whose saved original reads can still be replayed.
 SEARCH_ROUTES = ("google-suppliers", "google-maps", "indiamart", "tradeindia")
+# The searches the programme may prepare and send. A retired route
+# (supplier_effort.RETIRED_SUPPLIER_ROUTES) keeps only saved-only replay.
+ACTIVE_SEARCH_ROUTES = tuple(route for route in SEARCH_ROUTES if route not in RETIRED_SUPPLIER_ROUTES)
 ROUTES = (*SEARCH_ROUTES, "company-pages")
 MAX_RESULTS = 10
 MAX_COMPANIES = 6
@@ -39,6 +49,14 @@ _HOSTS = {"google-suppliers": {"google.com", "www.google.com", "google.co.in", "
           "tradeindia": {"tradeindia.com", "www.tradeindia.com"}}
 _CHALLENGES = ("our systems have detected unusual traffic", "verify you are human", "checking your browser",
                "before you continue to google", "access denied", "enable javascript and cookies to continue")
+_GOOGLE_ROUTES = ("google-suppliers", "google-maps")
+_GOOGLE_SITE_HOSTS = {"google.com", "www.google.com", "google.co.in", "www.google.co.in", "maps.google.com"}
+_GOOGLE_CONSENT_HOSTS = {"consent.google.com", "consent.google.co.in"}
+_GOOGLE_SIGN_IN_HOSTS = {"accounts.google.com", "accounts.google.co.in"}
+_GOOGLE_GATE_TEXT = "having trouble accessing google search"
+_NEXT_DATA = re.compile(r"<script\b[^>]*\bid=[\"']__NEXT_DATA__[\"'][^>]*>(.*?)</script>", re.I | re.S)
+_ROBOTS_NOINDEX = re.compile(r"<meta\b[^>]*\bname=[\"']robots[\"'][^>]*\bcontent=[\"'][^\"']*\bnoindex\b", re.I)
+_INDIAMART_LOGIN_PROMPTS = ("login to connect with suppliers", "get otp")
 _NO_RESULTS = {"google-maps": ("google maps can't find", "no results found"),
                "indiamart": ("no products found", "no results found", "no product found"),
                "tradeindia": ("no products found", "no results found", "no product found", "no search results")}
@@ -157,6 +175,85 @@ class _PublicCards(HTMLParser):
             self.anchor["parts"].append(value)
 
 
+class _PageTargets(HTMLParser):
+    """Link and meta-refresh targets, including those inside <noscript>."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.targets = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "a" and attrs.get("href"):
+            self.targets.append(attrs["href"])
+        elif tag == "meta" and (attrs.get("http-equiv") or "").casefold() == "refresh":
+            target = re.search(r"url\s*=\s*['\"]?([^'\"\s>]+)", attrs.get("content") or "", re.I)
+            if target:
+                self.targets.append(target[1])
+
+
+def _google_javascript_gate(receipt):
+    """Google's "enable JavaScript" search gate, as served since October 2026.
+
+    The page says "If you're having trouble accessing Google Search" and its
+    only way on is Google's own /httpservice/retry/enablejs redirect or a
+    retry link marked emsg=SG_REL. Both the sentence and one of those Google
+    links are required, so an unrecognised results layout is never a gate.
+    """
+    if _GOOGLE_GATE_TEXT not in normalise(receipt["text"]):
+        return False
+    page = _PageTargets()
+    page.feed(receipt["html"])
+    page.close()
+    for target in page.targets:
+        try:
+            link = urlsplit(urljoin(receipt["final_url"], target))
+            host = (link.hostname or "").casefold()
+        except ValueError:
+            continue
+        if host in _GOOGLE_SITE_HOSTS and (link.path == "/httpservice/retry/enablejs" or link.path == "/search"
+                                           and "SG_REL" in parse_qs(link.query).get("emsg", [])):
+            return True
+    return False
+
+
+def _indiamart_login_wall(receipt):
+    """IndiaMART's sign-in (OTP) wall, served instead of results since October 2026.
+
+    Every part is required, so a real results page is never misread: the
+    page's own Next.js data says ``dummyOtpPage: true`` and holds no search
+    response, the page asks search engines not to index it, and it carries
+    IndiaMART's login marker - the rendered "Login to connect with suppliers"
+    / "GET OTP" prompt, or the plain page's login strip that renders it. It is
+    reached only when no real result card was found. Nothing is ever entered.
+    """
+    html = receipt["html"]
+    data = _NEXT_DATA.search(html)
+    if not data or not _ROBOTS_NOINDEX.search(html):
+        return False
+    try:
+        props = json.loads(data[1])["props"]["pageProps"]
+    except (ValueError, TypeError, KeyError):
+        return False
+    if (not isinstance(props, dict) or props.get("dummyOtpPage") is not True
+            or "searchResponse" not in props or props["searchResponse"] is not None):
+        return False
+    text = normalise(receipt["text"])
+    return (any(prompt in text for prompt in _INDIAMART_LOGIN_PROMPTS)
+            or re.search(r"""\bid=["']loginstrip["']""", html) is not None)
+
+
+def _google_interstitial(final):
+    """A Google consent, sign-in or "sorry" (unusual traffic) page, on any Google host.
+
+    Sign-in is Google's accounts host or a ServiceLogin address; nothing on it
+    is a search answer and no account is ever used to get past it.
+    """
+    host = (final.hostname or "").casefold()
+    return (host in _GOOGLE_CONSENT_HOSTS or host in _GOOGLE_SIGN_IN_HOSTS
+            or host in _GOOGLE_SITE_HOSTS and (final.path.startswith("/sorry") or "/ServiceLogin" in final.path))
+
+
 @source_phase("parse")
 def parse_supplier_route_receipt(route, query, item, receipt, *, _legacy_services=False, _parser_version=None):
     """A challenge, changed query or unrecognised layout is never zero suppliers."""
@@ -177,6 +274,14 @@ def parse_supplier_route_receipt(route, query, item, receipt, *, _legacy_service
         return {"state": "blocked" if blocked else "failed", "reason": reason, "results": []}
     try:
         final = urlsplit(receipt.get("final_url", ""))
+        if (parser_version >= 5 and route in _GOOGLE_ROUTES and receipt.get("id") == item["id"]
+                and receipt.get("requested_url") == expected and receipt.get("http_status") == 200
+                and _google_interstitial(final)):
+            # Version 5: a consent, sign-in or unusual-traffic page on another
+            # Google host is still Google refusing access, never an invalid
+            # receipt to retry. Nothing on it is clicked, accepted or signed in.
+            timestamp(receipt.get("checked_at"))
+            return {"state": "blocked", "reason": "SUPPLIER_ROUTE_CHALLENGE", "results": []}
         if (receipt.get("id") != item["id"] or receipt.get("requested_url") != expected
                 or not _host_allowed(route, final.hostname) or receipt.get("http_status") != 200
                 or receipt.get("body_complete") is not True or not isinstance(receipt.get("html"), str)
@@ -188,6 +293,12 @@ def parse_supplier_route_receipt(route, query, item, receipt, *, _legacy_service
             return {"state": "blocked", "reason": "SUPPLIER_ROUTE_CHALLENGE", "results": []}
         if route == "google-suppliers":
             parsed = _parse_receipt(receipt, query + " India manufacturer wholesaler supplier", item["id"])
+            if (parser_version >= 5 and parsed["reason"] == "SUPPLIER_SEARCH_LAYOUT_UNRECOGNISED"
+                    and _google_javascript_gate(receipt)):
+                # Version 5: Google refused to serve results to this reader.
+                # That is an access challenge for the shared wait/back-off,
+                # not an unreadable layout, a browser fallback or no results.
+                return {"state": "blocked", "reason": "SUPPLIER_ROUTE_CHALLENGE", "results": []}
             return {**parsed, "state": "complete" if parsed["state"] == "complete" else "extraction_pending"}
         params = parse_qs(final.query)
         if route == "indiamart" and (final.path != "/search.mp" or params.get("ss") != [query]):
@@ -196,8 +307,18 @@ def parse_supplier_route_receipt(route, query, item, receipt, *, _legacy_service
             raise ValueError
         if route == "google-maps":
             requested_text = query + " manufacturer supplier India"
-            if not (params.get("query") == [requested_text] or
-                    final.path.startswith("/maps/search/") and normalise(requested_text) in normalise(unquote(final.path))):
+            if parser_version >= 5:
+                # Rendered Maps rewrites the address to /maps/search/<query>/@<map
+                # view>, with "+" for spaces. Only that exact decoded query
+                # segment (or the requested api query) is the requested scope.
+                segment = (final.path[len("/maps/search/"):].split("/", 1)[0]
+                           if final.path.startswith("/maps/search/") else None)
+                same_query = params.get("query") == [requested_text] or bool(
+                    segment and normalise(unquote_plus(segment)) == normalise(requested_text))
+            else:
+                same_query = (params.get("query") == [requested_text] or final.path.startswith("/maps/search/")
+                              and normalise(requested_text) in normalise(unquote(final.path)))
+            if not same_query:
                 raise ValueError
         parser = _PublicCards(route, receipt["final_url"], parser_version=parser_version)
         parser.feed(receipt["html"])
@@ -211,6 +332,11 @@ def parse_supplier_route_receipt(route, query, item, receipt, *, _legacy_service
                 break
         if rows:
             return {"state": "complete", "reason": "Actual public result cards nominate pages; supplier relevance is not yet reviewed.", "results": rows}
+        if parser_version >= 5 and route == "indiamart" and _indiamart_login_wall(receipt):
+            # Version 5: IndiaMART refused results to this reader. It is an
+            # access challenge for the shared wait, never an unreadable layout
+            # that would justify a browser read, and never "no suppliers".
+            return {"state": "blocked", "reason": "SUPPLIER_ROUTE_CHALLENGE", "results": []}
         if any(marker in text for marker in _NO_RESULTS[route]):
             return {"state": "complete", "reason": "The readable bounded search explicitly reported no results.", "results": []}
         return {"state": "extraction_pending", "reason": "SUPPLIER_ROUTE_LAYOUT_UNRECOGNISED", "results": []}
@@ -1233,6 +1359,11 @@ def create_supplier_handlers(memory, *, http_reader=fetch_public_page, browser_r
                     http_reader=http_reader, browser_reader=render, **options)
         handlers[route] = {"handler": handle,
                            "reconcile": lambda context, callback=handle: callback(context, saved_only=True)}
+        if route in RETIRED_SUPPLIER_ROUTES:
+            # Saved history only: an already started original may still be
+            # replayed from its saved files, but nothing can send a new read.
+            # Without a handler the route is "not connected" to the controller.
+            del handlers[route]["handler"]
         if route in SEARCH_ROUTES:
             # Explicitly saved-only: the controller can make one finite
             # correction to an old terminal false-dispatch wrapper without

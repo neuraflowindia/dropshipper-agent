@@ -12,7 +12,8 @@ from product_radar.source_acquisitions import ACQUISITION_KIND, claim_source_acq
 from product_radar.source_deadline import SourceActionDeadline
 from product_radar.source_coverage import execute_source_run, prepare_source_tasks, product_source_request_builder
 from product_radar.storage import atomic_json, load_json
-from product_radar.supplier_route_acquisition import create_supplier_handlers, SEARCH_ROUTES, supplier_route_url
+from product_radar.supplier_route_acquisition import (ACTIVE_SEARCH_ROUTES, create_supplier_handlers, SEARCH_ROUTES,
+    supplier_route_url)
 from product_radar.supplier_search import (APPLICATION_KIND, current_supplier_search_checks, prepare_supplier_request,
     supplier_request_for_state, validate_supplier_lead_receipt)
 from product_radar.work_turns import bind_work_turn, close_work_turn, open_work_turn
@@ -124,10 +125,16 @@ class SharedSupplierTests(unittest.TestCase):
         self.assertEqual(waiting["next_retry_at"], "2026-10-12T10:00:00+00:00")
         self.assertEqual(len(self.http_calls), 1); self.assertEqual(len(self.owners()), 1)
 
-    def test_all_four_supplier_routes_capture_without_new_products(self):
+    def test_all_active_supplier_routes_capture_without_new_products(self):
+        # Installed for all four, but the retired Google Search route is never planned or sent.
         handlers = self.handlers(routes=SEARCH_ROUTES); self.prepare(handlers)
-        self.assertEqual(self.discovery(handlers)["external_handler_calls_this_round"], 4)
-        self.assertEqual(len(self.http_calls), 4)
+        self.assertEqual(self.discovery(handlers)["external_handler_calls_this_round"], 3)
+        self.assertEqual(len(self.http_calls), 3)
+        self.assertEqual({item["url"] for item in self.http_calls},
+                         {supplier_route_url(route, self.query) for route in ACTIVE_SEARCH_ROUTES})
+        self.assertFalse(any(question["route"] == "google-suppliers" for planned in
+                             self.memory.snapshot()["batch_runs"][self.wave["id"]]["planned_actions"]
+                             for question in planned["questions"]))
         self.assertEqual(self.memory.snapshot()["concepts"], self.before["concepts"])
 
     def test_browser_fallback_is_separate_owner_after_closed_layout_failure(self):
@@ -243,8 +250,8 @@ class SharedSupplierTests(unittest.TestCase):
         self.assertEqual(request["candidate_check_ids"], {self.cid: sorted(checks)})
 
     def test_shared_429_wait_retains_deadline_and_healthy_other_host(self):
-        self.mode = "blocked"; handlers = self.handlers(routes=("google-suppliers", "google-maps", "tradeindia"))
-        self.prepare(handlers, route="google-suppliers"); self.checks(handlers)
+        self.mode = "blocked"; handlers = self.handlers(routes=("google-maps", "tradeindia"))
+        self.prepare(handlers, route="google-maps"); self.checks(handlers)
         task = next(row for row in self.memory.snapshot()["query_tasks"].values()
             if row.get("kind") == "all_source_task_v1" and row.get("run_id") == self.run)
         self.assertEqual(task["next_retry_at"], "2026-10-05T11:00:00+00:00")

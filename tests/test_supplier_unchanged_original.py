@@ -68,8 +68,62 @@ class SupplierUnchangedOriginalTests(unittest.TestCase):
     def test_maps_unchanged_unclosed_original_does_not_reapply_caller(self):
         self.assert_unchanged_replay("google-maps")
 
-    def test_google_unchanged_unclosed_original_does_not_reapply_caller(self):
-        self.assert_unchanged_replay("google-suppliers")
+    def dispatched_before_retirement(self, *, unclosed=True, interrupted=False):
+        # The Google Search route was active when this original was sent.
+        with patch.dict("product_radar.supplier_effort.RETIRED_SUPPLIER_ROUTES", clear=True):
+            handlers = self.handlers("google-suppliers", unclosed=unclosed); task_id = self.prepare("google-suppliers")
+            if interrupted:
+                with patch("product_radar.source_coverage._persist_receipt",
+                           side_effect=RuntimeError("Synthetic interrupted original application.")):
+                    self.checks(handlers)
+            else:
+                self.checks(handlers)
+        task = self.memory.snapshot()["query_tasks"][task_id]
+        self.assertTrue(task["reconcile_required"])
+        self.assertEqual(len(self.http_calls), 1)
+        return task_id, self.handlers("google-suppliers", unclosed=unclosed)
+
+    def test_google_unchanged_unclosed_original_does_not_reapply_caller_after_retirement(self):
+        task_id, handlers = self.dispatched_before_retirement()
+        self.assertNotIn("handler", handlers["google-suppliers"])
+        before = self.memory.snapshot(); original_task = deepcopy(before["query_tasks"][task_id])
+        self.assertTrue(original_task["supplier_original_pending"])
+        for _ in range(2):
+            with patch.object(self.memory, "commit", wraps=self.memory.commit) as commit:
+                result = self.checks(handlers)
+            caller_changes = [entry for call in commit.call_args_list for entry in call.args[1]
+                if entry.get("table") == "query_tasks" and entry.get("id") == task_id]
+            self.assertEqual(caller_changes, [])
+            self.assertEqual((result["counts"], result["handler_calls"]), ({"waiting": 1}, 0))
+            self.assertEqual(result["results"][0]["reason"], "SUPPLIER_ORIGINAL_SEARCH_PENDING")
+        after = self.memory.snapshot()
+        self.assertEqual(after["query_tasks"][task_id], original_task)
+        self.assertEqual(after["source_checks"], before["source_checks"])
+        self.assertEqual((len(self.http_calls), self.browser_calls), (1, []))
+
+    def test_retired_route_original_interrupted_before_apply_closes_from_saved_files(self):
+        task_id, handlers = self.dispatched_before_retirement(unclosed=False, interrupted=True)
+        self.assertEqual(self.memory.snapshot()["query_tasks"][task_id]["receipt_refs"], [])
+        result = self.checks(handlers)
+        task = self.memory.snapshot()["query_tasks"][task_id]
+        self.assertEqual(result["counts"], {"acquired": 1})
+        self.assertFalse(task["reconcile_required"])
+        self.assertEqual(len(task["receipt_refs"]), 1)
+        self.assertEqual(task["target_results"][self.cid]["state"], "interpretation_pending")
+        self.assertEqual(self.checks(handlers)["handler_calls"], 0)
+        self.assertEqual((len(self.http_calls), self.browser_calls), (1, []))
+
+    def test_retired_google_search_question_is_never_sent(self):
+        # An old prepared Google Search question stays unsent: the installed
+        # route has no handler, so it is "not connected", not a failure or wait.
+        handlers = self.handlers("google-suppliers"); task_id = self.prepare("google-suppliers")
+        self.assertNotIn("handler", handlers["google-suppliers"])
+        result = self.checks(handlers)
+        self.assertEqual((result["handler_calls"], result["counts"]), (0, {"not_connected": 1}))
+        self.assertEqual(self.http_calls, []); self.assertEqual(self.browser_calls, [])
+        task = self.memory.snapshot()["query_tasks"][task_id]
+        self.assertEqual((task["status"], task["attempt_refs"], task["tries"]), ("prepared", [], 0))
+        self.assertEqual(self.owners(), {})
 
     def test_unchanged_original_retains_exact_validated_supplier_refinement(self):
         handlers = self.handlers(); task_id = self.prepare(); self.checks(handlers)

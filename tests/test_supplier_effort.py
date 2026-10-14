@@ -252,7 +252,10 @@ class SupplierEffortTests(unittest.TestCase):
         searched = discover_saved_supplier_leads(self.memory, CONCEPT, fetcher=lambda item: receipt(item))
         self.assertEqual(searched["result"]["state"], "blocked")
         self.assertTrue(searched["effort_satisfied"])
-        self.assertEqual(len(self.current()["actual_attempt_refs"]), 2)
+        record = self.memory.snapshot()["source_checks"][searched["effort_check_id"]]
+        self.assertEqual(len(record["actual_attempt_refs"]), 2)
+        # This saved Google Search pass is retired history, not current effort.
+        self.assertEqual(self.current()["actual_attempt_refs"], [])
         with tempfile.TemporaryDirectory() as temp:
             memory = ResearchMemory(Path(temp) / "research", Journal(Path(temp) / "finance"), evidence_type="synthetic")
             memory.put("concepts", CONCEPT, {"description": DESCRIPTION, "status": "provisional"})
@@ -270,8 +273,10 @@ class SupplierEffortTests(unittest.TestCase):
             return value
         result = discover_saved_supplier_leads(self.memory, CONCEPT, fetcher=no_results)
         self.assertTrue(result["effort_satisfied"])
-        self.assertEqual(self.current()["internal_outcome"], "completed_empty")
-        self.assertEqual(self.current()["usable_lead_count"], 0)
+        record = self.memory.snapshot()["source_checks"][result["effort_check_id"]]
+        self.assertEqual((record["internal_outcome"], record["supplier_search_status"]), ("completed_empty", "complete"))
+        # Retired Google Search history does not answer the current search.
+        self.assertEqual((self.current()["internal_outcome"], self.current()["usable_lead_count"]), ("not_attempted", 0))
 
     def test_wrapper_preserves_valid_owned_stage_but_not_secret_attribute(self):
         item = {"id": "page-one", "url": URL}
@@ -441,6 +446,89 @@ class FrozenSupplierEffortTests(unittest.TestCase):
         self.assertTrue(frozen_supplier_effort_valid({"title": "Historical product"}))
         self.assertTrue(frozen_supplier_effort_valid({"fit_policy_id": "fit-13-v1"}))
         self.assertFalse(frozen_supplier_effort_valid({"fit_policy_id": "unknown-policy"}))
+
+
+
+class SupplierEffortRouteOutcomeTests(unittest.TestCase):
+    """Per-original current outcomes, retired routes and same-original reparses."""
+
+    setUp = SupplierEffortTests.setUp
+    current = SupplierEffortTests.current
+
+    def route_record(self, route, outcome, *, pass_id, reference, at=NOW):
+        item = {"id": "request-" + pass_id, "url": "https://www.example.org/search?q=" + pass_id}
+        return record_supplier_effort(self.memory, concept_id=CONCEPT, description=DESCRIPTION, pass_id=pass_id,
+            receipts=[receipt(item, at=at)], receipt_reference=reference, outcome=outcome, route=route)
+
+    def status(self):
+        from product_radar.report_selection import _suppliers
+        return _suppliers([], CONCEPT, DESCRIPTION, LATER, self.memory.snapshot()["source_checks"].items())["status"]
+
+    def test_later_blocked_route_does_not_erase_existing_leads(self):
+        self.route_record("tradeindia", "interpretation_pending", pass_id="trade", reference="shared/trade/capture-parser-4.json")
+        self.route_record("known-supplier-pages", "interpretation_pending", pass_id="page", reference="supplier_pages/page.json")
+        self.route_record("google-maps", "blocked", pass_id="maps", reference="shared/maps/capture-parser-5.json", at=LATER)
+        effort = self.current()
+        self.assertEqual(effort["internal_outcome"], "interpretation_pending")
+        self.assertEqual(self.status(), "attempted")  # Never "could not be completed" while leads exist.
+
+    def test_blocked_only_when_every_current_original_failed_or_was_refused(self):
+        self.route_record("google-maps", "failed", pass_id="maps", reference="shared/maps/capture-parser-5.json")
+        self.route_record("indiamart", "blocked", pass_id="india", reference="shared/india/capture-parser-5.json", at=LATER)
+        self.route_record("tradeindia", "failed", pass_id="trade", reference="shared/trade/capture-parser-5.json", at=LATER)
+        self.assertEqual(self.current()["internal_outcome"], "blocked")
+        self.assertEqual(self.status(), "blocked")
+        # One completed empty search is a real answer, not a blocked product search.
+        self.route_record("indiamart", "completed_empty", pass_id="india-2", reference="shared/india-2/capture-parser-5.json")
+        self.assertEqual(self.current()["internal_outcome"], "completed_empty")
+        self.assertEqual(self.status(), "attempted")
+
+    def test_retired_google_search_records_are_history_not_current_effort(self):
+        retired = self.route_record("google-suppliers", "blocked", pass_id="google",
+                                    reference="shared/google/capture-parser-5.json", at=LATER)
+        self.assertTrue(retired["record"]["effort_satisfied"])  # The saved record itself is unchanged history.
+        effort = self.current()
+        self.assertEqual((effort["check_ids"], effort["actual_attempt_refs"]), ([], []))
+        self.assertEqual((effort["internal_outcome"], effort["effort_satisfied"]), ("not_attempted", False))
+        self.assertEqual(self.status(), "not_started")
+        # Nor can it turn an active route's leads into a blocked search.
+        self.route_record("tradeindia", "partial", pass_id="trade", reference="shared/trade/capture-parser-5.json")
+        effort = self.current()
+        self.assertEqual((effort["internal_outcome"], effort["effort_satisfied"]), ("partial", True))
+        self.assertNotIn(retired["check_id"], effort["check_ids"])
+        self.assertEqual(self.status(), "attempted")
+
+    def test_older_google_search_route_names_are_retired_history_too(self):
+        for route in ("google-public-html", "google-browser-html"):
+            self.route_record(route, "blocked", pass_id=route, reference="supplier_searches/" + route + ".json")
+        effort = self.current()
+        self.assertEqual((effort["check_ids"], effort["internal_outcome"], effort["effort_satisfied"]),
+                         ([], "not_attempted", False))
+        self.route_record("indiamart", "partial", pass_id="india", reference="shared/india/capture-parser-5.json")
+        self.assertEqual(self.current()["internal_outcome"], "partial")
+
+    def test_newest_parser_version_of_the_same_original_wins_regardless_of_record_ids(self):
+        base = self.route_record("google-maps", "interpretation_pending", pass_id="maps",
+                                 reference="shared/maps/capture-parser-4.json")["record"]
+        reparse = dict(base, reference="shared/maps/capture-parser-5.json", internal_outcome="blocked",
+                       state="blocked", supplier_search_status="blocked",
+                       receipt_refs=[dict(ref, reference="shared/maps/capture-parser-5.json") for ref in base["receipt_refs"]])
+        for stale_id, current_id in (("z-stale-parser-4", "a-current-parser-5"), ("a-stale-parser-4", "z-current-parser-5")):
+            with self.subTest(stale=stale_id, current=current_id):
+                state = {"source_checks": {stale_id: base, current_id: reparse}}
+                effort = current_supplier_effort(state, CONCEPT, DESCRIPTION, as_of=LATER)
+                self.assertEqual(base["at"], reparse["at"])
+                self.assertEqual(effort["internal_outcome"], "blocked")
+                self.assertEqual(effort["check_ids"], sorted([stale_id, current_id]))
+                self.assertTrue(effort["effort_satisfied"])
+        # The original capture.json is older than any parser repair of it.
+        original = dict(reparse, reference="supplier_routes/maps/capture.json", internal_outcome="interpretation_pending",
+                        state="insufficient", supplier_search_status="attempted",
+                        receipt_refs=[dict(ref, reference="supplier_routes/maps/capture.json") for ref in base["receipt_refs"]])
+        repaired = dict(reparse, reference="supplier_routes/maps/capture-parser-3.json",
+                        receipt_refs=[dict(ref, reference="supplier_routes/maps/capture-parser-3.json") for ref in base["receipt_refs"]])
+        state = {"source_checks": {"zz-original": original, "aa-repair": repaired}}
+        self.assertEqual(current_supplier_effort(state, CONCEPT, DESCRIPTION, as_of=LATER)["internal_outcome"], "blocked")
 
 
 if __name__ == "__main__":

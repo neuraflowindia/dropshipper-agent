@@ -66,9 +66,16 @@ class SupplierReconciliationTests(unittest.TestCase):
     def test_all_five_installed_supplier_routes_expose_explicit_saved_only_reconciliation(self):
         registry = route_registry(self.handlers)
         for route in ROUTES:
+            # Every installed route can replay its saved originals.
+            self.assertTrue(callable(registry[route]["reconcile"]))
+            if route == "google-suppliers":
+                # Retired: saved history only, never connected for a new read.
+                self.assertFalse(registry[route]["connected"])
+                self.assertIsNone(registry[route]["handler"])
+                self.assertNotIn("handler", self.handlers[route])
+                continue
             self.assertTrue(registry[route]["connected"])
             self.assertTrue(callable(registry[route]["handler"]))
-            self.assertTrue(callable(registry[route]["reconcile"]))
 
     def test_each_search_route_replays_its_original_capture_and_projects_only_once(self):
         for route in SEARCH_ROUTES:
@@ -417,16 +424,16 @@ class SupplierReconciliationTests(unittest.TestCase):
         self.assertEqual(self.memory.snapshot(), before)
 
     def test_controller_local_result_save_failure_resumes_original_and_keeps_sibling_running(self):
-        unknown = Reader({supplier_route_url("google-suppliers", QUERY): "JavaScript search page with no recognised cards."})
+        unknown = Reader({supplier_route_url("tradeindia", QUERY): "JavaScript search page with no recognised cards."})
         def blocked(item):
             return receipt(item, status=429, reason="SUPPLIER_NATIVE_READ_FAILED")
         handlers = create_supplier_handlers(self.memory, http_reader=unknown, browser_reader=blocked, page_reader=forbidden)
         prepare_source_tasks(self.memory, [
             {"route": route, "request": {"query": QUERY, "country": "IN"}, "concept_ids": ["paper"]}
-            for route in ("google-suppliers", "google-maps")], run_id="same-original-run", as_of=NOW)
+            for route in ("tradeindia", "google-maps")], run_id="same-original-run", as_of=NOW)
         put = self.memory.put
         def interrupted(table, item_id, row, **options):
-            if table == "source_checks" and row.get("kind") == "supplier_route_search" and row.get("route") == "google-suppliers":
+            if table == "source_checks" and row.get("kind") == "supplier_route_search" and row.get("route") == "tradeindia":
                 raise SafetyError("SAVED_FILE_UNAVAILABLE")
             return put(table, item_id, row, **options)
         runner = lambda callback, context, _timeout: callback(context)
@@ -434,7 +441,7 @@ class SupplierReconciliationTests(unittest.TestCase):
             failed = execute_source_run(self.memory, "same-original-run", handlers=handlers, as_of=NOW, bounded_call=runner)
         self.assertEqual(failed["counts"], {"blocked": 1, "acquired": 1})
         task_id, task = next((item_id, row) for item_id, row in self.memory.snapshot()["query_tasks"].items()
-                             if row.get("route") == "google-suppliers")
+                             if row.get("route") == "tradeindia")
         self.assertTrue(task["dispatch_started"])
         self.assertTrue(task["reconcile_required"])
         self.assertEqual(task["receipt_refs"], [])

@@ -45,6 +45,10 @@ const SOURCE_ROUTES = Object.freeze([
   ['google-suppliers', 'Google supplier search', 'supplier'], ['google-maps', 'Google Maps supplier search', 'supplier'],
   ['indiamart', 'IndiaMART', 'supplier'], ['tradeindia', 'TradeIndia', 'supplier'], ['company-pages', 'Supplier company pages', 'supplier'],
 ]);
+// Retired routes are no longer part of the service: new packets omit their rows.
+// Packets frozen earlier keep all fourteen rows and stay readable.
+const RETIRED_SOURCE_ROUTES = Object.freeze(['google-suppliers']);
+const CLIENT_SOURCE_ROUTES = Object.freeze(SOURCE_ROUTES.filter(([route]) => !RETIRED_SOURCE_ROUTES.includes(route)));
 const SOURCE_MEASUREMENTS = new Set(['relevant_ads', 'advertisers', 'active_ads', 'unknown_active_status', 'missing_advertiser_ids',
   'relevant_listings', 'list_rank_bounds', 'displayed_prices', 'available_listings', 'unavailable_listings', 'unknown_availability',
   'chart_intervals', 'nonzero_points', 'previous_mean_bounds', 'recent_mean_bounds']);
@@ -203,7 +207,8 @@ function validateSourceRouteFacts(product, current) {
   const invalid = () => fail('ADMIN_SOURCE_ROUTE_FACTS_INVALID', 409);
   const rows = product.source_route_checks, revisions = product.source_revisions;
   if (!current || product.opportunity_policy_id !== OPPORTUNITY_PLATFORM_POLICY ||
-      product.source_route_contract !== (product.recommendation_contract === 'functional-type-examples-v1' ? 'saved-source-routes-v2' : SOURCE_ROUTE_CONTRACT) || !Array.isArray(rows) || rows.length !== SOURCE_ROUTES.length ||
+      product.source_route_contract !== (product.recommendation_contract === 'functional-type-examples-v1' ? 'saved-source-routes-v2' : SOURCE_ROUTE_CONTRACT) || !Array.isArray(rows) ||
+      (rows.length !== CLIENT_SOURCE_ROUTES.length && rows.length !== SOURCE_ROUTES.length) ||
       !revisions || typeof revisions !== 'object' || Array.isArray(revisions) || encoder.encode(canonical(rows)).length > 64 * 1024) invalid();
   const known = new Set();
   for (const table of SOURCE_REFERENCE_TABLES) {
@@ -216,7 +221,7 @@ function validateSourceRouteFacts(product, current) {
     new Set(values).size === values.length;
   const dateValid = value => { try { utc(value); return true; } catch { return false; } };
   for (const [index, row] of rows.entries()) {
-    const [route, label, role] = SOURCE_ROUTES[index];
+    const [route, label, role] = (rows.length === SOURCE_ROUTES.length ? SOURCE_ROUTES : CLIENT_SOURCE_ROUTES)[index];
     if (product.recommendation_contract === 'functional-type-examples-v1' &&
         (row?.meaning_hash !== product.functional_definition?.meaning_hash || !Array.isArray(row?.scoped_evidence_ids) ||
          row.scoped_evidence_ids.some(id => !Object.hasOwn(revisions.source_checks ?? {}, id)))) invalid();

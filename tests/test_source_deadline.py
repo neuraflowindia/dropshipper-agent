@@ -150,7 +150,7 @@ class SourceDeadlineTests(unittest.TestCase):
 
     def test_supplier_search_deadline_stops_browser_fallback_and_healthy_sibling_runs(self):
         questions = [{"route": route, "request": {"query": QUERY, "country": "IN"}, "concept_ids": ["first"]}
-                     for route in ("google-suppliers", "meta-ads")]
+                     for route in ("google-maps", "meta-ads")]
         plan = prepare_source_tasks(self.memory, questions, run_id="deadline-run", as_of=NOW)
         calls, browser_calls = [], []
         handlers = create_supplier_handlers(self.memory, http_reader=self.blocked_reader(calls),
@@ -359,18 +359,18 @@ class SourceDeadlineTests(unittest.TestCase):
         def primary(item):
             return supplier_receipt(item, status=500, actual=False)
         handlers = create_supplier_handlers(self.memory, http_reader=primary)
-        context = {"route": "google-suppliers", "acquisition_id": "supplier-native-cancel", "request": {"query": QUERY},
+        context = {"route": "google-maps", "acquisition_id": "supplier-native-cancel", "request": {"query": QUERY},
                    "concept_ids": ["first"], "description_hashes": {"first": digest(self.description)}, "as_of": NOW}
         with self.installed_native(), patch("product_radar.native_public_browser.native_snapshot", native), \
                 self.assertRaises(SourceActionDeadline):
-            _bounded_call(handlers["google-suppliers"]["handler"], context, 0.5)
-        saved = handlers["google-suppliers"]["reconcile"](context)
+            _bounded_call(handlers["google-maps"]["handler"], context, 0.5)
+        saved = handlers["google-maps"]["reconcile"](context)
         self.assertEqual(saved["state"], "failed")
         self.assertEqual(saved["reason"], "SOURCE_ACTION_TIMEOUT")
         self.assertIs(saved["dispatch_started"], True)
         capture = Path(saved["reference"]); original = capture.read_bytes()
         self.assertEqual(load_json(capture)["result"]["results"], [])
-        self.assertEqual(handlers["google-suppliers"]["reconcile"](context), saved)
+        self.assertEqual(handlers["google-maps"]["reconcile"](context), saved)
         self.assertEqual(capture.read_bytes(), original)
         self.assertEqual(calls, ["launch", "cleanup"])
 
@@ -427,7 +427,7 @@ class SourceDeadlineTests(unittest.TestCase):
                 native_reference=str(folder / "native_result.json"), native_reason="NATIVE_PUBLIC_EXECUTION_FAILED",
                 native_stage="result_read", checked_at=NOW)
         handlers = create_supplier_handlers(self.memory, http_reader=primary, browser_reader=browser)
-        plan = prepare_source_tasks(self.memory, [{"route": "google-suppliers", "request": {"query": QUERY},
+        plan = prepare_source_tasks(self.memory, [{"route": "google-maps", "request": {"query": QUERY},
             "concept_ids": ["first"]}], run_id="old-terminal-auto", as_of=NOW)
         first = execute_source_run(self.memory, "old-terminal-auto", handlers=handlers, as_of=NOW)
         task_id = plan["task_ids"][0]; old = deepcopy(self.memory.snapshot()["query_tasks"][task_id])
@@ -477,7 +477,7 @@ class SourceDeadlineTests(unittest.TestCase):
                 native_reference=str(self.memory.root / "supplier_routes/native" / item["id"] / "native_result.json"),
                 checked_at=NOW)
         handlers = create_supplier_handlers(self.memory, http_reader=fail, browser_reader=fail)
-        plan = prepare_source_tasks(self.memory, [{"route": "google-suppliers", "request": {"query": QUERY},
+        plan = prepare_source_tasks(self.memory, [{"route": "google-maps", "request": {"query": QUERY},
             "concept_ids": ["first"]}], run_id="old-terminal-no-proof", as_of=NOW)
         execute_source_run(self.memory, "old-terminal-no-proof", handlers=handlers, as_of=NOW)
         old = deepcopy(self.memory.snapshot()["query_tasks"][plan["task_ids"][0]])
@@ -501,28 +501,28 @@ class SourceDeadlineTests(unittest.TestCase):
             result = {"state": "captured", "reason": "Original saved fixture", "stage": "complete",
                 "navigation_status": 200, "navigation_started": True, "navigation_started_at": at,
                 "owned_process_exited": True, "completed_at": at, "snapshot": {"url": url, "title": "Suppliers",
-                    "html": BODIES["google-suppliers"], "text": "Food wrap paper supplier India", "links": []}}
+                    "html": BODIES["google-maps"], "text": "Food wrap paper supplier India", "links": []}}
             atomic_json(folder / "native_result.json", result)
             atomic_json(folder / "native_dispatch.json", {"url": url, "navigation_started": True,
                 "navigation_started_at": at})
             return result
         handlers = create_supplier_handlers(self.memory, http_reader=primary)
-        context = {"route": "google-suppliers", "acquisition_id": "supplier-finished-cancel", "request": {"query": QUERY},
+        context = {"route": "google-maps", "acquisition_id": "supplier-finished-cancel", "request": {"query": QUERY},
             "concept_ids": ["first"], "description_hashes": {"first": digest(self.description)}, "as_of": NOW}
         with patch("product_radar.native_public_browser.native_snapshot", native), \
                 patch("product_radar.supplier_route_acquisition._supplier_native_output_receipt", side_effect=SourceActionDeadline()), \
                 self.assertRaises(SourceActionDeadline):
-            handlers["google-suppliers"]["handler"](context)
+            handlers["google-maps"]["handler"](context)
         folder = self.memory.root / "supplier_routes" / context["acquisition_id"]
         progress = (folder / "progress.json").read_bytes()
         native_folder = self.memory.root / "supplier_routes/native" / key("supplier-route-request", [context["acquisition_id"], "browser"])
         original_native = (native_folder / "native_result.json").read_bytes()
-        saved = handlers["google-suppliers"]["reconcile"](context)
+        saved = handlers["google-maps"]["reconcile"](context)
         self.assertEqual(saved["state"], "interpretation_pending"); self.assertIs(saved["dispatch_started"], True)
         self.assertEqual(saved["observation_ids"], [])  # Public cards are only leads; F still judges supplier terms.
         captured = load_json(Path(saved["reference"]))
         self.assertEqual(len(captured["result"]["results"]), 1)
-        self.assertEqual(handlers["google-suppliers"]["reconcile"](context), saved)
+        self.assertEqual(handlers["google-maps"]["reconcile"](context), saved)
         self.assertEqual((folder / "progress.json").read_bytes(), progress)
         self.assertEqual((native_folder / "native_result.json").read_bytes(), original_native)
         self.assertEqual(calls, ["http", "native"])

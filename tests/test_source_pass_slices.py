@@ -308,7 +308,7 @@ class SourcePassSliceTests(unittest.TestCase):
     def test_wrapper_action_limit_keeps_dependency_prepared_after_previous_completed_pass(self):
         calls = []
         def builder(context):
-            if context["route"] == "google-suppliers":
+            if context["route"] == "tradeindia":
                 return {"query": "synthetic supplier", "country": "IN"}
             if context["route"] == "company-pages":
                 if not context["state"]["source_checks"].get("synthetic-destination"):
@@ -320,9 +320,9 @@ class SourcePassSliceTests(unittest.TestCase):
             self.memory.put("source_checks", "synthetic-destination", {"state": "captured"})
             return self.acquired(context)
         result = continue_source_run(self.memory, "week-one", request_builder=builder,
-            concept_ids=["first"], action_limit=1, handlers={"google-suppliers": supplier},
+            concept_ids=["first"], action_limit=1, handlers={"tradeindia": supplier},
             bounded_call=self.direct_runner)
-        self.assertEqual(calls, ["google-suppliers"])
+        self.assertEqual(calls, ["tradeindia"])
         self.assertEqual(result["handler_calls"], 1)
         self.assertEqual(len(result["passes"]), 1)
         self.assertTrue(result["inspection_pending"])

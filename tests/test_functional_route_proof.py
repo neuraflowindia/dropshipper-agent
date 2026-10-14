@@ -46,7 +46,27 @@ class FunctionalRouteProofTests(unittest.TestCase):
             self.assertEqual(validate_functional_route_proof(product), product["source_route_checks"])
         state = functional_route_proof_state(product["functional_route_proof"])
         self.assertEqual(self.derived(state), product["source_route_checks"])
-        self.assertEqual(len(product["source_route_checks"]), 14)
+        self.assertEqual(len(product["source_route_checks"]), 13)
+        self.assertNotIn("google-suppliers", [row["route"] for row in product["source_route_checks"]])
+
+    def test_packet_frozen_before_retirement_keeps_its_fourteen_rows(self):
+        # Retired routes have no client row now; an earlier packet is still read
+        # exactly as it was frozen, including the retired route's own row.
+        product = self.product()
+        state = functional_route_proof_state(product["functional_route_proof"])
+        context = functional_market_context(state, self.cid, as_of=NOW)
+        relevant = {ref: state["observations"][ref] for ref in context["matches"] if ref in state["observations"]}
+        legacy = source_route_facts(state, self.cid, coverage_rows(None, state, [self.cid], NOW)[self.cid],
+            {"market": context["market"], "functional_market_contract": context["contract"],
+             "functional_market_context": context}, relevant, NOW, include_retired=True)
+        for row in legacy:
+            row["url"] = _url(row["url"])
+        self.assertEqual(len(legacy), 14)
+        frozen = dict(product, source_route_checks=legacy)
+        self.assertEqual(validate_functional_route_proof(frozen), legacy)
+        changed = deepcopy(legacy); changed[9]["detail"] = "Edited after freezing."
+        with self.assertRaisesRegex(SafetyError, "FUNCTIONAL_ROUTE_DISPLAY_CHANGED"):
+            validate_functional_route_proof(dict(product, source_route_checks=changed))
 
     def test_changing_valid_display_numbers_or_words_is_rejected(self):
         product = self.product()

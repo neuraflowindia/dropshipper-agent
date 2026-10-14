@@ -29,6 +29,12 @@ class MetaValidationTests(unittest.TestCase):
         policy_patch = patch("product_radar.service.load_policy", return_value=policy)
         policy_patch.start()
         self.addCleanup(policy_patch.stop)
+        # Execution time is max(plan date, clock). These fixtures are dated
+        # NOW, so the batch clock is frozen there; otherwise every saved
+        # capture silently ages past its seven-day freshness as real days pass.
+        clock_patch = patch("product_radar.research_batch.utc_now", return_value=NOW)
+        clock_patch.start()
+        self.addCleanup(clock_patch.stop)
 
     def seed(self, count=1, *, sink=False, mutate=None):
         state = fixture(count).state

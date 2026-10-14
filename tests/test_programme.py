@@ -237,8 +237,9 @@ class ProgrammeTests(unittest.TestCase):
         result = advance_programme(self.memory, "whole-programme", root=self.root, handlers={route: handler for route in ROUTES},
             request_builder=lambda context: {"query": "sink caddy", "country": "IN"}, steps=steps,
             source_limit=3, max_cycles=20)
-        self.assertEqual(len(calls), 14)
-        self.assertEqual(set(calls), set(ROUTES))
+        # Every planned route is asked once; retired Google Search results never are.
+        self.assertEqual(len(calls), 13)
+        self.assertEqual(set(calls), set(ROUTES) - {"google-suppliers"})
         self.assertGreater(result["cycles_this_tick"], 1)
         self.assertTrue(result["report_filled_does_not_stop_work"])
         self.assertEqual(self.memory.snapshot()["published_history"], {})

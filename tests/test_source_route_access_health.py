@@ -193,12 +193,12 @@ class SupplierAccessHealthTests(_AccessFixtures, unittest.TestCase):
         handlers = create_supplier_handlers(self.memory, http_reader=reader, browser_reader=reader)
         # Each acquisition has one HTTP and one browser reply, not two controller attempts.
         acquisitions = []
-        original_handler = handlers["google-suppliers"]["handler"]
+        original_handler = handlers["google-maps"]["handler"]
         def tracked(context):
             acquisitions.append(context["acquisition_id"])
             return original_handler(context)
-        selected = dict(handlers["google-suppliers"], handler=tracked)
-        self.prove_shared_pause_and_finite_probe("google-suppliers", selected, acquisitions)
+        selected = dict(handlers["google-maps"], handler=tracked)
+        self.prove_shared_pause_and_finite_probe("google-maps", selected, acquisitions)
         self.assertEqual(len(reader.calls), 4)
 
     def test_one_company_429_does_not_pause_other_company_domains(self):

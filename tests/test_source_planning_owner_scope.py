@@ -8,6 +8,7 @@ model, process, installed task or live canonical research store is accessed.
 from contextlib import nullcontext
 from copy import deepcopy
 from hashlib import sha256
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -27,7 +28,8 @@ import product_radar.source_coverage as coverage
 import product_radar.supplier_search as suppliers
 
 NOW = "2026-10-12T18:00:00+00:00"
-SUPPLIER_ROUTES = ("google-suppliers", "google-maps", "indiamart", "tradeindia")
+# The planned supplier searches; retired Google Search results are never planned.
+SUPPLIER_ROUTES = ("google-maps", "indiamart", "tradeindia")
 LOCATION = {"name": "Delhi", "lat": "28.6139", "lon": "77.2090"}
 
 
@@ -84,7 +86,7 @@ class SourcePlanningOwnerScopeTests(unittest.TestCase):
                 "reference": ref, "concept_id": cid, "description_hash": digest(item["description"]),
                 "input_hash": digest(item), "input": deepcopy(item), "profile": profile,
                 "method": "synthetic", "job_id": None, "reason": profile["reason"]}
-        self.first_owner = self.add_owner("google-suppliers", "Sink caddy", transport="public-http")
+        self.first_owner = self.add_owner("tradeindia", "Sink caddy", transport="public-http")
         self.second_owner = self.add_owner("indiamart", "Sink caddy", transport="public-browser")
         self.unrelated_owner = self.add_owner("amazon-search", "Unrelated product")
         self.assertEqual(len(self.owner_ids()), 3)
@@ -120,9 +122,23 @@ class SourcePlanningOwnerScopeTests(unittest.TestCase):
         path = self.root / aid / "receipt.json"
         raw = b'{"synthetic":"saved response bytes"}'
         atomic_bytes(path, raw)
+        artifacts = {}
+        if not legacy:
+            # The plain read's own original page: a readable, unrecognised layout.
+            request = owner["binding"]["request"]
+            item = suppliers._item(aid, request)
+            receipt = {"id": item["id"], "requested_url": request["url"], "final_url": request["url"],
+                       "state": "usable", "http_status": 200, "body_complete": True, "checked_at": "2026-10-12T17:00:00+00:00",
+                       "html": "<html><body>Readable different layout</body></html>", "text": "Readable different layout"}
+            page = {"contract": suppliers.CAPTURE_CONTRACT, "acquisition_id": aid, "request": request,
+                    "receipt": receipt, "hash": digest(receipt)}
+            original = self.root / aid / "page.json"
+            page_raw = json.dumps(page).encode()
+            atomic_bytes(original, page_raw)
+            artifacts["original.json"] = {"path": str(original), "sha256": sha256(page_raw).hexdigest()}
         row = {"kind": acquisitions.STAGE_KIND, "stage_type": "response", "acquisition_id": aid,
             "binding_hash": owner["binding_hash"], "receipt": {"path": str(path),
-            "sha256": sha256(raw).hexdigest()}, "artifacts": {}, "captures": [],
+            "sha256": sha256(raw).hexdigest()}, "artifacts": artifacts, "captures": [],
             "bridge_contract": suppliers.BRIDGE, "dispatch_started": True, "source_state": "insufficient",
             "access": {"http_status": 200, "owned_process_exited": True},
             "parse_reason": "SUPPLIER_ROUTE_LAYOUT_UNRECOGNISED",
@@ -167,7 +183,7 @@ class SourcePlanningOwnerScopeTests(unittest.TestCase):
         before = digest(state)
         with patch.object(acquisitions, "_record", wraps=acquisitions._record) as validations:
             unscoped = self.supplier_walk(state, scoped=False)
-            self.assertEqual(validations.call_count, 48)  # 2 products * 4 routes * 2 lookups * 3 owners.
+            self.assertEqual(validations.call_count, 36)  # 2 products * 3 routes * 2 lookups * 3 owners.
             validations.reset_mock()
             scoped = self.supplier_walk(state, scoped=True)
             self.assertEqual(validations.call_count, 3)
@@ -176,14 +192,15 @@ class SourcePlanningOwnerScopeTests(unittest.TestCase):
         self.assertEqual(digest(state), before)
         self.assertIsNone(acquisitions._READINESS_OWNERS.get())
 
-    def test_actual_prepare_validates_all_three_owners_once_for_eight_supplier_questions(self):
+    def test_actual_prepare_validates_all_three_owners_once_for_six_supplier_questions(self):
         with patch.object(acquisitions, "_record", wraps=acquisitions._record) as validations:
             prepared = self.prepare()
             self.assertEqual(validations.call_count, 3)
             self.assertEqual({call.args[1] for call in validations.call_args_list}, self.owner_ids())
         supplier_tasks = [row for row in self.memory.state["query_tasks"].values()
                           if row.get("route") in SUPPLIER_ROUTES]
-        self.assertEqual(len(supplier_tasks), 8)
+        self.assertEqual(len(supplier_tasks), 6)
+        self.assertNotIn("google-suppliers", {row["route"] for row in self.memory.state["query_tasks"].values()})
         self.assertEqual(prepared["source_attempts_created"], 0)
         self.assertTrue(all(not row["attempt_refs"] and row["generation"] == 0 for row in supplier_tasks))
         self.assertIsNone(acquisitions._READINESS_OWNERS.get())
@@ -201,7 +218,7 @@ class SourcePlanningOwnerScopeTests(unittest.TestCase):
         self.memory.state["batch_runs"][self.unrelated_owner]["binding"]["physical_request_fingerprint"] = "f" * 64
         prepared = self.prepare()
         rejected = [row for row in prepared["pending_preparation"] if row["route"] in SUPPLIER_ROUTES]
-        self.assertEqual(len(rejected), 8)
+        self.assertEqual(len(rejected), 6)
         self.assertEqual({row["reason"] for row in rejected}, {"SOURCE_ACQUISITION_RECORD_INVALID"})
         self.assertFalse(any(row["route"] in SUPPLIER_ROUTES for row in self.memory.state["query_tasks"].values()))
         self.assertIsNone(acquisitions._READINESS_OWNERS.get())
@@ -237,8 +254,9 @@ class SourcePlanningOwnerScopeTests(unittest.TestCase):
                 return {"not_applicable_reason": "Synthetic location outside scope."}
             return {"query": "Synthetic custom question", "country": "IN"}
         prepared = self.prepare(builder)
-        self.assertEqual(prepared["physical_questions"], 12)
-        self.assertEqual(prepared["product_questions"], 24)
+        # 13 planned routes, less the pending company page and blinkit.
+        self.assertEqual(prepared["physical_questions"], 11)
+        self.assertEqual(prepared["product_questions"], 22)
         self.assertEqual(len(prepared["pending_preparation"]), 2)
         self.assertEqual({row["route"] for row in prepared["pending_preparation"]}, {"company-pages"})
         self.assertEqual(prepared["source_attempts_created"], 0)
@@ -253,7 +271,8 @@ class SourcePlanningOwnerScopeTests(unittest.TestCase):
                     return {"query": "Synthetic custom question", "country": "IN"}
                 builder._pure_source_planning = marker
                 self.prepare(builder)
-                self.assertEqual(len(visits), 28)
+                self.assertEqual(len(visits), 26)
+                self.assertNotIn("google-suppliers", {route for _, route in visits})
                 self.assertIsNone(acquisitions._READINESS_OWNERS.get())
 
     def test_fresh_plan_reads_and_commits_are_outside_advisory_scope(self):
@@ -358,7 +377,7 @@ class SourcePlanningOwnerScopeTests(unittest.TestCase):
         rejected = [row for row in prepared["pending_preparation"] if row["route"] == "indiamart"]
         self.assertEqual(len(rejected), 2)
         self.assertEqual({row["reason"] for row in rejected}, {"SOURCE_QUESTION_INPUT_PENDING"})
-        self.assertEqual(sum(row["route"] in SUPPLIER_ROUTES for row in self.memory.state["query_tasks"].values()), 6)
+        self.assertEqual(sum(row["route"] in SUPPLIER_ROUTES for row in self.memory.state["query_tasks"].values()), 4)
         self.assertIsNone(acquisitions._READINESS_OWNERS.get())
 
     def test_saved_supplier_transport_choices_remain_equal_with_scope(self):
@@ -372,23 +391,39 @@ class SourcePlanningOwnerScopeTests(unittest.TestCase):
             files.reset_mock()
             scoped = self.supplier_walk(state, scoped=True)
             self.assertEqual(files.call_count, unscoped_reads)
-            self.assertEqual(files.call_count, 2)
+            # Both owners' saved responses, plus the plain read's original page
+            # re-read once to confirm the current parser still cannot read it.
+            self.assertEqual(files.call_count, 4)
         self.assertEqual(scoped, unscoped)
         transports = {(cid, route): request["transport"] for cid, route, request, _ in scoped}
-        self.assertEqual(transports["first", "google-suppliers"], "public-browser")
+        self.assertEqual(transports["first", "tradeindia"], "public-browser")
         self.assertEqual(transports["first", "indiamart"], "public-browser")
-        self.assertEqual(transports["second", "google-suppliers"], "public-http")
+        self.assertEqual(transports["second", "tradeindia"], "public-http")
         self.assertEqual(digest(state), before)
 
     def test_owner_index_reuse_does_not_cache_original_response_file_proof(self):
         path = self.save_response(self.first_owner)
         state, builder = self.memory.snapshot(), self.builder()
         with acquisitions.source_readiness_owner_scope(state):
-            self.assertEqual(builder(self.context(state, "first", "google-suppliers"))["transport"], "public-browser")
+            self.assertEqual(builder(self.context(state, "first", "tradeindia"))["transport"], "public-browser")
             atomic_bytes(path, b'{"synthetic":"changed response bytes"}')
             with self.assertRaisesRegex(SafetyError, "SOURCE_ACQUISITION_ARTIFACT_CHANGED"):
-                builder(self.context(state, "first", "google-suppliers"))
+                builder(self.context(state, "first", "tradeindia"))
         self.assertIsNone(acquisitions._READINESS_OWNERS.get())
+
+    def test_retired_google_search_route_is_never_planned(self):
+        # Fail closed even if a caller asks the built-in planner directly.
+        state = self.memory.snapshot()
+        with self.assertRaisesRegex(SafetyError, "SUPPLIER_ROUTE_RETIRED"):
+            self.builder()(self.context(state, "first", "google-suppliers"))
+        with self.assertRaisesRegex(SafetyError, "SUPPLIER_ROUTE_RETIRED"):
+            suppliers.supplier_request_for_state(state, "google-suppliers", "Sink caddy")
+        prepared = self.prepare()
+        self.assertNotIn("google-suppliers", {row["route"] for row in self.memory.state["query_tasks"].values()})
+        self.assertNotIn("google-suppliers", {row["route"] for row in prepared["pending_preparation"]})
+        self.assertFalse(any(row.get("route") == "google-suppliers" for row in self.memory.state["source_checks"].values()
+                             if row.get("kind") == "all_source_applicability_v1"))
+        self.assertEqual(prepared["routes"], len(coverage.ROUTES) - 1)
 
 
 if __name__ == "__main__":

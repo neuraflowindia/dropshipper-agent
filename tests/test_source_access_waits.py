@@ -11,8 +11,10 @@ from product_radar.marketplace_browser import build_marketplace_request, capture
 from product_radar.models import SafetyError, digest
 from product_radar.research_memory import ResearchMemory, key
 from product_radar.source_acquisitions import ACQUISITION_KIND, claim_source_acquisition
-from product_radar.source_coverage import (ACCESS_SCOPE_KIND, _source_retry_at, create_marketplace_handlers,
-    execute_source_run, marketplace_access_admission, prepare_source_tasks, source_access_scope, source_access_wait)
+from product_radar.source_coverage import (ACCESS_SCOPE_KIND, _access_backoff_seconds, _access_failure, _source_retry_at,
+    create_marketplace_handlers,
+    execute_source_run, marketplace_access_admission, prepare_source_tasks, source_access_backoffs, source_access_scope,
+    source_access_wait)
 from product_radar.storage import Journal, atomic_json
 from product_radar.work_turns import DEFAULT_POLICY, bind_work_turn, open_work_turn
 from test_catalogue_expansion import fixture
@@ -124,6 +126,141 @@ class SourceAccessWaitTests(unittest.TestCase):
         self.assertEqual(result["external_handler_calls_this_round"], 1)
         self.execute(self.prepare("lists", "amazon-bestsellers", "amazon-movers-and-shakers", "flipkart-search"))
         self.assertEqual([r[0] for r in self.calls], ["amazon-search", "flipkart-search"])
+
+    def active_failure(self):
+        state = self.memory.snapshot()
+        return _access_failure(state, self.wait()["failure_id"])["binding"]
+
+    def test_consecutive_refusals_escalate_to_a_capped_day_and_a_success_resets(self):
+        # Repair 7: a permanent refusal is no longer probed every five minutes.
+        self.header = None
+        expected = [("2026-10-09T10:00:00+00:00", "2026-10-09T10:05:00+00:00"),
+                    ("2026-10-09T10:05:00+00:00", "2026-10-09T11:05:00+00:00"),
+                    ("2026-10-09T11:05:00+00:00", "2026-10-09T17:05:00+00:00"),
+                    ("2026-10-09T17:05:00+00:00", "2026-10-10T17:05:00+00:00"),
+                    ("2026-10-10T17:05:00+00:00", "2026-10-11T17:05:00+00:00")]
+        for attempt, (at, due) in enumerate(expected, 1):
+            with self.subTest(attempt=attempt):
+                self.now = at
+                # The due probe of a new question is the only request sent.
+                self.assertEqual(self.execute(self.prepare("probe-" + str(attempt), "amazon-search",
+                                                           term="sink caddy " + str(attempt)))["handler_calls"], 1)
+                self.assertEqual((self.active_failure()["attempt"], self.wait()["next_retry_at"]), (attempt, due))
+                held = self.execute(self.prepare("held-" + str(attempt), "amazon-search", term="held " + str(attempt)))
+                self.assertEqual(held["handler_calls"], 0)  # Still waiting: no new request.
+        self.assertEqual(source_access_backoffs(self.memory.snapshot(), as_of=self.now),
+            [{"host": "www.amazon.in", "transport": "public-browser", "attempt": 5, "wait_seconds": 86400,
+              "challenge": True, "http_status": 429,
+              "phase": "waiting", "next_retry_at": "2026-10-11T17:05:00+00:00"}])
+        # A successful read clears the wait and starts the count again.
+        self.now = "2026-10-11T17:05:00+00:00"; self.status = 200
+        self.assertEqual(self.execute(self.prepare("healthy", "amazon-search", term="healthy"))["handler_calls"], 1)
+        self.assertIsNone(self.wait())
+        self.assertEqual(source_access_backoffs(self.memory.snapshot(), as_of=self.now), [])
+        self.now = "2026-10-11T18:00:00+00:00"; self.status = 429
+        self.execute(self.prepare("after-success", "amazon-search", term="garbage bags"))
+        self.assertEqual((self.active_failure()["attempt"], self.wait()["next_retry_at"]), (1, "2026-10-11T18:05:00+00:00"))
+        self.assertEqual(len(self.calls), 7)  # Five refusals, one success, one fresh refusal.
+
+    def test_escalation_never_shortens_a_longer_retry_after(self):
+        self.header = None
+        run = self.prepare("first", "amazon-search"); self.execute(run)
+        self.now = "2026-10-09T10:05:00+00:00"; self.header = "7200"
+        self.execute(run)
+        self.assertEqual((self.active_failure()["attempt"], self.wait()["next_retry_at"]), (2, "2026-10-09T12:05:00+00:00"))
+
+    def test_records_saved_before_escalation_stay_valid_and_counts_are_bound(self):
+        self.header = None
+        self.execute(self.prepare("first", "amazon-search"))
+        state = self.memory.snapshot(); failure_id = self.wait()["failure_id"]
+        record = state["source_checks"][failure_id]
+        self.assertEqual((record["binding"]["attempt"], record["binding"]["wait_seconds"]), (1, 300))
+        def saved(binding):
+            copy = {**state, "source_checks": dict(state["source_checks"])}
+            new_id = key("source-access-refusal", binding)
+            copy["source_checks"][new_id] = {**record, "binding": binding, "binding_hash": digest(binding)}
+            return copy, new_id
+        # An older first refusal has neither field and the same five minutes.
+        old = {k: v for k, v in record["binding"].items() if k not in ("attempt", "wait_seconds")}
+        self.assertEqual(_access_failure(*saved(old))["binding"], old)
+        # A record is checked against its own saved wait, not today's steps:
+        # a sixth refusal saved with a two-hour wait stays valid.
+        retuned = dict(record["binding"], attempt=6, wait_seconds=7200, next_retry_at="2026-10-09T12:00:00+00:00")
+        self.assertEqual(_access_failure(*saved(retuned))["binding"], retuned)
+        # A wait that does not match its saved end, or half a pair, is not proof.
+        for index, changed in enumerate((dict(record["binding"], wait_seconds=3600),
+                                         dict(record["binding"], attempt=0), dict(record["binding"], attempt=True),
+                                         {k: v for k, v in record["binding"].items() if k != "wait_seconds"})):
+            with self.subTest(variant=index), self.assertRaisesRegex(SafetyError, "SOURCE_ACCESS_PROOF_INVALID"):
+                _access_failure(*saved(changed))
+
+    def test_plain_server_errors_escalate_but_stop_at_one_hour(self):
+        self.header = None; self.status = 502
+        for attempt, (at, due) in enumerate((("2026-10-09T10:00:00+00:00", "2026-10-09T10:05:00+00:00"),
+                                             ("2026-10-09T10:05:00+00:00", "2026-10-09T11:05:00+00:00"),
+                                             ("2026-10-09T11:05:00+00:00", "2026-10-09T12:05:00+00:00")), 1):
+            with self.subTest(attempt=attempt):
+                self.now = at
+                self.execute(self.prepare("probe-" + str(attempt), "amazon-search", term="sink caddy " + str(attempt)))
+                failure = self.active_failure()
+                self.assertEqual((failure["attempt"], failure["challenge"], self.wait()["next_retry_at"]),
+                                 (attempt, False, due))
+
+    def test_product_image_hosts_stop_at_one_hour_and_challenges_at_a_day(self):
+        self.assertEqual([_access_backoff_seconds(n, challenge=True, image=False) for n in range(1, 7)],
+                         [300, 3600, 21600, 86400, 86400, 86400])
+        for challenge, image in ((False, False), (True, True), (False, True)):
+            self.assertEqual([_access_backoff_seconds(n, challenge=challenge, image=image) for n in range(1, 5)],
+                             [300, 3600, 3600, 3600])
+
+    def test_late_recorded_refusal_from_an_earlier_read_does_not_escalate(self):
+        # Another lane's read was refused at 09:58 but its result is recorded
+        # only after a 10:00 refusal already set the wait.
+        from product_radar import source_coverage
+        self.header = None; self.now = "2026-10-09T09:58:00+00:00"
+        with patch.object(source_coverage, "_record_marketplace_access"):
+            self.execute(self.prepare("other-lane", "amazon-bestsellers"))
+        late_aid = self.calls[-1][1]
+        self.now = NOW
+        self.execute(self.prepare("first", "amazon-search"))
+        self.assertEqual((self.active_failure()["attempt"], self.wait()["next_retry_at"]), (1, "2026-10-09T10:05:00+00:00"))
+        owner = self.memory.snapshot()["batch_runs"][late_aid]
+        source_coverage._record_marketplace_access(self.memory, late_aid, owner["active_response_id"], as_of=NOW)
+        state = self.memory.snapshot()
+        late = [_access_failure(state, fid)["binding"] for fid in state["batch_runs"][self.wait()["scope_id"]]["failure_ids"]
+                if _access_failure(state, fid)["binding"]["acquisition_id"] == late_aid]
+        self.assertEqual([(row["attempt"], row["next_retry_at"]) for row in late], [(1, "2026-10-09T10:03:00+00:00")])
+        # The current wait, and its count, are unchanged; replay stays inert.
+        self.assertEqual((self.active_failure()["attempt"], self.wait()["next_retry_at"]), (1, "2026-10-09T10:05:00+00:00"))
+        source_coverage._record_marketplace_access(self.memory, late_aid, owner["active_response_id"], as_of=NOW)
+        self.assertEqual(self.memory.snapshot()["source_checks"], state["source_checks"])
+
+    def test_due_probe_answered_without_a_refusal_clears_the_wait(self):
+        # A 404 (or any other non-refusal answer) proves the host answered.
+        run = self.prepare("first", "amazon-search"); self.execute(run)
+        self.now = DUE; self.status = 404
+        self.assertEqual(self.execute(run)["handler_calls"], 1)
+        self.assertIsNone(self.wait())
+        self.status = 200
+        self.assertEqual(self.execute(self.prepare("next", "amazon-bestsellers"))["handler_calls"], 1)
+
+    def test_due_probe_with_no_answer_releases_the_probe_but_keeps_the_wait(self):
+        run = self.prepare("first", "amazon-search"); self.execute(run)
+        refusal = self.wait()["failure_id"]
+        self.now = DUE
+        def unanswered(request, acquisition_id, **options):
+            self.calls.append((request["route"], acquisition_id, deepcopy(request)))
+            with patch("product_radar.marketplace_browser.utc_now", return_value=self.now):
+                return capture_marketplace(request, acquisition_id, **options, snapshot_reader=lambda req: transport(
+                    None, state="failed", navigation_started_at=self.now, navigation_status=None))
+        self.handlers = create_marketplace_handlers(self.memory, data_root=self.source_root,
+                                                   capture=unanswered, shared_acquisitions=True)
+        self.assertEqual(self.execute(run)["handler_calls"], 1)
+        wait = self.wait()
+        # Not cleared (the host never answered), but no longer held by a probe forever.
+        self.assertEqual((wait["failure_id"], wait["phase"], wait["probe"]), (refusal, "due", None))
+        self.assertEqual(self.execute(self.prepare("next-probe", "amazon-search", term="other"))["handler_calls"], 1)
+        self.assertEqual(len(self.calls), 3)
 
     def test_successful_due_probe_clears_host_wait(self):
         run = self.prepare("first", "amazon-search"); self.execute(run)

@@ -198,7 +198,7 @@ class SourcePreparationIndependentReviewTests(unittest.TestCase):
             self.assertEqual(status["counts"]["completed_results"], 0)
             self.assertIsNone(status["last_useful_result_at"])
         self.assertEqual(result["handler_calls"], 0)
-        self.assertEqual(len(statuses), len(coverage.ROUTES))
+        self.assertEqual(len(statuses), len(coverage.PLANNED_ROUTES))
         for status in statuses:
             self.assertEqual(status["phase"], "source_preparation")
             self.assertEqual(status["message"], "Preparing website searches from the saved product information.")
@@ -266,7 +266,7 @@ class CompanyPreparationReadinessIndependentTests(unittest.TestCase):
             source_run_id="company-run", concept_ids=[cid], as_of=at)
 
         def builder(context):
-            if context["route"] == "google-suppliers":
+            if context["route"] == "tradeindia":
                 return {"query": "sink caddy", "country": "IN"}
             if context["route"] == "company-pages":
                 if "synthetic-company-destination" not in context["state"]["source_checks"]:
@@ -296,13 +296,13 @@ class CompanyPreparationReadinessIndependentTests(unittest.TestCase):
                 "observation_ids": [], "target_results": [], "reason": "Synthetic saved supplier destination.",
                 "retryable": False}
         company = Mock(side_effect=AssertionError("Company read needs a later actual source grant."))
-        handlers = {"google-suppliers": search, "company-pages": company}
+        handlers = {"tradeindia": search, "company-pages": company}
         with bind_work_turn(memory, turn["id"]), patch.object(coverage, "utc_now", return_value=at):
             deferred = coverage.continue_source_run(memory, "company-run", request_builder=builder,
                 concept_ids=[cid], handlers=handlers, action_limit=1,
                 bounded_call=lambda callback, context, _timeout: callback(context))
         close_work_turn(memory, turn["id"], at=at, reason="Finite supplier search used its original allowance.")
-        self.assertEqual(calls, ["google-suppliers"])
+        self.assertEqual(calls, ["tradeindia"])
         company.assert_not_called()
         self.assertEqual(deferred["handler_calls"], 1)
         state = memory.snapshot()
@@ -327,11 +327,11 @@ class CompanyPreparationReadinessIndependentTests(unittest.TestCase):
 
         def builder(context):
             builder_calls.append(context["route"])
-            if context["route"] == "google-suppliers":
+            if context["route"] == "tradeindia":
                 return {"query": "sink caddy", "country": "IN"}
             if context["route"] == "company-pages":
                 imported = [row for row in context["state"]["source_checks"].values()
-                    if row.get("kind") == coverage.CHECK_KIND and row.get("route") == "google-suppliers"
+                    if row.get("kind") == coverage.CHECK_KIND and row.get("route") == "tradeindia"
                     and row.get("envelope", {}).get("target_results", {}).get(cid, {}).get("description_hash")
                         == context["description_hash"]]
                 if not imported:
@@ -363,7 +363,7 @@ class CompanyPreparationReadinessIndependentTests(unittest.TestCase):
                 "retryable": False}
 
         company = Mock(side_effect=AssertionError("Company website needs a later real source grant."))
-        handlers = {"google-suppliers": search, "company-pages": company}
+        handlers = {"tradeindia": search, "company-pages": company}
         direct = lambda callback, context, _timeout: callback(context)
         with bind_work_turn(memory, turn["id"]), patch.object(coverage, "utc_now", return_value=at):
             with patch.object(coverage, "_persist_receipt", side_effect=RuntimeError("Synthetic interrupted original application.")):
@@ -371,7 +371,7 @@ class CompanyPreparationReadinessIndependentTests(unittest.TestCase):
                     as_of=at, bounded_call=direct)
         self.assertEqual(initial["handler_calls"], 1)
         original_id, original = next((tid, deepcopy(task)) for tid, task in memory.snapshot()["query_tasks"].items()
-                                    if task.get("run_id") == "company-run" and task["route"] == "google-suppliers")
+                                    if task.get("run_id") == "company-run" and task["route"] == "tradeindia")
         self.assertEqual(original["receipt_refs"], [])
         self.assertTrue(original["reconcile_required"])
         self.assertFalse(any(task.get("route") == "company-pages" for task in memory.snapshot()["query_tasks"].values()))
@@ -382,7 +382,7 @@ class CompanyPreparationReadinessIndependentTests(unittest.TestCase):
                 recovered = coverage.continue_source_run(memory, "company-run", request_builder=builder,
                     concept_ids=[cid], handlers=handlers, action_limit=1, bounded_call=direct)
         self.assertEqual(prepare.call_count, 1)
-        self.assertEqual(builder_calls, list(coverage.ROUTES))
+        self.assertEqual(builder_calls, list(coverage.PLANNED_ROUTES))
         self.assertEqual(recovered["handler_calls"], 0)
         self.assertEqual(recovered["progress"]["pending_preparation"], 0)
         self.assertEqual(search_calls, [original["acquisition_id"]])

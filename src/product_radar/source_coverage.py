@@ -26,6 +26,7 @@ from .research_memory import change, key
 from .source_deadline import SourceActionDeadline, bounded_source_deadline, trace_source, source_phase
 from .storage import Journal, atomic_json, load_json, safe_path
 from .operations import record_event, record_error
+from .supplier_effort import RETIRED_SUPPLIER_ROUTES
 from .work_turns import active_work_turn, reserve_source_callback
 
 
@@ -44,6 +45,18 @@ SOURCE_INSPECTION_KIND = "source-inspection-slice-v1"
 RELEVANCE_KIND = "all_source_relevance_v1"
 ACCESS_SCOPE_KIND = "source-access-scope-v1"
 ACCESS_FAILURE_KIND = "source-access-refusal-v1"
+# Consecutive actual refusals of one access scope wait longer each time: 5
+# minutes, 1 hour, 6 hours, then 24 hours (cap) for a challenge (401/403/429,
+# captcha, gate, login wall). Plain server errors and product-image hosts stop
+# at 1 hour. A refusal counts as the next one only when it is the due probe's
+# own reply or was observed after the previous wait ended; any answer from the
+# host that is not a refusal clears the wait and starts the count again. The
+# applied wait is saved in each refusal record, so later retuning of these
+# steps never invalidates an earlier record. A real Retry-After is never shortened.
+ACCESS_BACKOFF_SECONDS = (300, 3600, 6 * 3600, 24 * 3600)
+ACCESS_SHORT_BACKOFF_SECONDS = ACCESS_BACKOFF_SECONDS[:2]
+_ACCESS_REFUSAL_STATUSES = {401, 403, 429, 500, 502, 503, 504}
+_ACCESS_CHALLENGE_STATUSES = {401, 403, 429}
 ROUTES = {
     "meta-ads": {"source": "meta", "demand_group": "meta"},
     "amazon-bestsellers": {"source": "marketplace", "demand_group": "marketplace"},
@@ -60,6 +73,9 @@ ROUTES = {
     "tradeindia": {"source": "supplier", "demand_group": None},
     "company-pages": {"source": "supplier", "demand_group": None},
 }
+# Routes the planner asks product questions for. A retired supplier route keeps
+# its row and saved history but is never prepared, sent or waited on.
+PLANNED_ROUTES = tuple(route for route in ROUTES if route not in RETIRED_SUPPLIER_ROUTES)
 STATES = {"not_attempted", "not_connected", "in_progress", "completed_relevant",
           "completed_no_results", "interpretation_pending", "insufficient", "failed",
           "blocked", "not_applicable"}
@@ -206,7 +222,8 @@ def acquisition_access_scope(owner, response=None, *, state=None, planned=False)
                 response = _stage(state, original, original["active_response_id"])
         url = (response or {}).get("access", {}).get("scope_url", request["url"])
         return source_access_scope(url, transport="supplier-public", access_identity="owned-supplier-public")
-    if owner["binding"]["route"] in {"google-suppliers", "google-maps", "indiamart", "tradeindia"}:
+    from .supplier_route_acquisition import SEARCH_ROUTES
+    if owner["binding"]["route"] in SEARCH_ROUTES:
         # HTTP and browser are different reads, not a way around the same
         # public supplier host's real refusal. Google search/Maps share it.
         return source_access_scope(request["url"], transport="supplier-public", access_identity="owned-supplier-public")
@@ -252,11 +269,19 @@ def _access_failure(state, failure_id):
                 or access.get("retry_after") != binding["retry_after"]
                 or response["observed_at"] != binding["observed_at"]
                 or acquisition_access_scope(owner, response) != binding["scope"]
-                or not (binding["http_status"] in {401, 403, 429, 500, 502, 503, 504}
+                or not (binding["http_status"] in _ACCESS_REFUSAL_STATUSES
                         or binding["challenge"] is True and response["source_state"] == "blocked")):
             raise SafetyError("SOURCE_ACCESS_PROOF_INVALID")
         timestamp(binding["observed_at"]); timestamp(binding["next_retry_at"])
-        if binding["next_retry_at"] != _source_retry_at(binding["retry_after"], binding["observed_at"]):
+        # Records saved before escalation carry neither field (a first refusal,
+        # five minutes); later records bind their count and the wait applied.
+        if ("attempt" in binding) != ("wait_seconds" in binding):
+            raise SafetyError("SOURCE_ACCESS_PROOF_INVALID")
+        attempt, wait_seconds = binding.get("attempt", 1), binding.get("wait_seconds", 300)
+        if (type(attempt) is not int or not 1 <= attempt <= 100000
+                or type(wait_seconds) is not int or not 1 <= wait_seconds <= 7 * 24 * 3600
+                or binding["next_retry_at"] != _access_retry_at(binding["retry_after"], binding["observed_at"],
+                                                                attempt, wait_seconds)):
             raise SafetyError("SOURCE_ACCESS_PROOF_INVALID")
     except (KeyError, TypeError, ValueError):
         raise SafetyError("SOURCE_ACCESS_PROOF_INVALID") from None
@@ -309,7 +334,9 @@ def _access_head(state, scope):
                         or probe["failure_id"] not in row["failure_ids"]
                         or probe["id"] != key("source-access-probe", {k: v for k, v in probe.items() if k != "id"})
                         or acquisition_access_scope(owner, state=state, planned=True) != row["scope"]
-                        or acquisition_access_scope(owner, response) == row["scope"]
+                        # Closed by a reply from another host, or by no answer at all.
+                        or (acquisition_access_scope(owner, response) == row["scope"]
+                            and response.get("access", {}).get("http_status") is not None)
                         or timestamp(response["observed_at"]) < timestamp(probe["admitted_at"])):
                     raise SafetyError("SOURCE_ACCESS_RECORD_INVALID")
             except (KeyError, TypeError, ValueError):
@@ -322,8 +349,10 @@ def _access_head(state, scope):
                 response = _stage(state, owner, proof["response_id"])
                 probe = proof["probe"]
                 failure = _access_failure(state, probe["failure_id"])["binding"]
+                answer = response["access"].get("http_status")
                 if (digest(response) != proof["response_hash"] or response["stage_type"] != "response"
-                        or response["access"]["http_status"] != 200 or response["source_state"] == "blocked"
+                        or type(answer) is not int or answer in _ACCESS_REFUSAL_STATUSES
+                        or response["source_state"] == "blocked"
                         or not source_response_closed(response) or response["dispatch_started"] is not True
                         or probe["acquisition_id"] != proof["acquisition_id"]
                         or probe["failure_id"] not in row["failure_ids"] or failure["scope"] != row["scope"]
@@ -381,6 +410,42 @@ def _source_retry_at(value, observed_at, fallback_seconds=300):
     return (observed + timedelta(seconds=fallback_seconds)).isoformat(timespec="seconds")
 
 
+def _access_backoff_seconds(attempt, *, challenge, image):
+    steps = ACCESS_BACKOFF_SECONDS if challenge and not image else ACCESS_SHORT_BACKOFF_SECONDS
+    return steps[min(attempt, len(steps)) - 1]
+
+
+def _access_retry_at(retry_after, observed_at, attempt, wait_seconds):
+    """When the attempt-th consecutive refusal, waiting wait_seconds, ends.
+
+    The first refusal keeps the original rule (Retry-After, else the wait).
+    Later ones wait at least their back-off, or longer when the website's own
+    Retry-After says so. Only the record's own values are used.
+    """
+    due = _source_retry_at(retry_after, observed_at, fallback_seconds=wait_seconds)
+    if attempt > 1:
+        due = max(due, (timestamp(observed_at) + timedelta(seconds=wait_seconds)).isoformat(timespec="seconds"),
+                  key=timestamp)
+    return due
+
+
+def source_access_backoffs(state, *, as_of):
+    """Read-only list of current access waits and their refusal counts."""
+    timestamp(as_of)
+    rows = []
+    for rid, row in state["batch_runs"].items():
+        if row.get("kind") != ACCESS_SCOPE_KIND or row.get("active_failure_id") is None:
+            continue
+        wait = source_access_wait(state, row["scope"], as_of=as_of)
+        binding = _access_failure(state, row["active_failure_id"])["binding"]
+        rows.append({"host": row["scope"]["host"], "transport": row["scope"]["transport"],
+                     "attempt": binding.get("attempt", 1), "wait_seconds": binding.get("wait_seconds", 300),
+                     "challenge": binding["challenge"],
+                     "http_status": binding["http_status"], "phase": wait["phase"],
+                     "next_retry_at": wait["next_retry_at"]})
+    return sorted(rows, key=lambda row: (row["host"], str(row["transport"])))
+
+
 def _record_marketplace_access(memory, acquisition_id, response_id, *, as_of):
     """Record only a verified closed original result; repeated replay is inert."""
     from .source_acquisitions import _record, _response, _files_current
@@ -408,35 +473,58 @@ def _record_marketplace_access(memory, acquisition_id, response_id, *, as_of):
                 [change("batch_runs", head_id, closed, original)], validate=closed_current)
             state = memory.snapshot()
     head = _access_head(state, scope); old = head[1] if head else None
-    refused = (access.get("http_status") in {401, 403, 429, 500, 502, 503, 504}
-               or response["source_state"] == "blocked")
+    status = access.get("http_status")
+    refused = status in _ACCESS_REFUSAL_STATUSES or response["source_state"] == "blocked"
+    own_probe = bool(old and (old.get("probe") or {}).get("acquisition_id") == acquisition_id)
     row = deepcopy(old) if old else {"kind": ACCESS_SCOPE_KIND, "scope": scope, "scope_hash": digest(scope),
         "failure_ids": [], "active_failure_id": None, "probe": None, "cleared_by": None, "revision": 0}
     additions = []
     if refused:
-        binding = {"scope": scope, "scope_hash": digest(scope), "acquisition_id": acquisition_id,
-            "response_id": response_id, "response_hash": digest(response), "observed_at": response["observed_at"],
-            "http_status": access.get("http_status"), "challenge": response["source_state"] == "blocked",
-            "retry_after": access.get("retry_after"),
-            "next_retry_at": _source_retry_at(access.get("retry_after"), response["observed_at"])}
-        failure_id = key("source-access-refusal", binding)
-        if failure_id in row["failure_ids"]: return
-        failure = {"kind": ACCESS_FAILURE_KIND, "binding": binding, "binding_hash": digest(binding)}
-        additions.append(change("source_checks", failure_id, failure))
-        row["failure_ids"].append(failure_id)
+        # Replay is inert: one saved response is one refusal, whatever its count.
+        if any(_access_failure(state, fid)["binding"]["response_id"] == response_id for fid in row["failure_ids"]):
+            return
         # An older in-flight/refreshed wrapper cannot shorten a still-active
         # actual Retry-After. Keep the longer proved refusal as the head.
         prior = _access_failure(state, row["active_failure_id"])["binding"] if row["active_failure_id"] else None
+        # Consecutive refusals since the last answer that cleared this scope.
+        # Only the due probe's own reply, or a refusal observed after the
+        # previous wait ended, is the next one; a late replay, an older read
+        # or another lane's in-flight read keeps the current count.
+        if prior is None:
+            attempt = 1
+        else:
+            probe = row.get("probe") or {}
+            next_one = (own_probe and probe.get("failure_id") == row["active_failure_id"]
+                        or timestamp(response["observed_at"]) >= timestamp(prior["next_retry_at"]))
+            attempt = prior.get("attempt", 1) + (1 if next_one else 0)
+        wait_seconds = _access_backoff_seconds(attempt,
+            challenge=status in _ACCESS_CHALLENGE_STATUSES or response["source_state"] == "blocked",
+            image=owner["binding"]["route"] == "public_image_http")
+        binding = {"scope": scope, "scope_hash": digest(scope), "acquisition_id": acquisition_id,
+            "response_id": response_id, "response_hash": digest(response), "observed_at": response["observed_at"],
+            "http_status": status, "challenge": response["source_state"] == "blocked",
+            "retry_after": access.get("retry_after"), "attempt": attempt, "wait_seconds": wait_seconds,
+            "next_retry_at": _access_retry_at(access.get("retry_after"), response["observed_at"], attempt, wait_seconds)}
+        failure_id = key("source-access-refusal", binding)
+        failure = {"kind": ACCESS_FAILURE_KIND, "binding": binding, "binding_hash": digest(binding)}
+        additions.append(change("source_checks", failure_id, failure))
+        row["failure_ids"].append(failure_id)
         cleared_response = state["source_checks"].get((old.get("cleared_by") or {}).get("response_id"), {}) if old else {}
         older_than_clear = (cleared_response.get("observed_at") is not None
                             and timestamp(binding["observed_at"]) < timestamp(cleared_response["observed_at"]))
         if not older_than_clear and (prior is None or timestamp(binding["next_retry_at"]) >= timestamp(prior["next_retry_at"])):
             row.update(active_failure_id=failure_id, probe=None, cleared_by=None)
-    elif (old and (old.get("probe") or {}).get("acquisition_id") == acquisition_id
-          and access.get("http_status") == 200 and source_response_closed(response)):
+    elif own_probe and type(status) is int and source_response_closed(response):
+        # The host answered the due probe without refusing (200, 404, ...):
+        # one dead link must not hold a whole host's wait open forever.
         row.update(active_failure_id=None, probe=None,
                    cleared_by={"acquisition_id": acquisition_id, "response_id": response_id,
                                "response_hash": digest(response), "probe": deepcopy(old["probe"])})
+    elif own_probe and status is None and source_response_closed(response):
+        # The probe ended without any answer from the host. The refusal wait
+        # stays; the probe is released so a later due caller may probe again.
+        row.update(probe=None, probe_closed_by={"acquisition_id": acquisition_id, "response_id": response_id,
+                   "response_hash": digest(response), "probe": deepcopy(old["probe"])})
     else: return
     row["revision"] += 1; row = _access_row(row)
     def validate(current):
@@ -1174,6 +1262,8 @@ def product_source_request_builder(*, location=None, catalogue=None, run_id=None
         from .product_queries import resolve_query_profile
         from .discovery import normalise
         cid, state, route = context["concept_id"], context["state"], context["route"]
+        if route in RETIRED_SUPPLIER_ROUTES:
+            raise SafetyError("SUPPLIER_ROUTE_RETIRED")  # Never planned; fail closed if asked.
         current_run = run_id or context.get("run_id")
         if state is not planning_state or current_run != planning_run:
             planning_state, planning_run, profiles, histories = state, current_run, {}, {}
@@ -1216,7 +1306,10 @@ def product_source_request_builder(*, location=None, catalogue=None, run_id=None
                                 and task.get("attempt_refs") and task.get("status") in
                                 {"completed_no_results", "failed", "blocked", "insufficient"}
                                 and not task.get("reconcile_required")}
-                if {"google-suppliers", "google-maps", "indiamart", "tradeindia"} <= searched:
+                # A retired search is never sent, so it cannot hold this product's
+                # company-page answer open; only the active searches must finish.
+                from .supplier_route_acquisition import ACTIVE_SEARCH_ROUTES
+                if set(ACTIVE_SEARCH_ROUTES) <= searched:
                     return {"not_applicable_reason": "Actual supplier checks did not identify a company page to read."}
                 raise SafetyError("SOURCE_SUPPLIER_DESTINATIONS_PENDING")
             return {"candidate_urls": {cid: urls}, "candidate_check_ids": {cid: sorted(ref for ref, _ in checks)}, "country": "IN"}
@@ -1745,7 +1838,7 @@ def _inventory_refresh_context(state, task, *, as_of):
 def prepare_all_source_tasks(memory, *, run_id, request_builder, concept_ids=None,
                              as_of=None, max_attempts=2, retry_delay_seconds=300,
                              reuse_run_ids=None, reuse_discovery_cycle_ids=None):
-    """Visit every active product/route; a builder supplies actual public scope.
+    """Visit every active product/planned route; a builder supplies actual public scope.
 
     Builder(context) returns a request or {not_applicable_reason: reason}. It
     may raise a fixed dependency code (for example, query profile pending).
@@ -1769,24 +1862,24 @@ def prepare_all_source_tasks(memory, *, run_id, request_builder, concept_ids=Non
     state = memory.snapshot()
     ids = _active_concepts(state, concept_ids)
     questions, pending = [], []
-    total = len(ids) * len(ROUTES)
+    total = len(ids) * len(PLANNED_ROUTES)
     from .source_acquisitions import source_readiness_owner_scope
     planning_scope = (source_readiness_owner_scope(state)
         if getattr(request_builder, "_pure_source_planning", False) is True else nullcontext())
     with planning_scope:
         for product_index, concept_id in enumerate(ids):
             progress("product_context", concept_id=concept_id,
-                     scanned=product_index * len(ROUTES), remaining=total - product_index * len(ROUTES))
+                     scanned=product_index * len(PLANNED_ROUTES), remaining=total - product_index * len(PLANNED_ROUTES))
             try:
                 description, excluded = _product_context(state, concept_id)
             except SafetyError as error:
                 if str(error) in _INTEGRITY_ERRORS:
                     raise
                 pending.extend({"concept_id": concept_id, "description_hash": _scope(state, concept_id),
-                    "route": route, "state": "not_attempted", "reason": str(error)} for route in ROUTES)
+                    "route": route, "state": "not_attempted", "reason": str(error)} for route in PLANNED_ROUTES)
                 continue
-            for route_index, route in enumerate(ROUTES):
-                scanned = product_index * len(ROUTES) + route_index
+            for route_index, route in enumerate(PLANNED_ROUTES):
+                scanned = product_index * len(PLANNED_ROUTES) + route_index
                 progress("question", concept_id=concept_id, route=route,
                          scanned=scanned, remaining=total - scanned,
                          counts={"questions_total": total, "questions_prepared": len(questions),
@@ -1831,7 +1924,7 @@ def prepare_all_source_tasks(memory, *, run_id, request_builder, concept_ids=Non
     progress("save_pending_questions", scanned=total, remaining=0, counts=counts)
     _upsert(memory, "batch_runs", run_key, dict(old, pending_preparation=pending), old)
     progress("complete", scanned=total, remaining=0, counts=counts)
-    return dict(prepared, products=len(ids), routes=len(ROUTES), pending_preparation=pending)
+    return dict(prepared, products=len(ids), routes=len(PLANNED_ROUTES), pending_preparation=pending)
 
 
 def source_run_progress(memory, run_id, *, state=None):
@@ -1967,8 +2060,8 @@ def continue_source_run(memory, run_id, *, request_builder, handlers=None,
         inspection_scanned += result.get("inspection_scanned", 0)
         inspection_pending = result.get("inspection_pending", False)
         inspection_remaining = result.get("inspection_remaining", 0)
-        if saved_only and any(row.get("receipt_id") and row.get("route") in
-                {"google-suppliers", "google-maps", "indiamart", "tradeindia"}
+        from .supplier_route_acquisition import SEARCH_ROUTES
+        if saved_only and any(row.get("receipt_id") and row.get("route") in SEARCH_ROUTES
                 for row in result["results"]):
             # A genuinely imported supplier reply can create a company-page
             # dependency. Materialise that next-turn work using the existing
@@ -2004,7 +2097,7 @@ def continue_source_run(memory, run_id, *, request_builder, handlers=None,
             break
     return {"run_id": run_id, "passes": passes, "handler_calls": total_calls,
             "progress": source_run_progress(memory, run_id), "products": len(ids),
-            "routes": len(ROUTES), "product_route_questions": len(ids) * len(ROUTES),
+            "routes": len(PLANNED_ROUTES), "product_route_questions": len(ids) * len(PLANNED_ROUTES),
             "inspection_pending": inspection_pending, "inspection_scanned": inspection_scanned,
             "inspection_remaining": inspection_remaining,
             "report_filled_does_not_stop_work": True, "client_publication_attempted": False,
@@ -2778,6 +2871,17 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
                 results.append({"task_id": task_id, "state": "reused", "reason": "Original acquisition is already saved; interpret it without recollecting."})
                 continue
             staged = _has_unapplied_receipt(memory, state, task)
+            # A route without a handler (not installed, or retired) can still
+            # finish an already-started original through saved-only replay;
+            # it never starts anything new.
+            recovery_callback = (registry[route].get("recover_terminal") if terminal_recovery
+                                 else registry[route].get("reconcile"))
+            original_recovery = bool((task.get("reconcile_required") or task["status"] == "dispatching"
+                                      or terminal_recovery) and recovery_callback)
+            if exhausted and not staged and not callback and not original_recovery:
+                # Spent allowance is irrelevant: this route sends nothing new.
+                results.append({"task_id": task_id, "state": "not_connected", "actual_attempt": False})
+                continue
             if exhausted and not staged:
                 # These hints only inspect the supplied verified state and
                 # exact original files. Never call a mutating resolver merely
@@ -2811,7 +2915,7 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
                 results.append({"task_id": task_id, "state": "superseded", "actual_attempt": False,
                                 "reason": "Original unsupported list scope is retained; its verified replacement owns future work."})
                 continue
-            if not callback and not staged:
+            if not callback and not staged and not original_recovery:
                 results.append({"task_id": task_id, "state": "not_connected", "actual_attempt": False})
                 continue
             access_resolution = None
@@ -3362,10 +3466,9 @@ def _legacy_coverage(state, ids, as_of):
     indexes = evidence_indexes(state)
     current_observations = latest_observations(state["observations"], as_of, max_age_days=None)
     rows = {}
-    from .supplier_effort import VERSION as SUPPLIER_EFFORT_VERSION, _validated_record, supplier_scope
+    from .supplier_effort import (VERSION as SUPPLIER_EFFORT_VERSION, SUPPLIER_ROUTE_ALIASES as supplier_routes,
+                                  _validated_record, supplier_scope)
     supplier_rows = {}
-    supplier_routes = {"google-public-html": "google-suppliers", "google-browser-html": "google-suppliers",
-                       "known-supplier-pages": "company-pages"}
     for ref, record in state["source_checks"].items():
         if record.get("kind") != SUPPLIER_EFFORT_VERSION or record.get("concept_id") not in ids:
             continue
@@ -3601,7 +3704,11 @@ def source_coverage(memory, *, handlers=None, concept_ids=None, as_of=None, stat
                 gaps = [p for p in pending if p["concept_id"] == concept_id and p["route"] == route and p["description_hash"] == scope]
                 if gaps:
                     row["reason"] = gaps[-1]["reason"]
-                if not registry[route]["connected"]:
+                if route in RETIRED_SUPPLIER_ROUTES:
+                    # Fail closed: not pending and not a failed check, just
+                    # unavailable. Saved outcomes above remain as history.
+                    row.update(state="not_connected", reason=RETIRED_SUPPLIER_ROUTES[route])
+                elif not registry[route]["connected"]:
                     row.update(state="not_connected", reason="This route has no installed acquisition handler in this run.")
             rows.append(row)
     counts = dict(Counter(row["state"] for row in rows))

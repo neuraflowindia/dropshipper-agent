@@ -148,7 +148,7 @@ class SourceLocalReadDeadlineTests(unittest.TestCase):
 
     def source_run(self, *, slow_transport):
         questions = [{"route": route, "request": {"query": QUERY, "country": "IN"},
-                      "concept_ids": ["paper"]} for route in ("google-suppliers", "meta-ads")]
+                      "concept_ids": ["paper"]} for route in ("google-maps", "meta-ads")]
         prepare_source_tasks(self.memory, questions, run_id="local-read-run", as_of=NOW)
         calls, browser_calls = [], []
         def http(item):
@@ -156,7 +156,7 @@ class SourceLocalReadDeadlineTests(unittest.TestCase):
             if slow_transport:
                 time.sleep(0.2)
                 self.fail("The real website deadline must still stop a slow transport")
-            return receipt(item, body=BODIES["google-suppliers"])
+            return receipt(item, body=BODIES["google-maps"])
         def browser(item):
             browser_calls.append(item)
             self.fail("The cancelled website request must not launch a second request")

@@ -68,6 +68,23 @@ def _alive(identity):
         return False
 
 
+_WAIT_STATES = {"waiting", "deferred", "skipped", "not_attempted"}
+
+
+def _access_outcome(event, values):
+    """A source outcome refused by the website ("block") or held unsent ("held").
+
+    "blocked" with an actual attempt is a real access refusal of a sent
+    request. "blocked" without one is a question held behind an earlier
+    refusal or route pause: nothing was sent, so it is a wait, not a failure.
+    """
+    if event != "source_outcome" or values.get("state") != "blocked":
+        return None
+    if values.get("actual_attempt") is True:
+        return "block"
+    return "held" if values.get("actual_attempt") is False else None
+
+
 def _fields(values):
     """No raw responses, exception messages, prompts, environments or URLs."""
     result = {}
@@ -153,7 +170,7 @@ class OperationRun:
         self.next_action = "continue_to_next_ready_step"
         self.last_reason = None
         self.counts = {"events": 0, "completed_results": 0, "failures": 0, "deferred": 0,
-                       "saved_failed_results": 0}
+                       "saved_failed_results": 0, "access_blocks": 0}
         self.logger = logging.Logger("product-radar." + self.run_id)
         self.logger.propagate = False
         self.handler = None
@@ -210,7 +227,10 @@ class OperationRun:
                 and not error_type_supplied)
             if values.get("error_type") or values.get("state") == "failed":
                 self.counts["saved_failed_results" if reused_failure else "failures"] += 1
-            if values.get("state") in {"waiting", "deferred", "skipped", "not_attempted"}:
+            access = _access_outcome(event, values)
+            if access == "block":
+                self.counts["access_blocks"] += 1
+            if values.get("state") in _WAIT_STATES or access == "held":
                 self.counts["deferred"] += 1
             if values.get("stage"):
                 self.step = values["stage"]
@@ -456,9 +476,6 @@ def read_operation_status(root, *, as_of=None):
         return {"state": "unreadable", "checked_at": at, "message": "The saved activity could not be read."}
 
 
-_WAIT_STATES = {"waiting", "deferred", "skipped", "not_attempted"}
-
-
 def operation_log_summary(root, *, since=None, max_bytes=512 * 1024 * 1024):
     """Read-only totals from saved run logs since one instant; diagnostics only.
 
@@ -470,7 +487,7 @@ def operation_log_summary(root, *, since=None, max_bytes=512 * 1024 * 1024):
     from datetime import datetime, timezone
     start = timestamp(since) if since is not None else None
     folder = safe_path(runtime_path(root, "data/operations/research-runs"))
-    totals, failures, waits, runs = Counter(), Counter(), Counter(), set()
+    totals, failures, waits, blocks, runs = Counter(), Counter(), Counter(), Counter(), set()
     unreadable, scanned, truncated, first, last = 0, 0, False, None, None
     paths = sorted(folder.glob("run-*.jsonl*")) if folder.is_dir() else []
     for path in paths:
@@ -515,7 +532,13 @@ def operation_log_summary(root, *, since=None, max_bytes=512 * 1024 * 1024):
                     else:
                         totals["failures"] += 1
                         failures[reason[:120]] += 1
-                if row.get("state") in _WAIT_STATES:
+                access = _access_outcome(event, row)
+                if access == "block":
+                    # A website actually refused a sent request (challenge,
+                    # 403/429, sign-in wall). Neither a local failure nor a wait.
+                    totals["access_blocks"] += 1
+                    blocks[row.get("route") if isinstance(row.get("route"), str) else "unknown"] += 1
+                if row.get("state") in _WAIT_STATES or access == "held":
                     totals["waits"] += 1
                     waits[reason[:120]] += 1
         if truncated:
@@ -523,10 +546,12 @@ def operation_log_summary(root, *, since=None, max_bytes=512 * 1024 * 1024):
     return {"state": "partial" if truncated or unreadable else "known", "since": since, "runs": len(runs),
         "events": totals["events"], "useful_results": totals["useful_results"], "failures": totals["failures"],
         "reused_saved_failures": totals["reused_saved_failures"], "waits": totals["waits"],
+        "access_blocks": totals["access_blocks"], "top_access_block_routes": dict(blocks.most_common(8)),
         "invocations_started": totals["invocation_started"], "invocations_finished": totals["invocation_finished"],
         "invocations_interrupted_or_failed": totals["invocation_interrupted"] + totals["invocation_failed"],
         "top_failure_reasons": dict(failures.most_common(8)), "top_wait_reasons": dict(waits.most_common(8)),
         "first_event_at": first.isoformat(timespec="seconds") if first else None,
         "last_event_at": last.isoformat(timespec="seconds") if last else None,
         "unreadable_lines": unreadable, "truncated": truncated,
-        "note": "Log-record counts, not unique requests, products or bills. Waits include deliberate deferrals."}
+        "note": ("Log-record counts, not unique requests, products or bills. Waits include deliberate deferrals "
+                 "and questions held behind a website's earlier refusal; access blocks are refusals of sent requests.")}

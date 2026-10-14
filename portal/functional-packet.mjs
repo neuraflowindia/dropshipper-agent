@@ -23,6 +23,21 @@ const ordered = value => Array.isArray(value) && value.every(v => typeof v === '
 const DAY = 86400000;
 const routeDefinitions=[['meta-ads','Facebook Ads Library','meta'],['amazon-bestsellers','Amazon India Bestsellers','marketplace'],['amazon-movers-and-shakers','Amazon India Movers & Shakers','marketplace'],['amazon-search','Amazon India product search','marketplace'],['flipkart-search','Flipkart product search','marketplace'],['google-trends','Google Trends India','trends'],['blinkit','Blinkit','quickcommerce'],['zepto','Zepto','quickcommerce'],['instamart','Instamart','quickcommerce'],['google-suppliers','Google supplier search','supplier'],['google-maps','Google Maps supplier search','supplier'],['indiamart','IndiaMART','supplier'],['tradeindia','TradeIndia','supplier'],['company-pages','Supplier company pages','supplier']];
 const routeNames=routeDefinitions.map(r=>r[0]),supplierRoutes=routeDefinitions.filter(r=>r[2]==='supplier').map(r=>r[0]);
+// Mirrors Python supplier_effort: retired routes are saved history, not current
+// supplier effort; a reparse supersedes only its own original (route + pass), the
+// newest parser version winning; "blocked"/"failed" only when every current
+// original failed or was refused.
+export const retiredSupplierRoutes=['google-suppliers'];
+const supplierRouteAliases={'google-public-html':'google-suppliers','google-browser-html':'google-suppliers','known-supplier-pages':'company-pages'};
+const supplierOutcomeRank={usable_leads:6,interpretation_pending:6,completed_empty:5,partial:4,blocked:3,failed:2,prelaunch_failed:1};
+const supplierParserRank=reference=>{const m=/^capture-parser-([1-9][0-9]{0,3})(?:-[0-9a-f]{16})?\.json$/.exec(reference.replace(/\\/g,'/').split('/').at(-1));return m?Number(m[1]):0;};
+export function currentSupplierOutcome(rows,fail){
+  const current=new Map(),later=(a,b)=>{for(let i=0;i<a.length;i++){if(a[i]>b[i])return true;if(a[i]<b[i])return false;}return false;};
+  for(const [id,r] of rows){const slot=JSON.stringify([r.route,r.pass_id]),order=[supplierParserRank(r.reference),utc(r.at,fail),id],old=current.get(slot);
+    if(!old||later(order,old.order))current.set(slot,{order,outcome:r.internal_outcome});}
+  let best=null;for(const {outcome} of current.values())if(best===null||supplierOutcomeRank[outcome]>supplierOutcomeRank[best])best=outcome;
+  return best===null?'not_attempted':best==='usable_leads'?'interpretation_pending':best;
+}
 const memoryTables=['captures','observations','descriptions','concepts','associations','assessments','problems','jobs','query_outcomes','query_tasks','batch_plans','source_checks','catalogue_additions','supplier_assessments','trends_evidence','issue_reservations','published_history','market_reviews','batch_runs','brand_reviews'];
 const routeProofTables=['concepts','descriptions','associations','query_tasks','source_checks','observations','captures','trends_evidence','jobs','brand_reviews'];
 const metricLabels={relevant_ads:['Relevant ads in saved sample','ads'],advertisers:['Identified advertisers','advertisers'],active_ads:['Ads marked active','ads'],unknown_active_status:['Ads without an active-status answer','ads'],missing_advertiser_ids:['Ads without an advertiser identity','ads'],relevant_listings:['Relevant listing examples','listings'],list_rank_bounds:['Observed list positions','list rank, not units sold'],displayed_prices:['Listings with a displayed price','listings'],available_listings:['Listings marked available','listings across the checked locations'],unavailable_listings:['Listings marked unavailable','listings across the checked locations'],unknown_availability:['Listings without an availability answer','listings'],chart_intervals:['Saved chart intervals','intervals'],nonzero_points:['Chart intervals with nonzero interest','intervals'],previous_mean_bounds:['Previous four-period interest','relative interest index, not sales'],recent_mean_bounds:['Recent four-period interest','relative interest index, not sales']};
@@ -315,12 +330,12 @@ export async function validateFunctionalPacket(facts, manifest, { canonical, fai
     const leads=[...accepted].sort((a,b)=>{for(let i=0;i<4;i++){if(a.rank[i]<b.rank[i])return -1;if(a.rank[i]>b.rank[i])return 1;}return 0;}).map(r=>r.display),empty=[],effortRows=[],actual=new Map();
     for(const [rid,node] of Object.entries(records.source_checks)){
       const r=node.value;
-      if(r.kind==='supplier-effort-v1'&&r.concept_id===product.concept_id){await supplierEffortRecord(r);if(deep(r.sourcing_scope,wanted)&&utc(r.at,fail)<=at){effortRows.push([rid,r]);for(const ref of r.receipt_refs)if(ref.proof!=='none'&&utc(ref.attempt_started_at,fail)<=at&&utc(ref.checked_at,fail)<=at)actual.set(canonical([ref.id,ref.hash]),{...ref,check_id:rid,pass_id:r.pass_id});}}
+      if(r.kind==='supplier-effort-v1'&&r.concept_id===product.concept_id){await supplierEffortRecord(r);if(deep(r.sourcing_scope,wanted)&&!retiredSupplierRoutes.includes(supplierRouteAliases[r.route]??r.route)&&utc(r.at,fail)<=at){effortRows.push([rid,r]);for(const ref of r.receipt_refs)if(ref.proof!=='none'&&utc(ref.attempt_started_at,fail)<=at&&utc(ref.checked_at,fail)<=at)actual.set(canonical([ref.id,ref.hash]),{...ref,check_id:rid,pass_id:r.pass_id});}}
       if(r.source==='supplier'&&r.concept_id===product.concept_id&&r.description_hash===await digest(product.description)&&r.state==='usable'&&r.supplier_search_status==='complete'&&r.candidate_count===0&&Number.isInteger(r.candidate_count)&&r.at&&utc(r.at,fail)<=at)empty.push(rid);
     }
     effortRows.sort((a,b)=>utc(a[1].at,fail)-utc(b[1].at,fail)||(a[0]<b[0]?-1:a[0]>b[0]?1:0));
     const attempts=[...actual.values()].sort((a,b)=>utc(a.attempt_started_at,fail)-utc(b.attempt_started_at,fail)||(a.id<b.id?-1:a.id>b.id?1:0)||(a.hash<b.hash?-1:a.hash>b.hash?1:0)),assessmentIds=[...latest.values()].map(r=>r.rid).sort();
-    const effort={check_ids:effortRows.map(([id])=>id).sort(),actual_attempt_refs:attempts,last_attempt_at:attempts.map(r=>r.attempt_started_at).sort((a,b)=>utc(a,fail)-utc(b,fail)).at(-1)??null,internal_outcome:accepted.length?'usable_leads':effortRows.at(-1)?.[1].internal_outcome??'not_attempted',effort_satisfied:!!attempts.length,usable_lead_count:accepted.length,legacy_interpretation_ids:assessmentIds,legacy_search_check_ids:empty.sort()};
+    const effort={check_ids:effortRows.map(([id])=>id).sort(),actual_attempt_refs:attempts,last_attempt_at:attempts.map(r=>r.attempt_started_at).sort((a,b)=>utc(a,fail)-utc(b,fail)).at(-1)??null,internal_outcome:accepted.length?'usable_leads':currentSupplierOutcome(effortRows,fail),effort_satisfied:!!attempts.length,usable_lead_count:accepted.length,legacy_interpretation_ids:assessmentIds,legacy_search_check_ids:empty.sort()};
     const satisfied=!!(latest.size||empty.length||attempts.length),status=!satisfied?'not_started':latest.size||empty.length?'complete':['failed','blocked'].includes(effort.internal_outcome)?'blocked':'attempted';
     const expected={suppliers:leads,supplier_limitation:leads.length?'These dated supplier leads still need matching to this product type.':'Supplier search did not produce any usable results.',supplier_search_status:status,supplier_leads_checked:latest.size,supplier_leads_found:leads.length,supplier_decisions:excluded,supplier_effort_satisfied:satisfied,supplier_effort:effort,supplier_search_check_ids:[...new Set([...empty,...effort.check_ids])].sort(),supplier_assessment_ids:assessmentIds};
     check((preview||same(pick(product,Object.keys(expected)),expected))&&same(Object.keys(records.source_checks).sort(),expected.supplier_search_check_ids),'ADMIN_FUNCTIONAL_SUPPLIER_DISPLAY_CHANGED');
@@ -477,13 +492,15 @@ export async function validateFunctionalPacket(facts, manifest, { canonical, fai
     }
     const supplierScope=Object.fromEntries(['concept_id','label','category','function','mechanism','features'].map(k=>[k,k==='concept_id'?cid:product.description[k]??null]));
     for(const [id,r] of Object.entries(checks))if(r.kind==='supplier-effort-v1'&&r.concept_id===cid&&deep(r.sourcing_scope,supplierScope)){
-      const route=({'google-public-html':'google-suppliers','google-browser-html':'google-suppliers','known-supplier-pages':'company-pages'})[r.route]??r.route;
+      const route=supplierRouteAliases[r.route]??r.route;
       if(!supplierRoutes.includes(route))continue;await supplierEffortRecord(r);
       const status=({completed_empty:'completed_no_results',usable_leads:'completed_relevant',blocked:'blocked',failed:'failed',partial:'insufficient',interpretation_pending:'interpretation_pending',prelaunch_failed:'not_attempted'})[r.internal_outcome],old=coverage.get(route);
       if(!old||utc(r.at,fail)>utc(old.at,fail))coverage.set(route,{state:status,actual_attempt:r.effort_satisfied,at:r.at,evidence_refs:[id]});
     }
     const excluded=['excluded','merged','retired'].includes(state.concepts[cid].status)||product.brand_binding.verdict==='established',output=[];
-    for(const [route,label,role] of routeDefinitions){let row=coverage.get(route)??{state:'not_attempted',actual_attempt:false,at:null,evidence_refs:[]};row={...row};
+    // A retired route has no client row, except in packets frozen before it retired.
+    const legacyRows=Array.isArray(product.source_route_checks)&&product.source_route_checks.some(r=>retiredSupplierRoutes.includes(r?.route));
+    for(const [route,label,role] of routeDefinitions){if(retiredSupplierRoutes.includes(route)&&!legacyRows)continue;let row=coverage.get(route)??{state:'not_attempted',actual_attempt:false,at:null,evidence_refs:[]};row={...row};
       const selected=[];for(const task of Object.values(tasks))if(task.route===route&&task.targets[cid]===scope&&!targetSuperseded(task,tasks,cid))selected.push(task);
       const taskIds=selected.map(t=>t.task_id),pauses=new Map();for(const run of runs)for(const [r,p] of Object.entries(run.route_pauses))for(const id of run.task_ids)if(tasks[id].route===r)pauses.set(id,p);
       if(excluded)row={state:'not_applicable',actual_attempt:false,at:null,evidence_refs:[]};

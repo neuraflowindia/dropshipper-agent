@@ -274,14 +274,14 @@ class AcquisitionBudgetTests(unittest.TestCase):
                 native_reference=str(folder / "native_result.json"), native_reason="NATIVE_PUBLIC_EXECUTION_FAILED",
                 native_stage="result_read", checked_at=self.now)
         handlers = create_supplier_handlers(self.memory, http_reader=primary, browser_reader=browser)
-        builder = lambda context: ({"query": QUERY} if context["route"] == "google-suppliers"
+        builder = lambda context: ({"query": QUERY} if context["route"] == "tradeindia"
             else {"not_applicable_reason": "Outside this synthetic supplier recovery."})
         prepare_all_source_tasks(self.memory, run_id="existing-source-run", request_builder=builder,
             concept_ids=["first", "second"], as_of=self.now)
         execute_source_run(self.memory, "existing-source-run", handlers=handlers, as_of=self.now,
             action_limit=1, bounded_call=lambda callback, context, _timeout: callback(context))
         task_id, old = next((task_id, deepcopy(task)) for task_id, task in self.memory.snapshot()["query_tasks"].items()
-            if task["route"] == "google-suppliers")
+            if task["route"] == "tradeindia")
         self.assertEqual(old["tries"], 0); self.assertFalse(old["reconcile_required"])
         self.assertNotIn("original_dispatch_recovery", old)
         capture_path = self.memory.root / "supplier_routes" / old["acquisition_id"] / "capture.json"

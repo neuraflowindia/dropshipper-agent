@@ -11,6 +11,7 @@ from .catalogue_expansion import effective_catalogue
 from .functional_types import effective_functional_definition
 from .models import SafetyError, canonical, digest, identifier, timestamp
 from .operations import record_saved_decision
+from .read_memo import same_object_digest
 from .research_memory import change, key
 from .research_records import (CATALOGUE_SCOPE_KIND, RESEARCH_QUESTION_KIND, SCOPED_EVIDENCE_KIND,
                                is_paid_query_task, iter_catalogue_scopes, iter_scoped_evidence)
@@ -158,10 +159,10 @@ def _references(state, references, *, as_of, route=None):
         actual_route = context.get("route")
         if route is not None and actual_route is not None and actual_route != route:
             raise SafetyError("RESEARCH_SCOPE_SOURCE_ROUTE_MISMATCH")
-        bound.append({"table": table, "id": record_id, "hash": digest(row)})
+        bound.append({"table": table, "id": record_id, "hash": same_object_digest(row)})
         contexts.append(context)
     semantic_ids = {state[table][record_id].get("semantic_id") for table, record_id in pairs if table == "observations"}
-    associations = {record_id: digest(row) for record_id, row in sorted(state.get("associations", {}).items())
+    associations = {record_id: same_object_digest(row) for record_id, row in sorted(state.get("associations", {}).items())
                     if row.get("semantic_id") in semantic_ids}
     # Original paid request bounds live on the genuine prepared owner, not in
     # a later question or the observation's short query label.
@@ -454,7 +455,7 @@ def _current_dependencies(state, row, *, as_of=None):
                                             subject, row.get("route")):
             return False
         job = row.get("job_proof")
-        if job is not None and digest(state.get("jobs", {}).get(job["job_id"])) != job["job_hash"]:
+        if job is not None and same_object_digest(state.get("jobs", {}).get(job["job_id"])) != job["job_hash"]:
             return False
         from .catalogue_scope_review import METHOD, PROMPT_VERSION, validate_scope_adoption
         if row["method"] == METHOD or (job or {}).get("prompt_version") == PROMPT_VERSION:
@@ -498,16 +499,34 @@ def _scope_binding_key(row):
     return key("scope-binding", binding)
 
 
-def _heads(state, kind, concept_id=None, *, binding_key=None, as_of=None):
+def _envelopes(state, kind):
+    """Every verified record envelope of one kind, in saved order, up to the first bad one.
+
+    Returns (rows, error); the reader raises that error at the same position.
+    """
     reader = iter_catalogue_scopes if kind == CATALOGUE_SCOPE_KIND else iter_scoped_evidence
-    groups = {}
+    rows = []
     for record_id, raw in reader(state):
+        try:
+            if raw.get("record_hash") != digest({k: v for k, v in raw.items() if k != "record_hash"}):
+                raise SafetyError("RESEARCH_SCOPE_RECORD_HASH_MISMATCH")
+            if record_id != _record_id(raw):
+                raise SafetyError("RESEARCH_SCOPE_RECORD_ID_MISMATCH")
+        except (SafetyError, KeyError, TypeError, ValueError, AttributeError) as error:
+            # A data error is fixed by these saved records; _heads raises it in order.
+            return rows, error
+        rows.append((record_id, raw))
+    return rows, None
+
+
+def _heads(state, kind, concept_id=None, *, binding_key=None, as_of=None):
+    from .read_memo import remember
+    envelopes, error = remember("research_scope_envelopes", state, (kind,), lambda: _envelopes(state, kind),
+                                tables=("source_checks",), copy=False)
+    groups = {}
+    for record_id, raw in envelopes:
         # Subject fields are lookup hints until the exact envelope is verified.
         # Keep expensive source/currentness checks scoped to the selected type.
-        if raw.get("record_hash") != digest({k: v for k, v in raw.items() if k != "record_hash"}):
-            raise SafetyError("RESEARCH_SCOPE_RECORD_HASH_MISMATCH")
-        if record_id != _record_id(raw):
-            raise SafetyError("RESEARCH_SCOPE_RECORD_ID_MISMATCH")
         subject = raw.get("subject")
         if concept_id is not None and (not isinstance(subject, dict)
                 or subject.get("kind") != "concept" or subject.get("concept_id") != concept_id):
@@ -520,6 +539,10 @@ def _heads(state, kind, concept_id=None, *, binding_key=None, as_of=None):
         if binding_key is not None and row["binding_key"] != binding_key:
             continue
         groups.setdefault(row["binding_key"], []).append((record_id, row))
+    if error is not None:
+        if type(error) is SafetyError:
+            raise SafetyError(*error.args) from None
+        raise error
     result = {}
     for binding, rows in groups.items():
         previous, previous_time, chosen = None, None, None
@@ -682,7 +705,17 @@ def validated_scoped_evidence(state, concept_id, *, as_of=None):
     Broader, example and supplier findings remain distinguishable. Unrelated or
     unclear reviews remain auditable with non-accepted admissibility. Source
     freshness and market arithmetic belong to downstream policy readers.
+    Inside one pure read scope the same answer is reused for the same state.
+    Every call returns its own deep copy of each current record, as before.
     """
+    from .read_memo import remember
+    rows = remember("validated_scoped_evidence", state, (concept_id, as_of),
+                    lambda: _validated_scoped_evidence(state, concept_id, as_of=as_of), copy=False)
+    return [deepcopy(row) for row in rows]
+
+
+def _validated_scoped_evidence(state, concept_id, *, as_of=None):
+    """Rows over the unchanged saved records; the public reader copies them."""
     result = []
     for record_id, row in _heads(state, SCOPED_EVIDENCE_KIND, concept_id, as_of=as_of).values():
         expected = _evidence_contract(row.get("scope"), row.get("relationship"), row.get("support"))
@@ -697,5 +730,5 @@ def validated_scoped_evidence(state, concept_id, *, as_of=None):
             _support_fields(row["support"], row["usable_fields"], row["source_contexts"], row["request_dependencies"],
                 source_requests=[proof["context"]["request"] for proof in (row.get("job_proof") or {}).get("capture_contexts", {}).values()
                                  if proof["context"]["state"] == "verified"])
-            result.append({"id": record_id, **deepcopy(row)})
+            result.append({"id": record_id, **row})
     return sorted(result, key=lambda row: row["id"])

@@ -27,6 +27,9 @@ import product_radar.source_coverage as coverage
 
 NOW = fixtures.NOW
 EVENT = "source_preparation_progress"
+# The retired Google Search supplier route is never planned (13 of 14 routes).
+ROUTES = coverage.PLANNED_ROUTES
+R = len(ROUTES)
 
 
 class SourcePreparationProgressTests(unittest.TestCase):
@@ -71,19 +74,22 @@ class SourcePreparationProgressTests(unittest.TestCase):
         rows = self.progress_rows(recorder)
         expected = ["read_saved_products"]
         for _ in range(2):
-            expected += ["product_context"] + ["question"] * len(coverage.ROUTES)
+            expected += ["product_context"] + ["question"] * R
         expected += ["prepare_tasks", "read_prepared_run", "save_pending_questions", "complete"]
         self.assertEqual([row["phase_state"] for row in rows], expected)
-        self.assertEqual(len(rows), 15 * 2 + 5)
+        self.assertEqual(len(rows), (R + 1) * 2 + 5)
         questions = [row for row in rows if row["phase_state"] == "question"]
         self.assertEqual([(row["concept_id"], row["route"]) for row in questions],
-            [(cid, route) for cid in ("first", "second") for route in coverage.ROUTES])
-        self.assertEqual([row["scanned"] for row in questions], list(range(28)))
-        self.assertEqual([row["remaining"] for row in questions], list(range(28, 0, -1)))
+            [(cid, route) for cid in ("first", "second") for route in ROUTES])
+        self.assertEqual(R, len(coverage.ROUTES) - 1)
+        self.assertNotIn("google-suppliers", {row["route"] for row in questions})
+        self.assertNotIn("google-suppliers", {task["route"] for task in self.memory.state["query_tasks"].values()})
+        self.assertEqual([row["scanned"] for row in questions], list(range(2 * R)))
+        self.assertEqual([row["remaining"] for row in questions], list(range(2 * R, 0, -1)))
         self.assertTrue(all(row["stage"] == "acquire" and row["useful_result"] is False for row in rows))
-        self.assertEqual(rows[-1]["counts"], {"questions_total": 28,
-            "questions_prepared": 26, "questions_pending": 2})
-        self.assertEqual(rows[-1]["scanned"], 28)
+        self.assertEqual(rows[-1]["counts"], {"questions_total": 2 * R,
+            "questions_prepared": 2 * R - 2, "questions_pending": 2})
+        self.assertEqual(rows[-1]["scanned"], 2 * R)
         self.assertEqual(rows[-1]["remaining"], 0)
         self.assertEqual(len(result["pending_preparation"]), 2)
         self.assertEqual(result["source_attempts_created"], 0)
@@ -104,8 +110,8 @@ class SourcePreparationProgressTests(unittest.TestCase):
             self.assertEqual((row["concept_id"], row["route"]),
                              (context["concept_id"], context["route"]))
             self.assertEqual(row["scanned"], len(visited))
-            self.assertEqual(row["remaining"], 28 - len(visited))
-            self.assertEqual(row["counts"], {"questions_total": 28,
+            self.assertEqual(row["remaining"], 2 * R - len(visited))
+            self.assertEqual(row["counts"], {"questions_total": 2 * R,
                 "questions_prepared": len(visited), "questions_pending": 0})
             self.assertEqual(current["phase"], "source_preparation")
             self.assertEqual(current["counts"]["completed_results"], 0)
@@ -113,7 +119,7 @@ class SourcePreparationProgressTests(unittest.TestCase):
             return self.generic_builder(context)
         with self.recording():
             self.prepare(builder)
-        self.assertEqual(len(visited), 28)
+        self.assertEqual(len(visited), 2 * R)
 
     def test_read_context_and_save_boundaries_are_visible_before_each_operation(self):
         real_snapshot = self.memory.snapshot
@@ -209,17 +215,18 @@ class SourcePreparationProgressTests(unittest.TestCase):
         rows = self.progress_rows(recorder)
         questions = [row for row in rows if row["phase_state"] == "question"]
         self.assertEqual(entered, ["first", "second"])
-        self.assertEqual(len(questions), 14)
+        self.assertEqual(len(questions), R)
         self.assertEqual({row["concept_id"] for row in questions}, {"second"})
-        self.assertEqual(questions[0]["scanned"], 14)
-        self.assertEqual(questions[0]["remaining"], 14)
-        self.assertEqual(questions[0]["counts"]["questions_pending"], 14)
-        self.assertEqual(len(result["pending_preparation"]), 14)
+        self.assertEqual(questions[0]["scanned"], R)
+        self.assertEqual(questions[0]["remaining"], R)
+        self.assertEqual(questions[0]["counts"]["questions_pending"], R)
+        self.assertEqual(len(result["pending_preparation"]), R)
         self.assertEqual({row["reason"] for row in result["pending_preparation"]},
                          {"SOURCE_PRODUCT_DESCRIPTION_INVALID"})
-        self.assertEqual(rows[-1]["counts"], {"questions_total": 28,
-            "questions_prepared": 14, "questions_pending": 14})
-        self.assertLessEqual(len(rows), 15 * 2 + 5)
+        self.assertEqual({row["route"] for row in result["pending_preparation"]}, set(ROUTES))
+        self.assertEqual(rows[-1]["counts"], {"questions_total": 2 * R,
+            "questions_prepared": R, "questions_pending": R})
+        self.assertLessEqual(len(rows), (R + 1) * 2 + 5)
 
     def test_excluded_product_and_recoverable_question_gap_do_not_stop_other_questions(self):
         self.memory.state["concepts"]["first"]["status"] = "excluded"
@@ -233,17 +240,17 @@ class SourcePreparationProgressTests(unittest.TestCase):
             result = self.prepare(builder)
             current = self.current()
         rows = self.progress_rows(recorder)
-        self.assertEqual(len(visited), 14)
+        self.assertEqual(len(visited), R)
         self.assertEqual({cid for cid, _ in visited}, {"second"})
-        self.assertEqual(len([row for row in rows if row["phase_state"] == "question"]), 28)
-        # Prepared includes the 14 explicit not-applicable decisions, not 27
+        self.assertEqual(len([row for row in rows if row["phase_state"] == "question"]), 2 * R)
+        # Prepared includes the R explicit not-applicable decisions, not 2R-1
         # saved tasks, source attempts or newly collected results.
-        self.assertEqual(rows[-1]["counts"], {"questions_total": 28,
-            "questions_prepared": 27, "questions_pending": 1})
+        self.assertEqual(rows[-1]["counts"], {"questions_total": 2 * R,
+            "questions_prepared": 2 * R - 1, "questions_pending": 1})
         self.assertEqual(len(result["pending_preparation"]), 1)
         applicability = [row for row in self.memory.state["source_checks"].values()
                          if row.get("kind") == "all_source_applicability_v1"]
-        self.assertEqual(len(applicability), 14)
+        self.assertEqual(len(applicability), R)
         self.assertEqual(current["counts"]["completed_results"], 0)
         self.assertEqual(current["counts"]["deferred"], 0)
         self.assertEqual(result["source_attempts_created"], 0)
@@ -257,7 +264,7 @@ class SourcePreparationProgressTests(unittest.TestCase):
         self.assertEqual(rows[-1]["counts"], {"questions_total": 0,
             "questions_prepared": 0, "questions_pending": 0})
         self.assertEqual(result["products"], 0)
-        self.assertEqual(result["routes"], 14)
+        self.assertEqual(result["routes"], R)
         self.assertEqual(result["source_attempts_created"], 0)
 
     def test_product_labels_queries_and_links_are_not_copied_to_diagnostics(self):
@@ -306,7 +313,7 @@ class SourcePreparationProgressTests(unittest.TestCase):
         rows = self.progress_rows(recorder)
         self.assertEqual(rows[-1]["phase_state"], "complete")
         self.assertEqual(result["source_attempts_created"], 0)
-        self.assertEqual(len(self.memory.state["query_tasks"]), 14)
+        self.assertEqual(len(self.memory.state["query_tasks"]), R)
         self.assertEqual(stderr.getvalue().count("Research activity could not be saved."), 1)
         self.assertNotIn("private disk failure", stderr.getvalue())
 

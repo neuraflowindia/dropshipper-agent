@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import product_radar.source_coverage as coverage
 from product_radar.research_memory import ResearchMemory, change, key
 from product_radar.models import SafetyError
-from product_radar.source_coverage import (ROUTES, SAVED_RECOVERY_SCAN_LIMIT,
+from product_radar.source_coverage import (PLANNED_ROUTES, ROUTES, SAVED_RECOVERY_SCAN_LIMIT,
     continue_source_run, execute_source_run, prepare_all_source_tasks, prepare_source_tasks)
 from product_radar.storage import atomic_json, load_json
 from product_radar.work_turns import (DEFAULT_POLICY, bind_work_turn, close_work_turn,
@@ -66,7 +66,7 @@ class SourceExhaustedPreparationTests(unittest.TestCase):
         self.assertEqual(task["receipt_refs"], [])
         return turn, task_id, handler
 
-    def test_existing_spent_grant_skips_all_2184_fresh_builder_calls(self):
+    def test_existing_spent_grant_skips_all_2028_fresh_builder_calls(self):
         state = self.memory.snapshot()
         prototype = state["concepts"]["first"]
         additions = [change("concepts", "extra-" + str(n), deepcopy(prototype)) for n in range(154)]
@@ -83,7 +83,8 @@ class SourceExhaustedPreparationTests(unittest.TestCase):
                 handlers={route: self.fixture.acquired for route in ROUTES})
         self.assertEqual(builder_calls, [])
         self.assertEqual(result["products"], 156)
-        self.assertEqual(result["product_route_questions"], 2184)
+        self.assertEqual(result["product_route_questions"], 156 * len(PLANNED_ROUTES))
+        self.assertEqual(result["product_route_questions"], 2028)  # 13 planned routes.
         self.assertEqual(result["handler_calls"], 0)
         self.assertEqual(len(result["passes"]), 1)
         self.assertEqual(result["passes"][0]["counts"], {"not_attempted": SAVED_RECOVERY_SCAN_LIMIT})
@@ -94,11 +95,30 @@ class SourceExhaustedPreparationTests(unittest.TestCase):
         self.assertEqual(len([task for task in current["query_tasks"].values()
             if task.get("run_id") == "week-one"]), 140)
 
+    def test_spent_turn_reports_an_unsendable_retired_question_as_not_connected(self):
+        # A saved Google Search question can never be sent, so a spent allowance
+        # is not why it waits; it is not connected, not next-turn work.
+        turn = self.spent_turn()
+        from product_radar.supplier_route_acquisition import create_supplier_handlers
+        handlers = {"google-suppliers": create_supplier_handlers(self.memory)["google-suppliers"],
+                    "meta-ads": self.fixture.acquired}
+        prepare_source_tasks(self.memory, [self.fixture.question("google-suppliers", query="retired search"),
+                                           self.fixture.question(query="meta next turn")], run_id="retired-run", as_of=NOW)
+        with bind_work_turn(self.memory, turn["id"]):
+            result = execute_source_run(self.memory, "retired-run", as_of=NOW, handlers=handlers,
+                                        bounded_call=self.fixture.direct_runner)
+        rows = {self.memory.snapshot()["query_tasks"][row["task_id"]]["route"]: row for row in result["results"]}
+        self.assertEqual((rows["google-suppliers"]["state"], rows["google-suppliers"].get("next_action")),
+                         ("not_connected", None))
+        self.assertEqual((rows["meta-ads"]["state"], rows["meta-ads"]["next_action"]),
+                         ("not_attempted", "continue_in_next_work_turn"))
+        self.assertEqual(result["handler_calls"], 0)
+
     def test_filled_local_limit_keeps_new_company_dependencies_prepared(self):
         calls = []
         def builder(context):
             calls.append((context["concept_id"], context["route"]))
-            if context["route"] not in {"google-suppliers", "company-pages"}:
+            if context["route"] not in {"tradeindia", "company-pages"}:
                 return {"not_applicable_reason": "Synthetic unrelated source."}
             if context["route"] == "company-pages" and not context["state"]["source_checks"].get("synthetic-destination"):
                 raise SafetyError("SOURCE_SUPPLIER_DESTINATIONS_PENDING")
@@ -108,9 +128,9 @@ class SourceExhaustedPreparationTests(unittest.TestCase):
                 {"state": "captured", "url": "https://supplier.example.org/sink-caddy"})
             return self.fixture.acquired(context)
         result = self.continue_run(builder, action_limit=1,
-            handlers={"google-suppliers": supplier, "company-pages": self.fixture.acquired})
+            handlers={"tradeindia": supplier, "company-pages": self.fixture.acquired})
         self.assertEqual(result["handler_calls"], 1)
-        self.assertEqual(len(calls), 4 * len(ROUTES))
+        self.assertEqual(len(calls), 4 * len(PLANNED_ROUTES))
         self.assertEqual(result["progress"]["pending_preparation"], 0)
         company = [task for task in self.memory.snapshot()["query_tasks"].values()
             if task.get("run_id") == "week-one" and task["route"] == "company-pages"]
@@ -206,17 +226,17 @@ class SourceExhaustedPreparationTests(unittest.TestCase):
         builder = Mock(return_value={"query": "sink caddy", "country": "IN"})
         with bind_work_turn(self.memory, turn["id"]):
             result = self.continue_run(builder, handlers={route: self.fixture.acquired for route in ROUTES})
-        self.assertEqual(builder.call_count, 2 * len(ROUTES))
+        self.assertEqual(builder.call_count, 2 * len(PLANNED_ROUTES))
         self.assertNotIn("preparation_wait", result)
         self.assertEqual(result["handler_calls"], 0)
-        self.assertEqual(result["progress"]["physical_questions"], 14)
+        self.assertEqual(result["progress"]["physical_questions"], len(PLANNED_ROUTES))
 
     def test_existing_run_with_no_turn_still_plans_normally(self):
         prepare_source_tasks(self.memory, [self.fixture.question()], run_id="week-one", as_of=NOW)
         builder = Mock(return_value={"query": "sink caddy", "country": "IN"})
         result = self.continue_run(builder, action_limit=1,
             handlers={route: self.fixture.acquired for route in ROUTES})
-        self.assertEqual(builder.call_count, 4 * len(ROUTES))
+        self.assertEqual(builder.call_count, 4 * len(PLANNED_ROUTES))
         self.assertNotIn("preparation_wait", result)
         self.assertEqual(result["handler_calls"], 1)
 
@@ -262,7 +282,7 @@ class SourceExhaustedPreparationTests(unittest.TestCase):
             continue_source_run(self.memory, {"invalid": set()}, request_builder=builder)
         # The normal planner still owns validation; the early lookup must not
         # replace its fixed error with a JSON serialization exception.
-        self.assertEqual(builder.call_count, 2 * len(ROUTES))
+        self.assertEqual(builder.call_count, 2 * len(PLANNED_ROUTES))
         self.assertEqual(self.memory.snapshot(), before)
 
     def test_source_phase_records_do_not_claim_results_or_website_deadlines(self):

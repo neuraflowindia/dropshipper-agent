@@ -30,7 +30,7 @@ from product_radar.market_validation import REVIEW_VERSION
 from product_radar.providers.trends_browser import parse_trends_csv
 from product_radar.report_narration import generate_report_narratives, make_narrative_input
 from product_radar.report_selection import build_report_pool, selection_scope
-from product_radar.report_source_facts import CONTRACT, FIELDS, ROUTES, validate_route_facts
+from product_radar.report_source_facts import CLIENT_ROUTES, CONTRACT, FIELDS, ROUTES, validate_route_facts
 from product_radar.research_memory import ResearchMemory, change
 from product_radar.source_coverage import prepare_source_tasks, execute_source_run, source_coverage
 from product_radar.storage import Journal
@@ -92,7 +92,9 @@ class SavedSourceReportTests(unittest.TestCase):
         pool, issue, dataset = select(memory)
         product = self.product(dataset)
         self.assertEqual(product["source_route_contract"], CONTRACT)
-        self.assertEqual([row["route"] for row in product["source_route_checks"]], list(ROUTES))
+        # Every route of the service; retired Google Search results are not shown.
+        self.assertEqual([row["route"] for row in product["source_route_checks"]], list(CLIENT_ROUTES))
+        self.assertEqual(list(CLIENT_ROUTES), [route for route in ROUTES if route != "google-suppliers"])
         self.assertEqual(self.route(product, "meta-ads")["outcome"], "completed_relevant")
         self.assertIs(self.route(product, "meta-ads")["actual_attempt"], True)
         self.assertEqual(self.route(product, "blinkit")["outcome"], "not_attempted")

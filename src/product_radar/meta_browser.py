@@ -59,6 +59,30 @@ def prepare_meta_query(query, *, limit=30):
                 "search_type": "keyword_unordered"})}
 
 
+# The Ad Library adds these display defaults to the address of every search it
+# serves (all 53 saved captures, 3-14 October 2026). They are not part of the
+# requested scope. Any other added parameter, a different value for one of
+# these, or a changed/missing requested parameter means a different search.
+META_RETURNED_DEFAULTS = {"is_targeted_country": ["false"], "media_type": ["all"],
+                          "sort_data[mode]": ["total_impressions"], "sort_data[direction]": ["desc"]}
+
+
+def meta_returned_scope_matches(requested_url, returned_url):
+    """Whether the page Meta returned is exactly the requested public search."""
+    if not isinstance(requested_url, str) or not isinstance(returned_url, str):
+        return False
+    try:
+        original, actual = urlsplit(requested_url), urlsplit(returned_url)
+        if original.scheme != actual.scheme or original.hostname != actual.hostname or original.path != actual.path:
+            return False
+        requested = parse_qs(original.query, keep_blank_values=True)
+        returned = parse_qs(actual.query, keep_blank_values=True)
+    except ValueError:
+        return False
+    return (all(returned.get(name) == values for name, values in requested.items())
+            and all(name in requested or META_RETURNED_DEFAULTS.get(name) == values for name, values in returned.items()))
+
+
 def _page_url(value):
     if not isinstance(value, str): return None
     try:

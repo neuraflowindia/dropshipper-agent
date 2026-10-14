@@ -1,0 +1,12 @@
+{
+  "note": "Sanitised from saved Ad Library captures (searched phrase replaced by the shared test phrase). Meta added the same four display defaults to every one of the 53 saved returned addresses, 3-14 October 2026.",
+  "query": "Food wrap paper",
+  "captures": [
+    {"observed_at": "2026-10-14T01:17:21Z",
+     "requested": "https://www.facebook.com/ads/library/?active_status=all&ad_type=all&country=IN&q=Food+wrap+paper&search_type=keyword_unordered",
+     "returned": "https://www.facebook.com/ads/library/?active_status=all&ad_type=all&country=IN&is_targeted_country=false&media_type=all&q=Food%20wrap%20paper&search_type=keyword_unordered&sort_data[mode]=total_impressions&sort_data[direction]=desc"},
+    {"observed_at": "2026-10-08T12:57:12Z",
+     "requested": "https://www.facebook.com/ads/library/?active_status=all&ad_type=all&country=IN&q=Food+wrap+paper&search_type=keyword_unordered",
+     "returned": "https://www.facebook.com/ads/library/?active_status=all&ad_type=all&country=IN&is_targeted_country=false&media_type=all&q=Food%20wrap%20paper&search_type=keyword_unordered&sort_data[mode]=total_impressions&sort_data[direction]=desc"}
+  ]
+}

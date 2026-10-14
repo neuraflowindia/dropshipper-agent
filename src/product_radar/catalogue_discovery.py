@@ -350,9 +350,11 @@ def _wave_candidates_in_scope(state, programme_id, catalogue, current, handlers,
     for family in sorted(families, key=lambda row: row["id"]):
         for phrase in family["phrases"]:
             if phrase["source"] == "supplier":
-                from .supplier_route_acquisition import SEARCH_ROUTES
+                from .supplier_route_acquisition import ACTIVE_SEARCH_ROUTES
                 from .supplier_search import supplier_request_for_state
-                for route in SEARCH_ROUTES:
+                # A retired supplier route is never planned; its saved
+                # questions/answers remain validatable history below.
+                for route in ACTIVE_SEARCH_ROUTES:
                     if not shared_source_hooks(handlers.get(route))["prepare"]:
                         continue
                     specs.append((family, route, supplier_request_for_state(state, route, phrase["text"]),

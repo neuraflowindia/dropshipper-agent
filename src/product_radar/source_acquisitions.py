@@ -771,8 +771,7 @@ def record_meta_response(memory, acquisition_id, *, folder, as_of, capture_ids=(
     date nor makes a missing/blocked page into an empty result. Legacy imports
     lacking the additive original transport proof remain incomplete reads.
     """
-    from urllib.parse import parse_qs, urlsplit
-    from .meta_browser import MAX_BYTES, _saved_meta_receipt, capture_meta_search
+    from .meta_browser import MAX_BYTES, _saved_meta_receipt, capture_meta_search, meta_returned_scope_matches
     _date(as_of); state = memory.snapshot(); old = _record(state, acquisition_id)
     request = old["binding"]["request"]
     if old["binding"]["route"] != "meta-ads": raise SafetyError("SOURCE_META_RECEIPT_SCOPE_INVALID")
@@ -824,11 +823,9 @@ def record_meta_response(memory, acquisition_id, *, folder, as_of, capture_ids=(
                 ("navigation_started", "navigation_started_at", "navigation_status", "owned_process_exited", "completed_at"))
                 or digest(native.get("snapshot")) != transport["snapshot_hash"]):
             raise SafetyError("SOURCE_META_TRANSPORT_INVALID")
-    same_scope = False
-    if isinstance(snapshot, dict) and isinstance(snapshot.get("url"), str):
-        original, actual = urlsplit(request["url"]), urlsplit(snapshot["url"])
-        same_scope = (original.hostname == actual.hostname and original.path == actual.path
-                      and parse_qs(original.query) == parse_qs(actual.query))
+    # Every requested parameter must come back unchanged; only Meta's own
+    # known display defaults may be added (see META_RETURNED_DEFAULTS).
+    same_scope = bool(isinstance(snapshot, dict) and meta_returned_scope_matches(request["url"], snapshot.get("url")))
     recognized = same_scope and receipt["state"] in {"usable", "partial", "empty"}
     coverage = {"body_complete": isinstance(snapshot, dict),
         "byte_truncated": bool(isinstance(snapshot, dict) and snapshot.get("text_truncated") is True),

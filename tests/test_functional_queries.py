@@ -330,7 +330,7 @@ class FunctionalQueryTests(unittest.TestCase):
         self.accept(); self.prepare(Runner())
         state = self.memory.snapshot()
         description = state["concepts"][self.cid]["description"]
-        for route in ("meta-ads", "google-trends", "amazon-search", "google-suppliers"):
+        for route in ("meta-ads", "google-trends", "amazon-search", "google-maps"):
             context = {"concept_id": self.cid, "state": state, "route": route,
                        "description": description, "description_hash": digest(description)}
             request = product_source_request_builder(catalogue=self.catalogue)(context)

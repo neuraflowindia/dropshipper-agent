@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { webcrypto, createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { validateFitPacket, validateFunctionalPacket, canonical, handleAdminRequest } from './release-admin.mjs';
+import { currentSupplierOutcome, retiredSupplierRoutes } from './functional-packet.mjs';
 
 globalThis.crypto ??= webcrypto;
 // The actual offline Python producers generate this fixture. No handwritten
@@ -379,4 +380,35 @@ test('dated supplier company context is reconstructed without inheriting purchas
 test('a genuine newer global listing cannot leave an older convenient market vote in the report',async()=>{
   const {facts,manifest}=structuredClone(fixture.replaced);
   await assert.rejects(validateFunctionalPacket(facts,manifest),/MARKET_CURRENTNESS_CHANGED/);
+});
+
+test('supplier search outcome and retired routes match the Python owner exactly',()=>{
+  // Same-original reparses (newest parser wins, whatever the record IDs), a later
+  // refusal that cannot erase leads, and "blocked" only when every original failed.
+  const at='2026-10-14T08:00:00+00:00',later='2026-10-14T09:00:00+00:00';
+  const row=(route,pass,reference,outcome,when=at)=>({route,pass_id:pass,reference,internal_outcome:outcome,at:when});
+  const cases=[
+    [],
+    [['a',row('tradeindia','t','shared/t/capture-parser-4.json','interpretation_pending')],['b',row('google-maps','m','shared/m/capture-parser-5.json','blocked',later)]],
+    [['z-stale',row('google-maps','m','shared/m/capture-parser-4.json','interpretation_pending')],['a-new',row('google-maps','m','shared/m/capture-parser-5.json','blocked')]],
+    [['a-stale',row('google-maps','m','shared/m/capture-parser-4.json','interpretation_pending')],['z-new',row('google-maps','m','shared/m/capture-parser-5.json','blocked')]],
+    [['zz',row('indiamart','i','supplier_routes/i/capture.json','interpretation_pending')],['aa',row('indiamart','i','supplier_routes/i/capture-parser-3-0123456789abcdef.json','failed')]],
+    [['a',row('google-maps','m','x/capture-parser-5.json','failed')],['b',row('indiamart','i','x/capture-parser-5.json','blocked',later)],['c',row('tradeindia','t','x/capture-parser-5.json','prelaunch_failed')]],
+    [['a',row('known-supplier-pages','p','pages/a.json','usable_leads')]],
+    [['a',row('indiamart','i','x/capture-parser-5.json','partial')],['b',row('tradeindia','t','x/capture-parser-5.json','completed_empty')]],
+    [['a',row('google-maps','m','x\\capture-parser-5.json','failed')],['b',row('google-maps','m','x/capture.json','partial',later)]],
+  ];
+  const python=spawnSync('.venv/bin/python',['-c',`
+import json,sys
+from product_radar.supplier_effort import RETIRED_SUPPLIER_ROUTES,_current_outcome
+cases=json.load(sys.stdin)
+print(json.dumps({'retired':sorted(RETIRED_SUPPLIER_ROUTES),'outcomes':[_current_outcome([tuple(r) for r in rows]) for rows in cases]}))
+`],{encoding:'utf8',input:JSON.stringify(cases),env:{...process.env,PYTHONPATH:'src:tests'}});
+  assert.equal(python.status,0,python.stderr);
+  const expected=JSON.parse(python.stdout);
+  assert.deepEqual([...retiredSupplierRoutes].sort(),expected.retired);
+  const fail=code=>{throw new Error(code);};
+  assert.deepEqual(cases.map(rows=>currentSupplierOutcome(rows,fail)),expected.outcomes);
+  assert.deepEqual(expected.outcomes,['not_attempted','interpretation_pending','blocked','blocked','failed','blocked',
+    'interpretation_pending','completed_empty','failed']);
 });

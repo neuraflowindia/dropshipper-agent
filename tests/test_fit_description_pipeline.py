@@ -87,7 +87,7 @@ class DescriptionPipelineTests(unittest.TestCase):
         for frozen, product in zip(issue["products"], dataset["products"]):
             self.assertEqual(frozen["fit_description_contract"], DESCRIPTION_INFERENCE_KIND)
             self.assertEqual(product["fit_description_contract"], DESCRIPTION_INFERENCE_KIND)
-            self.assertEqual(len(product["source_route_checks"]), 14)
+            self.assertEqual(len(product["source_route_checks"]), 13)  # Retired Google Search has no client row.
             self.assertEqual(len(product["writing_facts"]), 6)
             self.assertTrue(all(fact["references"] == [] and fact["description_inference"]["description_hash"] ==
                 digest(product["description"]) for fact in product["writing_facts"]))

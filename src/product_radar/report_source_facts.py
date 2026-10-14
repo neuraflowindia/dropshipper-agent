@@ -13,6 +13,7 @@ import re
 from .models import SafetyError, canonical, digest, identifier, timestamp
 from .source_coverage import (ROUTES, STATES, TASK_KIND, RUN_KIND, CHECK_KIND,
                               RELEVANCE_KIND, DISPATCH_KIND, source_coverage)
+from .supplier_effort import RETIRED_SUPPLIER_ROUTES
 
 
 CONTRACT = "saved-source-routes-v1"
@@ -20,6 +21,10 @@ FUNCTIONAL_CONTRACT = "saved-source-routes-v2"
 FUNCTIONAL_ROUTE_PROOF_CONTRACT = "functional-source-route-proof-v1"
 CONTRACTS = (CONTRACT, FUNCTIONAL_CONTRACT)
 FIELDS = ("source_route_contract", "source_route_checks")
+# Client-facing route rows. A retired route is no longer part of the service,
+# so new packets omit it; internal records keep its history, and packets
+# frozen before it retired keep their original fourteen rows.
+CLIENT_ROUTES = tuple(route for route in ROUTES if route not in RETIRED_SUPPLIER_ROUTES)
 MAX_BLOCK_BYTES = 64 * 1024
 MAX_DECIMAL_LENGTH = 32
 DECIMAL_TEXT = re.compile(r"(?:0|[1-9][0-9]*)(?:\.[0-9]*[1-9])?\Z")
@@ -66,7 +71,9 @@ def _functional_route_state(state, concept_id):
     from .supplier_effort import VERSION as SUPPLIER_EFFORT_KIND
     selected = {table: {} for table in TABLES}
     def add(table, record_id):
-        if record_id in state.get(table, {}):
+        # A record already selected is an equal copy of the same unchanged
+        # original; copying it again on every pass changes nothing.
+        if record_id in state.get(table, {}) and record_id not in selected[table]:
             selected[table][record_id] = deepcopy(state[table][record_id])
     add("concepts", concept_id)
     dependencies, runs = route_dependencies(state, concept_id, functional=True)
@@ -237,7 +244,9 @@ def validate_functional_route_proof(product):
         route_product = {"market": context["market"], "functional_market_contract": context["contract"],
                          "functional_market_context": context}
         coverage = coverage_rows(None, state, [cid], as_of)[cid]
-        expected = source_route_facts(state, cid, coverage, route_product, relevant, as_of)
+        legacy = any(isinstance(row, dict) and row.get("route") in RETIRED_SUPPLIER_ROUTES
+                     for row in product.get("source_route_checks") or [])
+        expected = source_route_facts(state, cid, coverage, route_product, relevant, as_of, include_retired=legacy)
         for row in expected:
             row["url"] = _url(row["url"])
         if product["source_route_contract"] != FUNCTIONAL_CONTRACT or product["source_route_checks"] != expected:
@@ -502,7 +511,7 @@ def measurement_text(metric):
     return _measurement_text(metric)
 
 
-def source_route_facts(state, concept_id, coverage, product, relevant, as_of):
+def source_route_facts(state, concept_id, coverage, product, relevant, as_of, *, include_retired=False):
     scope, at = digest(state["concepts"][concept_id]["description"]), timestamp(as_of)
     routed = {}
     for observation_id, observation in relevant.items():
@@ -511,6 +520,8 @@ def source_route_facts(state, concept_id, coverage, product, relevant, as_of):
             routed.setdefault(route, []).append((observation_id, observation))
     output = []
     for row in coverage:
+        if row["route"] in RETIRED_SUPPLIER_ROUTES and not include_retired:
+            continue  # Not part of the service: no client row.
         route, outcome, actual = row["route"], row["state"], row["actual_attempt"]
         state_label, detail = outcome_display(outcome, actual)
         refs = {ref for ref in row["evidence_refs"] if any(ref in state.get(table, {}) for table in _TABLES)}
@@ -621,8 +632,8 @@ def validate_route_facts(product):
     if product.get("source_route_contract") not in CONTRACTS:
         raise SafetyError("LIVE_SOURCE_ROUTE_CONTRACT_INVALID")
     rows, revisions = product.get("source_route_checks"), product.get("source_revisions", {})
-    if (not isinstance(rows, list) or len(rows) != len(ROUTES)
-            or [row.get("route") for row in rows if isinstance(row, dict)] != list(ROUTES)):
+    if (not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows)
+            or [row.get("route") for row in rows] not in (list(CLIENT_ROUTES), list(ROUTES))):
         raise SafetyError("LIVE_SOURCE_ROUTE_FACTS_INVALID")
     try:
         if len(canonical(rows)) > MAX_BLOCK_BYTES:

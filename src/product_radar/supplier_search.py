@@ -15,6 +15,7 @@ from .models import SafetyError, decode_json, digest, identifier, timestamp, utc
 from .research_memory import change, key
 from .research_questions import physical_request_fingerprint, prepare_research_questions
 from .storage import atomic_json, load_json, safe_path
+from .supplier_effort import RETIRED_SUPPLIER_ROUTES
 from .supplier_route_acquisition import (MAX_RECORD_BYTES, MAX_RESULTS, PARSER_VERSION, SEARCH_ROUTES,
     VERSION, _actual, _product, _query, fetch_supplier_native_page, parse_supplier_route_receipt,
     supplier_route_url, replay_supplier_search, _supplier_native_output_receipt, _deadline_page_receipt)
@@ -41,10 +42,17 @@ def prepare_supplier_request(context):
 
 
 def _fallback(state, route, request):
-    """Only a closed, successful HTTP response with an unreadable layout.
+    """Only a closed, complete, successful HTTP page that a plain reader cannot read.
 
-    A parser exception, access refusal, absent body and uncertain original do
-    not authorise another request. Browser is a separately frozen question.
+    That is a readable page with an unrecognised layout - still unrecognised
+    by the current parser, so a page later understood as an access wall never
+    authorises a browser read - or, for Google Maps only, under the owner's
+    recorded Maps browser permission, Maps' complete script-only application
+    shell (HTTP 200 HTML with no readable text) served at exactly the
+    requested address, without any redirect. A parser exception, access
+    refusal or challenge, redirect, absent or partial body and uncertain
+    original do not authorise another request. Browser is a separately frozen
+    question with the same bounded, no-click read.
     """
     from .source_acquisitions import _owners, _response
     from .source_coverage import source_response_closed
@@ -52,17 +60,51 @@ def _fallback(state, route, request):
     owners = _owners(state, physical_request_fingerprint(route, http))
     if not owners: return None
     aid, owner = owners[-1]; response = _response(state, owner)
-    if (response and response.get("bridge_contract") == BRIDGE and not response.get("legacy_workflow_id")
-            and response["dispatch_started"] is True
-            and response["source_state"] == "insufficient" and response["access"].get("http_status") == 200
-            and response.get("parse_reason") == "SUPPLIER_ROUTE_LAYOUT_UNRECOGNISED"
+    if not (response and response.get("bridge_contract") == BRIDGE and not response.get("legacy_workflow_id")
+            and response["dispatch_started"] is True and response["access"].get("http_status") == 200
             and response["coverage"]["body_complete"] and not response["coverage"]["byte_truncated"]
             and source_response_closed(response)):
-        return {"acquisition_id": aid, "response_id": owner["active_response_id"], "response_hash": digest(response)}
-    return None
+        return None
+    unreadable_layout = (response["source_state"] == "insufficient"
+                         and response.get("parse_reason") == "SUPPLIER_ROUTE_LAYOUT_UNRECOGNISED")
+    maps_application_shell = (route == "google-maps" and response["source_state"] == "failed"
+                              and response.get("parse_reason") == "PUBLIC_TEXT_UNAVAILABLE")
+    if not (unreadable_layout or maps_application_shell):
+        return None
+    receipt = _saved_http_receipt(owner, response)
+    if receipt is None:
+        return None
+    if unreadable_layout:
+        current = parse_supplier_route_receipt(route, http["query"], _item(aid, http), receipt)
+        if current["reason"] != "SUPPLIER_ROUTE_LAYOUT_UNRECOGNISED":
+            return None
+    # A redirected read answered a different address than the one asked.
+    elif not (receipt.get("requested_url") == http["url"] and receipt.get("final_url") == http["url"]):
+        return None
+    return {"acquisition_id": aid, "response_id": owner["active_response_id"], "response_hash": digest(response)}
+
+
+def _saved_http_receipt(owner, response):
+    """The plain read's own hash-bound original receipt, or None."""
+    from .source_acquisitions import _file
+    proof = response["artifacts"].get("original.json")
+    if not isinstance(proof, dict) or not isinstance(proof.get("path"), str):
+        return None
+    try:
+        current, _, raw = _file(proof["path"], owner["binding"]["artifact_roots"])
+        page = decode_json(raw)
+    except SafetyError:
+        return None
+    receipt = page.get("receipt") if isinstance(page, dict) else None
+    if current != proof or not isinstance(receipt, dict) or page.get("hash") != digest(receipt):
+        return None
+    return receipt
 
 
 def supplier_request_for_state(state, route, query):
+    """The next public request a planner may ask; never one for a retired route."""
+    if route in RETIRED_SUPPLIER_ROUTES:
+        raise SafetyError("SUPPLIER_ROUTE_RETIRED")
     request = prepare_supplier_request({"route": route, "request": {"query": query, "country": "IN"}})
     # A genuinely retained old browser result is not another browser launch.
     from .source_acquisitions import _owners, _response
@@ -846,4 +888,17 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
             "prepare_source": prepare, "resolve_source": resolve, "source_admission": admission,
             "source_due_hint": due_hint, "source_saved_hint": saved_hint,
             "source_due_hint_from_state": due_hint, "source_saved_hint_from_state": saved_hint}
+        if route in RETIRED_SUPPLIER_ROUTES:
+            # Saved history only: an already started original is finished from
+            # its saved files (the same saved-only resolver, so an unchanged
+            # original is not re-applied). Nothing can plan or send a new read.
+            def retired_resolve(context, resolve=resolve):
+                if context.get("reconciling") is not True:
+                    return {"action": "wait", "reason": "SUPPLIER_ROUTE_RETIRED"}
+                resolution = resolve(context)
+                if resolution["action"] == "collect":
+                    return {"action": "wait", "acquisition_id": resolution["acquisition_id"],
+                            "reason": "SUPPLIER_ROUTE_RETIRED"}
+                return resolution
+            handlers[route] = {"reconcile": handlers[route]["reconcile"], "resolve_source": retired_resolve}
     return handlers

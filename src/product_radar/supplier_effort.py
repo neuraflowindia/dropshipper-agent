@@ -15,8 +15,25 @@ from .research_memory import key
 
 VERSION = "supplier-effort-v1"
 CLIENT_NO_RESULTS = "Supplier search did not produce any usable results."
+# Supplier routes the programme no longer prepares or sends (owner decision,
+# 14 October 2026). Google serves its "enable JavaScript" gate to the plain
+# reader and "unusual traffic" refusals to the browser, and the owner will not
+# bypass Google or buy a search service. Saved records of a retired route stay
+# as history; they are not current supplier effort, a reason a product waits
+# or a failed route for new work. This is the single list of retired routes.
+RETIRED_SUPPLIER_ROUTES = {
+    "google-suppliers": "Not available: Google requires JavaScript for automated reading; no approved official route.",
+}
+# Older effort records name the same routes differently.
+SUPPLIER_ROUTE_ALIASES = {"google-public-html": "google-suppliers", "google-browser-html": "google-suppliers",
+                          "known-supplier-pages": "company-pages"}
 _SCOPE_FIELDS = ("concept_id", "label", "category", "function", "mechanism", "features")
 _OUTCOMES = {"completed_empty", "blocked", "failed", "partial", "interpretation_pending", "usable_leads", "prelaunch_failed"}
+# How much a current original read achieved, best first. A product's supplier
+# search is "blocked" only when every current original failed or was refused.
+_OUTCOME_RANK = {"usable_leads": 6, "interpretation_pending": 6, "completed_empty": 5, "partial": 4,
+                 "blocked": 3, "failed": 2, "prelaunch_failed": 1}
+_PARSER_FILE = re.compile(r"capture-parser-([1-9][0-9]{0,3})(?:-[0-9a-f]{16})?\.json")
 _FIELDS = {"schema_version", "kind", "source", "route", "at", "state", "reason", "reference", "concept_id",
            "description_hash", "sourcing_scope", "sourcing_scope_hash", "pass_id", "receipts_hash", "receipt_refs",
            "actual_attempt_refs", "last_attempt_at", "internal_outcome", "accepted_lead_refs", "effort_satisfied",
@@ -252,8 +269,45 @@ def record_supplier_effort(memory, *, concept_id, description, pass_id, receipts
     return {"check_id": check_id, "record": deepcopy(record), "reused": False}
 
 
+def _parser_rank(record):
+    """The saved interpretation version a record was projected from.
+
+    A parser repair re-reads the same original receipts into
+    capture-parser-<N>.json; the original capture.json (or any other saved
+    page reference) is older than every such repair of the same original.
+    """
+    match = _PARSER_FILE.fullmatch(record["reference"].replace("\\", "/").rsplit("/", 1)[-1])
+    return int(match[1]) if match else 0
+
+
+def _current_outcome(records):
+    """Aggregate current originals; a reparse supersedes only its own original.
+
+    Records of one original read (same route and pass) differ only by parser
+    version: the newest interpretation wins, independent of record IDs. Across
+    originals and routes, a later failed or refused read does not erase what
+    another read already produced, so "blocked"/"failed" remains only when
+    every current original failed or was refused.
+    """
+    current = {}
+    for check_id, record in records:
+        slot = (record["route"], record["pass_id"])
+        order = (_parser_rank(record), timestamp(record["at"]), check_id)
+        if slot not in current or order > current[slot][0]:
+            current[slot] = (order, record["internal_outcome"])
+    if not current:
+        return "not_attempted"
+    best = max((outcome for _, outcome in current.values()), key=_OUTCOME_RANK.__getitem__)
+    # Leads not accepted by the caller's reviewed interpretation are pending.
+    return "interpretation_pending" if best == "usable_leads" else best
+
+
 def current_supplier_effort(state, concept_id, description, *, accepted_lead_refs=(), as_of=None):
-    """Read canonical current-scope evidence; date/unknown is never proof."""
+    """Read canonical current-scope evidence; date/unknown is never proof.
+
+    Retired routes (RETIRED_SUPPLIER_ROUTES) are saved history only: their
+    records are neither current effort nor an outcome for this product.
+    """
     scope = supplier_scope(concept_id, description)
     deadline = timestamp(as_of) if as_of is not None else None
     accepted = sorted(set(identifier(ref) for ref in accepted_lead_refs))
@@ -262,7 +316,8 @@ def current_supplier_effort(state, concept_id, description, *, accepted_lead_ref
         if record.get("kind") != VERSION or record.get("concept_id") != concept_id:
             continue
         _validated_record(record)
-        if record["sourcing_scope"] != scope:
+        if (record["sourcing_scope"] != scope
+                or SUPPLIER_ROUTE_ALIASES.get(record["route"], record["route"]) in RETIRED_SUPPLIER_ROUTES):
             continue
         if deadline is not None and timestamp(record["at"]) > deadline:
             continue
@@ -273,11 +328,10 @@ def current_supplier_effort(state, concept_id, description, *, accepted_lead_ref
             if deadline is not None and (timestamp(ref["attempt_started_at"]) > deadline or timestamp(ref["checked_at"]) > deadline):
                 continue
             actual[(ref["id"], ref["hash"])] = {**deepcopy(ref), "check_id": check_id, "pass_id": record["pass_id"]}
-    ordered = sorted(records, key=lambda row: (timestamp(row[1]["at"]), row[0]))
     return {"check_ids": sorted(check_id for check_id, _ in records),
             "actual_attempt_refs": sorted(actual.values(), key=lambda ref: (timestamp(ref["attempt_started_at"]), ref["id"], ref["hash"])),
             "last_attempt_at": max((ref["attempt_started_at"] for ref in actual.values()), key=timestamp, default=None),
-            "internal_outcome": "usable_leads" if accepted else ordered[-1][1]["internal_outcome"] if ordered else "not_attempted",
+            "internal_outcome": "usable_leads" if accepted else _current_outcome(records),
             "effort_satisfied": bool(actual), "usable_lead_count": len(accepted)}
 
 

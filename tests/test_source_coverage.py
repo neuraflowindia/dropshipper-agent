@@ -114,16 +114,22 @@ class SourceCoverageTests(unittest.TestCase):
         self.memory.put("concepts", "first", dict(old, description=None), previous=old)
         prepared = prepare_all_source_tasks(self.memory, run_id="week-one", as_of=NOW,
             request_builder=lambda context: {"query": "sink caddy", "country": "IN"})
-        self.assertEqual(prepared["physical_questions"], 14)
-        self.assertEqual(len(prepared["pending_preparation"]), 14)
+        # Thirteen planned routes: retired Google Search supplier results are never asked.
+        self.assertEqual(prepared["physical_questions"], 13)
+        self.assertEqual(len(prepared["pending_preparation"]), 13)
         result = self.run_sources({route: self.acquired for route in ROUTES})
-        self.assertEqual(result["handler_calls"], 14)
+        self.assertEqual(result["handler_calls"], 13)
         grid = source_coverage(self.memory, handlers={route: self.acquired for route in ROUTES}, as_of=NOW)
         broken = [row for row in grid["rows"] if row["concept_id"] == "first"]
         self.assertEqual(len(grid["rows"]), 28)
         self.assertTrue(all(row["state"] == "not_attempted" and not row["actual_attempt"] for row in broken))
         self.assertTrue(all(row["reason"] == "SOURCE_PRODUCT_DESCRIPTION_INVALID" for row in broken))
-        self.assertEqual(grid["actually_attempted_product_routes"], 14)
+        self.assertEqual(grid["actually_attempted_product_routes"], 13)
+        # Even with a handler supplied, the retired route is unavailable, not pending.
+        retired = next(row for row in grid["rows"] if row["concept_id"] == "second" and row["route"] == "google-suppliers")
+        self.assertEqual((retired["state"], retired["actual_attempt"], retired["task_ids"]), ("not_connected", False, []))
+        self.assertEqual(retired["reason"], "Not available: Google requires JavaScript for automated reading; "
+                                            "no approved official route.")
 
     def test_product_brand_binding_conflict_is_not_a_global_source_exception(self):
         from unittest.mock import patch
@@ -135,8 +141,8 @@ class SourceCoverageTests(unittest.TestCase):
             prepared = prepare_all_source_tasks(self.memory, run_id="week-one", as_of=NOW,
                 request_builder=lambda context: {"query": "sink caddy", "country": "IN"})
             grid = source_coverage(self.memory, as_of=NOW)
-        self.assertEqual(prepared["physical_questions"], 14)
-        self.assertEqual(len(prepared["pending_preparation"]), 14)
+        self.assertEqual(prepared["physical_questions"], 13)
+        self.assertEqual(len(prepared["pending_preparation"]), 13)
         self.assertTrue(all(row["reason"] == "BRAND_ORIGIN_BINDING_CHANGED"
             for row in grid["rows"] if row["concept_id"] == "first"))
 
@@ -196,9 +202,9 @@ class SourceCoverageTests(unittest.TestCase):
                 return {"not_applicable_reason": "Explicitly outside selected location scope."}
             return {"query": "sink caddy", "country": "IN"}
         prepared = prepare_all_source_tasks(self.memory, run_id="week-one", request_builder=builder, as_of=NOW)
-        self.assertEqual(prepared["physical_questions"], 12)
+        self.assertEqual(prepared["physical_questions"], 11)
         self.assertEqual(len(prepared["pending_preparation"]), 2)
-        self.assertEqual(prepared["product_questions"], 24)
+        self.assertEqual(prepared["product_questions"], 22)
         grid = source_coverage(self.memory, handlers={r: self.acquired for r in ROUTES}, as_of=NOW)
         self.assertEqual(grid["actually_attempted_product_routes"], 0)
         self.assertTrue(all(r["reason"] == "SUPPLIER_DESTINATIONS_PENDING" for r in grid["rows"] if r["route"] == "company-pages"))
@@ -553,7 +559,7 @@ class SourceCoverageTests(unittest.TestCase):
     def test_continue_run_prepares_real_new_company_dependencies_without_recollecting_searches(self):
         calls = []
         def builder(context):
-            if context["route"] not in {"google-suppliers", "company-pages"}:
+            if context["route"] not in {"tradeindia", "company-pages"}:
                 return {"not_applicable_reason": "Synthetic route outside this focused contract."}
             if context["route"] == "company-pages" and not context["state"]["source_checks"].get("synthetic-destination"):
                 raise SafetyError("SOURCE_SUPPLIER_DESTINATIONS_PENDING")
@@ -566,13 +572,13 @@ class SourceCoverageTests(unittest.TestCase):
             calls.append(context["route"])
             return self.acquired(context)
         result = continue_source_run(self.memory, "week-one", request_builder=builder,
-            handlers={"google-suppliers": search, "company-pages": company}, bounded_call=self.direct_runner)
-        self.assertEqual(calls, ["google-suppliers", "company-pages"])
+            handlers={"tradeindia": search, "company-pages": company}, bounded_call=self.direct_runner)
+        self.assertEqual(calls, ["tradeindia", "company-pages"])
         self.assertEqual(result["handler_calls"], 2)
-        self.assertEqual(result["product_route_questions"], 28)
+        self.assertEqual(result["product_route_questions"], 26)
         self.assertEqual(result["progress"]["pending_preparation"], 0)
         replay = continue_source_run(self.memory, "week-one", request_builder=builder,
-            handlers={"google-suppliers": search, "company-pages": company}, bounded_call=self.direct_runner)
+            handlers={"tradeindia": search, "company-pages": company}, bounded_call=self.direct_runner)
         self.assertEqual(replay["handler_calls"], 0)
         self.assertEqual(len(calls), 2)
 
@@ -609,11 +615,11 @@ class SourceCoverageTests(unittest.TestCase):
         first = continue_source_run(self.memory, "week-one", request_builder=builder, handlers=handlers,
                                     action_limit=1, bounded_call=self.direct_runner)
         self.assertEqual(first["handler_calls"], 1)
-        self.assertEqual(first["progress"]["task_states"]["prepared"], 13)
+        self.assertEqual(first["progress"]["task_states"]["prepared"], 12)
         second = continue_source_run(self.memory, "week-one", request_builder=builder, handlers=handlers,
                                      action_limit=1, bounded_call=self.direct_runner)
         self.assertEqual(second["handler_calls"], 1)
-        self.assertEqual(second["progress"]["task_states"]["prepared"], 12)
+        self.assertEqual(second["progress"]["task_states"]["prepared"], 11)
 
     def test_known_failed_read_waits_and_retries_once_without_resetting_run(self):
         self.plan([self.question()], max_attempts=2)
@@ -1007,14 +1013,14 @@ class SourceCoverageTests(unittest.TestCase):
     def test_readable_insufficient_scope_allows_an_alternative_but_access_failures_do_not(self):
         self.query_profile()
         builder = product_source_request_builder(run_id="week-one")
-        for route, state in (("meta-ads", "insufficient"), ("google-trends", "blocked"), ("google-suppliers", "failed")):
+        for route, state in (("meta-ads", "insufficient"), ("google-trends", "blocked"), ("google-maps", "failed")):
             self.plan_query(builder, route=route)
             def outcome(context, state=state):
                 context["record_dispatch"]()
                 return self.receipt(context, state=state)
             self.run_sources({route: outcome})
         self.assertEqual(builder(self.query_context("meta-ads"))["query"], "sink organizer")
-        for route in ("google-trends", "google-suppliers"):
+        for route in ("google-trends", "google-maps"):
             self.assertEqual(builder(self.query_context(route))["query"], "draining sink caddy")
 
     def test_old_run_empty_or_different_location_does_not_consume_current_phrase_sequence(self):
@@ -1158,6 +1164,27 @@ class SourceCoverageTests(unittest.TestCase):
         with self.assertRaisesRegex(SafetyError, "DESTINATIONS_PENDING"):
             product_source_request_builder()(context)
 
+    def test_company_page_answer_never_waits_for_the_retired_google_search(self):
+        # Only the three active searches must finish; Google Search is never sent.
+        routes = ("google-maps", "indiamart", "tradeindia")
+        def empty(context):
+            context["record_dispatch"]()
+            return self.receipt(context, state="empty")
+        self.plan([self.question(route) for route in routes[:2]])
+        self.run_sources({route: empty for route in routes})
+        def context():
+            state = self.memory.snapshot()
+            return {"route": "company-pages", "concept_id": "first", "state": state,
+                    "description": state["concepts"]["first"]["description"],
+                    "description_hash": digest(state["concepts"]["first"]["description"])}
+        with self.assertRaisesRegex(SafetyError, "DESTINATIONS_PENDING"):
+            product_source_request_builder()(context())
+        self.plan([self.question("tradeindia")])
+        self.run_sources({route: empty for route in routes})
+        self.assertEqual(product_source_request_builder()(context()),
+                         {"not_applicable_reason": "Actual supplier checks did not identify a company page to read."})
+        self.assertFalse(any(task["route"] == "google-suppliers" for task in self.memory.snapshot()["query_tasks"].values()))
+
     def test_later_real_company_destination_supersedes_earlier_conditional_not_applicable(self):
         self.plan([{"route": "company-pages", "concept_ids": ["first"],
                     "not_applicable_reason": "Actual supplier checks did not identify a company page to read."}])
@@ -1212,9 +1239,9 @@ class SourceCoverageTests(unittest.TestCase):
     def test_concrete_supplier_search_and_company_paths_use_same_controller(self):
         from test_supplier_route_acquisition import BODIES, Reader, QUERY
         from product_radar.supplier_route_acquisition import create_supplier_handlers, supplier_route_url
-        reader = Reader({supplier_route_url("google-suppliers", "sink caddy"): BODIES["google-suppliers"]})
+        reader = Reader({supplier_route_url("indiamart", "sink caddy"): BODIES["indiamart"]})
         handlers = create_supplier_handlers(self.memory, http_reader=reader, browser_reader=reader, page_reader=reader)
-        self.plan([self.question("google-suppliers")])
+        self.plan([self.question("indiamart")])
         first = self.run_sources(handlers)
         self.assertEqual(first["counts"], {"acquired": 1})
         self.assertEqual(len(reader.calls), 1)

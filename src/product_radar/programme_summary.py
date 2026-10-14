@@ -562,6 +562,9 @@ def owner_meter(*, baseline, state, financial_state, report_pool, programmes, ac
                         else _meter_part(_meter_costs, financial_state, baseline))
     keep = ("state", "message", "attention", "run_id", "step", "phase", "last_reason", "started_at", "observed_at",
             "last_useful_result_at", "seconds_since_activity", "seconds_since_useful_result", "counts")
+    from .source_coverage import source_access_backoffs
+    access_waits = (_meter_part(lambda: source_access_backoffs(state, as_of=as_of))
+                    if isinstance(state, dict) else _unknown("METER_STATE_NOT_SUPPLIED"))
     return {"schema_version": 1, "kind": METER_VERSION, "checked_at": as_of,
         "started_at": baseline["started_at"] if started else None,
         "elapsed": _meter_part(_meter_elapsed, baseline["started_at"], as_of) if started else missing,
@@ -570,4 +573,6 @@ def owner_meter(*, baseline, state, financial_state, report_pool, programmes, ac
         "cost_since_start": costs, "research_now": counts, "research_since_start": since,
         "activity_now": {name: activity[name] for name in keep if isinstance(activity, dict) and name in activity},
         "runs_since_start": run_log if run_log is not None else _unknown("METER_RUN_LOG_NOT_SUPPLIED"),
+        # Websites currently refusing us, with how many refusals in a row.
+        "access_waits_now": access_waits,
         "provider_calls": 0, "model_calls": 0, "research_writes": 0, "financial_writes": 0}

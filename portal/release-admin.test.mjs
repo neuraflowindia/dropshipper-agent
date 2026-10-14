@@ -264,6 +264,18 @@ test('marked source facts keep fourteen exact routes and fractional chart figure
   assert.equal(validateFitPacket(platformPacket().facts, platformPacket().manifest).schema_version, 2);
 });
 
+test('new source facts omit the retired Google Search route; earlier fourteen-row packets stay valid', () => {
+  const p = sourcePacket();
+  for (const product of p.facts.products) product.source_route_checks = product.source_route_checks.filter(row => row.route !== 'google-suppliers');
+  refreshFacts(p);
+  assert.equal(validateFitPacket(p.facts, p.manifest), p.facts);
+  assert.equal(p.facts.products[0].source_route_checks.length, 13);
+  const shifted = sourcePacket();
+  for (const product of shifted.facts.products) product.source_route_checks = product.source_route_checks.filter(row => row.route !== 'google-maps');
+  refreshFacts(shifted);
+  assert.throws(() => validateFitPacket(shifted.facts, shifted.manifest), /ADMIN_SOURCE_ROUTE_FACTS_INVALID/);
+});
+
 test('supplier detail version preserves absent legacy markers and accepts current source-bound metadata', () => {
   for (const make of [packet, currentPacket, platformPacket, sourcePacket]) {
     const p = make();

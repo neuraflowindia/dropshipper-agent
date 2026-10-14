@@ -65,7 +65,7 @@ class PortalSourceContractTests(unittest.TestCase):
                 capture_output=True, timeout=20, check=False)
             self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
             proof = json.loads(completed.stdout)
-            self.assertEqual(proof, {"hash": digest(facts), "products": 10, "routes": 14})
+            self.assertEqual(proof, {"hash": digest(facts), "products": 10, "routes": 13})
             chart = next(row for row in facts["products"][0]["source_route_checks"] if row["route"] == "google-trends")
             means = {metric["name"]: metric["value"] for metric in chart["measurements"]}
             self.assertEqual(means["previous_mean_bounds"], ["20.25", "20.25"])

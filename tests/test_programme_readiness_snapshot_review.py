@@ -73,7 +73,9 @@ class ProgrammeReadinessSnapshotReviewTests(TestCase):
             expected = _source_turn_readiness(self.memory, state, self.record, self.standalone_handlers(), NOW)
         # Two standalone hooks per unfinished task previously each obtained a
         # full canonical snapshot, even though programme already supplied one.
-        self.assertEqual(standalone_reads.call_count, 2 * len(self.rows))
+        # Saved questions of the retired Google Search route have no hooks.
+        self.assertEqual(standalone_reads.call_count,
+                         2 * len([row for row in self.rows if row["route"] != "google-suppliers"]))
         with patch.object(self.memory, "snapshot", side_effect=AssertionError("Nested whole-history read")):
             actual = _source_turn_readiness(self.memory, state, self.record, self.handlers, NOW)
         self.assertEqual(actual, expected)
@@ -91,6 +93,9 @@ class ProgrammeReadinessSnapshotReviewTests(TestCase):
         result = self.assert_readiness_parity()
         self.assertTrue(result["callback_ready"])
         self.assertEqual(len(result["signal"]), 38)
+        retired = [row for row in result["signal"] if state["query_tasks"][row[0]]["route"] == "google-suppliers"]
+        self.assertEqual(len(retired), 3)
+        self.assertFalse(any(row[2] for row in retired))  # Never a callback for the retired route.
         self.assertEqual(self.source.calls, [])
 
     def test_bulk_saved_host_refusal_preserves_healthy_siblings_and_exact_advice(self):
