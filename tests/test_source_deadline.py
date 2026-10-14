@@ -23,7 +23,6 @@ from product_radar.meta_browser import capture_meta_search, meta_direct_source_h
 from product_radar.models import SafetyError, digest
 from product_radar.native_public_browser import native_snapshot
 from product_radar.public_pages import _Control, fetch_public_page
-from product_radar.quickcommerce_browser import create_quickcommerce_handlers
 from product_radar.research_memory import ResearchMemory, import_direct_marketplace, key
 from product_radar.source_coverage import (_bounded_call, create_marketplace_handlers, execute_source_run,
     installed_source_handlers, prepare_source_tasks)
@@ -310,44 +309,6 @@ class SourceDeadlineTests(unittest.TestCase):
         self.assertEqual(replay_direct_trends(folder), saved)
         self.assertEqual((folder / "receipt.json").read_bytes(), raw)
         self.assertEqual(len(calls), 1)
-
-    def test_quickcommerce_deadline_does_not_trigger_funded_fallback(self):
-        calls = []
-        class Funded:
-            def search(self, *args, **kwargs):
-                raise AssertionError("Outer public deadline must not trigger funded fallback")
-        handlers = create_quickcommerce_handlers(self.memory, Funded(), native_capture=self.blocked_reader(calls))
-        context = {"route": "blinkit", "acquisition_id": "commerce-deadline", "request": {"query": "sink caddy", "location": LOCATION},
-                   "concept_ids": ["first"], "description_hashes": {"first": digest(self.description)}}
-        with self.assertRaises(SourceActionDeadline):
-            _bounded_call(handlers["blinkit"], context, 0.02)
-        self.assertEqual(len(calls), 1)
-
-    def test_quickcommerce_native_cancellation_reconciles_exact_proof_without_funded_or_browser_repeat(self):
-        calls = []
-        class Funded:
-            def search(self, *args, **kwargs):
-                raise AssertionError("Saved outer cancellation must not trigger funded fallback")
-        def native(url, expression, folder):
-            return native_snapshot(url, expression, folder, runner=self.native_runner(calls, dispatch=True, cancel_after_proof=True))
-        handler = create_quickcommerce_handlers(self.memory, Funded(), native_capture=native)["blinkit"]
-        context = {"route": "blinkit", "acquisition_id": "commerce-native-cancel", "request": {"query": "sink caddy", "location": LOCATION},
-                   "concept_ids": ["first"], "description_hashes": {"first": digest(self.description)}}
-        with self.installed_native(), self.assertRaises(SourceActionDeadline):
-            _bounded_call(handler, context, 0.5)
-        proof_path = self.memory.root / "quickcommerce_free/acquisitions/commerce-native-cancel/native/native_outer_deadline.json"
-        original = proof_path.read_bytes()
-        saved = handler(dict(context, reconciling=True))
-        self.assertEqual(saved["reason"], "SOURCE_ACTION_TIMEOUT")
-        self.assertEqual(saved["state"], "failed")
-        self.assertIs(saved["dispatch_started"], True)
-        self.assertEqual(saved["observation_ids"], [])
-        self.assertEqual(handler(dict(context, reconciling=True)), saved)
-        self.assertEqual(proof_path.read_bytes(), original)
-        self.assertEqual(calls, ["launch", "cleanup"])
-        changed = dict(context, reconciling=True, request={"query": "sink caddy", "location": dict(LOCATION, name="Different location")})
-        with self.assertRaises(SafetyError):
-            handler(changed)
 
     def test_supplier_native_cancellation_retains_failed_attempt_and_reconciles_without_search_repeat(self):
         calls = []
@@ -815,32 +776,6 @@ class SourceDeadlineTests(unittest.TestCase):
                 saved_completed_transport(folder, isolated, snapshot_file="scope.json", requested_url=original_native["snapshot"]["url"],
                                           snapshot_limit=2097152)
 
-    def test_connected_commerce_timeout_recovery_does_not_pause_healthy_same_platform_question(self):
-        calls = []
-        def native(url, expression, folder):
-            calls.append(url)
-            now = datetime.now(timezone.utc).isoformat()
-            if "sink+caddy" in url:
-                atomic_json(folder / "native_dispatch.json", {"url": url, "navigation_started": True, "navigation_started_at": now})
-                atomic_json(folder / "native_outer_deadline.json", {"state": "failed", "reason": "SOURCE_ACTION_TIMEOUT",
-                    "stage": "outer_deadline", "outer_deadline": True, "requested_url": url, "snapshot": None,
-                    "navigation_started": True, "navigation_started_at": now, "navigation_status": None,
-                    "owned_process_exited": True, "completed_at": now, "launch_invoked": True})
-                raise SourceActionDeadline()
-            return {"state": "captured", "navigation_started": True, "navigation_started_at": now,
-                    "completed_at": now, "navigation_status": 200, "snapshot": {}, "owned_process_exited": True}
-        handlers = installed_source_handlers(self.memory, quickcommerce_options={"native_capture": native})
-        questions = [{"route": "blinkit", "request": {"query": term, "location": LOCATION}, "concept_ids": ["first"]}
-                     for term in ("sink caddy", "food wrap")]
-        prepare_source_tasks(self.memory, questions, run_id="same-platform", as_of=NOW)
-        first = execute_source_run(self.memory, "same-platform", handlers=handlers, timeout_seconds=0.5, as_of=NOW)
-        second = execute_source_run(self.memory, "same-platform", handlers=handlers, timeout_seconds=0.5, as_of=NOW)
-        self.assertEqual(len(calls), 2)
-        self.assertIn("insufficient", first["counts"])
-        self.assertIn("failed", second["counts"])
-        run = next(row for row in self.memory.snapshot()["batch_runs"].values() if row.get("run_id") == "same-platform")
-        self.assertEqual(run["route_pauses"], {})
-
     def test_wrapper_proof_save_failure_keeps_deadline_and_does_not_save_default_false(self):
         for kind in ("marketplace", "trends"):
             with self.subTest(kind=kind):
@@ -860,24 +795,6 @@ class SourceDeadlineTests(unittest.TestCase):
                 self.assertEqual(saved["reason"], "SOURCE_ACTION_TIMEOUT")
                 self.assertIsNone(saved["dispatch_started"])
                 self.assertTrue(saved["outer_deadline"])
-
-    def test_saved_public_probe_or_unsubmitted_funded_intent_cannot_start_new_request_on_reconcile(self):
-        native_calls, funded_calls = [], []
-        def native(*args, **kwargs):
-            native_calls.append(args)
-            return {"state": "failed", "navigation_started": False, "completed_at": NOW, "reason": "Offline native fixture"}
-        class Funded:
-            def search(self, *args, **kwargs):
-                funded_calls.append(args)
-                raise SourceActionDeadline()
-        handler = create_quickcommerce_handlers(self.memory, Funded(), native_capture=native)["blinkit"]
-        context = {"route": "blinkit", "acquisition_id": "commerce-recovery", "request": {"query": "sink caddy", "location": LOCATION},
-                   "concept_ids": ["first"], "description_hashes": {"first": digest(self.description)}}
-        with self.assertRaises(SourceActionDeadline):
-            handler(context)
-        with self.assertRaisesRegex(SafetyError, "SOURCE_ORIGINAL_RECEIPT_PENDING"):
-            handler(dict(context, reconciling=True))
-        self.assertEqual(len(native_calls), 1); self.assertEqual(len(funded_calls), 1)
 
 
 if __name__ == "__main__":

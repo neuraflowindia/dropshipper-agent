@@ -111,10 +111,12 @@ class ProgrammeTests(unittest.TestCase):
         with self.assertRaisesRegex(SafetyError, "BINDING_CHANGED"):
             self.prepare(concept_ids=["first", "second", "later"])
 
-    def test_source_identity_and_location_are_frozen(self):
-        self.prepare(location={"name": "Mumbai", "lat": "19.0760", "lon": "72.8777"})
-        with self.assertRaisesRegex(SafetyError, "BINDING_CHANGED"):
-            self.prepare()
+    def test_source_identity_is_frozen_and_places_are_not_a_programme_setting(self):
+        record = self.prepare()
+        # Quick-commerce places are configuration (W5), never a frozen option.
+        self.assertNotIn("location", record)
+        with self.assertRaises(TypeError):
+            self.prepare(location={"name": "Mumbai", "lat": "19.0760", "lon": "72.8777"})
         with self.assertRaisesRegex(SafetyError, "BINDING_CHANGED"):
             prepare_programme(self.memory, "whole-programme", source_run_id="different", as_of=self.now)
 
@@ -540,13 +542,13 @@ class ProgrammeTests(unittest.TestCase):
         self.assertEqual(len([row for row in self.memory.snapshot()["batch_runs"].values() if row.get("kind") == VERSION]), 1)
 
     def test_old_permanently_blocked_fixed_point_admits_only_latest_fresh_week_without_cloning_pool(self):
-        old = self.prepare(location={"name": "Mumbai", "lat": "19.0760", "lon": "72.8777"})
+        old = self.prepare()
         self.advance(steps=self.noops())
         before = self.memory.snapshot()
         fresh = due_programme(self.memory, as_of="2026-11-11T00:00:00+00:00")
         self.assertEqual(fresh["week"], "2026-11-09")
         self.assertEqual(fresh["concept_ids"], [])
-        self.assertEqual(fresh["location"], old["location"])
+        self.assertNotIn("location", fresh)
         self.assertEqual(load_programme(self.memory, old["programme_id"])["concept_ids"], old["concept_ids"])
         for table in ("captures", "query_tasks", "jobs", "published_history", "issue_reservations"):
             self.assertEqual(self.memory.snapshot()[table], before[table])

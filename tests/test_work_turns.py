@@ -147,23 +147,25 @@ class WorkTurnTests(unittest.TestCase):
 
     def test_source_limit_is_shared_and_missing_callback_return_consumes_slot(self):
         turn = self.open()
+        limit = DEFAULT_POLICY["source_callbacks"]  # the configured round allowance (round_limits)
         with bind_work_turn(self.memory, turn["id"]):
-            for number in range(12):
+            for number in range(limit):
                 reserve_source_callback(self.memory, "call" + str(number), at=NOW)
             with self.assertRaisesRegex(SafetyError, "WORK_TURN_SOURCE_LIMIT"):
                 reserve_source_callback(self.memory, "saved-only-new-callback", at=NOW)
-        self.assertEqual(self.turn(turn["id"])["counters"]["source_callbacks"], 12)
+        self.assertEqual(self.turn(turn["id"])["counters"]["source_callbacks"], limit)
 
     def test_source_fairness_and_unused_exploration_donation(self):
         turn = self.open(ready_lanes={"exploration": True, "backlog": True})
+        limit = DEFAULT_POLICY["source_callbacks"]  # the configured round allowance (round_limits)
         with bind_work_turn(self.memory, turn["id"]):
-            for number in range(10):
+            for number in range(limit - DEFAULT_POLICY["exploration_slots"]):
                 reserve_source_callback(self.memory, "backlog" + str(number), at=NOW)
             with self.assertRaisesRegex(SafetyError, "WORK_TURN_SOURCE_LIMIT"):
                 reserve_source_callback(self.memory, "protected", at=NOW)
             reserve_source_callback(self.memory, "explore1", at=NOW, lane="exploration")
             reserve_source_callback(self.memory, "donated", at=NOW, ready_lanes={"exploration": False, "backlog": True})
-        self.assertEqual(self.turn(turn["id"])["counters"]["source_callbacks"], 12)
+        self.assertEqual(self.turn(turn["id"])["counters"]["source_callbacks"], limit)
 
     def test_non_model_photos_share_item_bound_across_followons(self):
         turn = self.open()

@@ -35,7 +35,9 @@ SEED_RETRY_SECONDS = 300
 # they keep running only as each type's crowding check.
 FREE_ROUTES = ("meta-ads",)
 # Saved discovery questions of these routes are closed, never read or interpreted.
-RETIRED_ROUTES = frozenset(("amazon-search", "flipkart-search", "amazon-bestsellers", "amazon-movers-and-shakers"))
+# Quick-commerce credits are spent only on admitted per-type checks (W5).
+RETIRED_ROUTES = frozenset(("amazon-search", "flipkart-search", "amazon-bestsellers", "amazon-movers-and-shakers",
+                            "blinkit", "zepto", "instamart"))
 _CLOSED_ACTIONS = frozenset(("acquired", "empty", "retired"))
 KNOWN_LOCAL_FAILURES = {"RUNNER_ALREADY_ACTIVE", "MARKETPLACE_BROWSER_NOT_INSTALLED", "NATIVE_PUBLIC_BROWSER_UNAVAILABLE"}
 
@@ -74,9 +76,9 @@ def _callable(value, *, reconciliation=False):
 
 
 def _retire_closed_routes(record, at):
-    """D4: an unfinished saved Amazon/Flipkart discovery question (even one
-    with saved cards awaiting interpretation, or a failed one awaiting a
-    retry) closes as retired. Its cards are never turned into candidates and
+    """D4 and W5: an unfinished saved Amazon/Flipkart or quick-commerce
+    discovery question (even one with saved cards awaiting interpretation, or
+    a failed one awaiting a retry) closes as retired. Its cards are never turned into candidates and
     it is not unfinished work. Finished questions keep their history."""
     retired = []
     for planned in record["planned_actions"]:
@@ -305,17 +307,17 @@ def _wave_control(state, programme_id):
     return control_id, deepcopy(saved)
 
 
-def _wave_candidates(state, programme_id, catalogue, handlers, at, *, cache_days, location=None):
+def _wave_candidates(state, programme_id, catalogue, handlers, at, *, cache_days):
     """Pure source-specific choices; no family-wide busy/cooldown exclusion."""
     from .research_questions import _catalogue_direction_scope
     from .source_acquisitions import source_readiness_owner_scope
     current = effective_catalogue(validate_catalogue(catalogue), state)
     with source_readiness_owner_scope(state), _catalogue_direction_scope(state, catalogue, current):
         return _wave_candidates_in_scope(state, programme_id, catalogue, current, handlers, at,
-            cache_days=cache_days, location=location)
+            cache_days=cache_days)
 
 
-def _wave_candidates_in_scope(state, programme_id, catalogue, current, handlers, at, *, cache_days, location=None):
+def _wave_candidates_in_scope(state, programme_id, catalogue, current, handlers, at, *, cache_days):
     from .research_questions import _prepare, catalogue_direction_subject
     from .source_coverage import shared_source_hooks, source_readiness_hint
     candidates, waits, seen, gaps = [], [], set(), []
@@ -340,21 +342,15 @@ def _wave_candidates_in_scope(state, programme_id, catalogue, current, handlers,
                 specs.append((family, "google-trends", {"query": phrase["text"], "country": phrase["country"]},
                               {"search_scope": "accepted_direction_demand_context"}, "validation"))
                 continue
-            if phrase["source"] not in {"meta", "marketplace", "quickcommerce"}:
+            # Quick commerce is never a discovery source: its paid credits are
+            # spent only on admitted per-type product checks (W5).
+            if phrase["source"] not in {"meta", "marketplace"}:
                 continue
-            if phrase["source"] in {"meta", "marketplace"}:
-                # Amazon and Flipkart searches are the types' crowding check (D4).
-                routes = FREE_ROUTES if phrase["purpose"] == "discovery" or phrase["source"] == "meta" else ()
-                for route in routes:
-                    specs.append((family, route, _source_request(route, phrase=phrase["text"]),
-                                  {"search_scope": "accepted_direction"}, phrase["purpose"]))
-            for route in ("blinkit", "zepto", "instamart"):
-                if location is None:
-                    gaps.append({"family_id": family["id"], "route": route, "query": phrase["text"],
-                                 "reason": "QUICKCOMMERCE_LOCATION_REQUIRED"})
-                else:
-                    specs.append((family, route, {"query": phrase["text"], "location": deepcopy(location)},
-                                  {"search_scope": "accepted_direction_location_catalogue"}, phrase["purpose"]))
+            # Amazon and Flipkart searches are the types' crowding check (D4).
+            routes = FREE_ROUTES if phrase["purpose"] == "discovery" or phrase["source"] == "meta" else ()
+            for route in routes:
+                specs.append((family, route, _source_request(route, phrase=phrase["text"]),
+                              {"search_scope": "accepted_direction"}, phrase["purpose"]))
     for family, route, request, options, purpose in specs:
         hooks = shared_source_hooks(handlers.get(route))
         if hooks["prepare"]:
@@ -431,7 +427,7 @@ def _first_pass_settled(wave):
 
 
 def prepare_next_discovery_wave(memory, programme_id, catalogue, *, handlers, action_limit=4,
-                                cache_days=7, as_of=None, location=None):
+                                cache_days=7, as_of=None):
     """Prepare a real nonempty finite wave, or retain a named saved wait."""
     if (type(action_limit) is not int or not 1 <= action_limit <= 20
             or type(cache_days) is not int or not 1 <= cache_days <= 90 or not isinstance(handlers, dict)):
@@ -447,7 +443,7 @@ def prepare_next_discovery_wave(memory, programme_id, catalogue, *, handlers, ac
         if not _first_pass_settled(existing):
             return deepcopy(existing)
     current, candidates, waits, gaps = _wave_candidates(state, programme_id, catalogue, handlers, at,
-        cache_days=cache_days, location=location)
+        cache_days=cache_days)
     if not candidates:
         return {"kind": WAVE_VERSION, "state": "waiting", "wave_id": None,
                 "next_retry_at": min(waits, key=timestamp) if waits else None,
@@ -920,18 +916,18 @@ def _save_wave_question_progress(memory, wave, handlers, at, *, served=None):
 
 
 def discovery_wave_readiness(memory, programme_id, catalogue, *, handlers, as_of,
-                             cache_days=7, runner_available=False, state=None, location=None):
+                             cache_days=7, runner_available=False, state=None):
     """Pure bounded work selection; unchanged waits create no empty waves."""
     state = memory.snapshot() if state is None else state
     from .source_acquisitions import source_readiness_owner_scope
     with source_readiness_owner_scope(state):
         return _discovery_wave_readiness(memory, programme_id, catalogue, handlers=handlers, as_of=as_of,
             cache_days=cache_days, runner_available=runner_available,
-            state=state, location=location)
+            state=state)
 
 
 def _discovery_wave_readiness(memory, programme_id, catalogue, *, handlers, as_of,
-                              cache_days, runner_available, state, location):
+                              cache_days, runner_available, state):
     _, control = _wave_control(state, programme_id)
     work, waits, projection, signals = [], [], {}, []
     current = state["batch_runs"].get(control["current_wave_id"]) if control["current_wave_id"] else None
@@ -968,7 +964,7 @@ def _discovery_wave_readiness(memory, programme_id, catalogue, *, handlers, as_o
                          "last_served": progress.get("last_served_turn", 0)})
     work.sort(key=lambda row: (row["last_served"], row["question_id"]))
     current_catalogue, candidates, new_waits, gaps = _wave_candidates(state, programme_id, catalogue, handlers, as_of,
-        cache_days=cache_days, location=location)
+        cache_days=cache_days)
     waits.extend(new_waits)
     new_wave = bool((current is None or _first_pass_settled(current)) and candidates)
     # A different accepted catalogue or newly due question is a real wake
@@ -987,7 +983,7 @@ def _discovery_wave_readiness(memory, programme_id, catalogue, *, handlers, as_o
 
 
 def advance_discovery_waves(memory, programme_id, catalogue, *, handlers, runner=None, max_actions=2,
-                            flow_limit=10, admission=None, action_limit=4, cache_days=7, as_of=None, location=None):
+                            flow_limit=10, admission=None, action_limit=4, cache_days=7, as_of=None):
     """Serve finite old work and independent exploration under the same turn."""
     turn = active_work_turn(memory)
     if turn is None:
@@ -999,11 +995,11 @@ def advance_discovery_waves(memory, programme_id, catalogue, *, handlers, runner
         # This callback already owns a real ready turn. Even without a live
         # runner, Jobs may apply exact saved replies; readiness outside the
         # callback separately avoids advertising new AI during a model wait.
-        cache_days=cache_days, runner_available=True, location=location)
+        cache_days=cache_days, runner_available=True)
     available = ready["work"]
     if ready["new_wave_ready"]:
         wave = prepare_next_discovery_wave(memory, programme_id, catalogue, handlers=handlers,
-            action_limit=action_limit, cache_days=cache_days, as_of=at, location=location)
+            action_limit=action_limit, cache_days=cache_days, as_of=at)
         if wave.get("id"):
             fresh = []
             # Preparation committed real question records. Share this new
@@ -1389,20 +1385,58 @@ def advance_catalogue_seed_cycle(memory, cycle_id, catalogue, *, runner=None, ma
         return summary
 
 
+def _wider_result(wider):
+    """The wider lane's result; its failure is its own wait, never the heading searches'."""
+    try:
+        result = wider()
+        new = result.get("new_concept_ids") if isinstance(result, dict) else None
+        if not isinstance(new, list) or any(not isinstance(cid, str) for cid in new):
+            raise SafetyError("WIDER_DISCOVERY_RESULT_INVALID")
+    except (SafetyError, OSError, KeyError, TypeError, ValueError) as error:
+        # Like the seed lane: a wider-lane defect never defers the heading searches.
+        _raise_shared_integrity(error)
+        result = {"state": "waiting", "reason": str(error) if isinstance(error, SafetyError)
+                  else "WIDER_DISCOVERY_LOCAL_FAILURE", "new_concept_ids": []}
+    return result
+
+
+def _headings_and_wider(headings, wider, *, wider_first):
+    """Heading searches, then wider discovery, except in the rounds when wider
+    discovery has the first use of the AI calls held for discovery (the
+    programme rotates that first use). A heading failure still lets the wider
+    lane run that round before it is raised."""
+    lane = _wider_result(wider) if wider_first else None
+    try:
+        result = headings()
+    except Exception as error:
+        _raise_shared_integrity(error)
+        if lane is None:
+            _wider_result(wider)
+        raise
+    lane = lane if lane is not None else _wider_result(wider)
+    found = sorted(set(result["new_concept_ids"]) | set(lane["new_concept_ids"]))
+    return dict(result, wider=lane, new_concept_ids=found, new_products_need_full_source_review=found)
+
+
 def create_catalogue_discovery_step(catalogue=None, *, action_limit=4, actions_per_round=2,
                                     admission=None, seed_manifest=None, seed_branches_per_round=1,
                                     shared_marketplace=False, renewable_waves=False, seed_inventory=None,
-                                    seed_source_root=None):
+                                    seed_source_root=None, wider_step=None):
     """N22 callback. Construction is read-only and performs no external work.
 
     ``seed_inventory`` (the repository plan) with ``seed_source_root`` lets
     each store prepare its own seed manifest through the ordinary staging
     route the first time the lane runs; ``seed_manifest`` supplies one directly.
+    ``wider_step`` (``wider_discovery.wider_step``, W8) runs after the heading
+    searches of each renewable wave turn, or before them when the programme
+    gives it the round's first use of the AI share held for discovery
+    (``context["wider_first"]``).
     """
     base = validate_catalogue(catalogue or load_catalogue())
     if type(seed_branches_per_round) is not int or not 1 <= seed_branches_per_round <= 10:
         raise SafetyError("DISCOVERY_SEED_SLICE_INVALID")
-    if type(renewable_waves) is not bool or renewable_waves and not shared_marketplace:
+    if (type(renewable_waves) is not bool or renewable_waves and not shared_marketplace
+            or wider_step is not None and (not callable(wider_step) or not renewable_waves)):
         raise SafetyError("DISCOVERY_WAVE_OPTION_INVALID")
     inventory = None
     if seed_inventory is not None:
@@ -1435,11 +1469,15 @@ def create_catalogue_discovery_step(catalogue=None, *, action_limit=4, actions_p
                     "new_products_need_full_source_review": [], "paid_actor_calls": 0,
                     "original_product_pool_changed": False, "note": "Prepared branch decisions are advancing before new search choices are frozen. Original product-review lanes continue independently."}
         if renewable_waves:
-            with preparation_step("discovery_questions"):
-                result = advance_discovery_waves(memory, programme_record["programme_id"], base,
-                    handlers=context["handlers"], runner=context.get("runner"), max_actions=actions_per_round,
-                    flow_limit=min(50, context.get("fit_limit", 10)), admission=admission, action_limit=action_limit,
-                    as_of=context["at"], location=programme_record.get("location"))
+            def headings():
+                with preparation_step("discovery_questions"):
+                    return advance_discovery_waves(memory, programme_record["programme_id"], base,
+                        handlers=context["handlers"], runner=context.get("runner"), max_actions=actions_per_round,
+                        flow_limit=min(50, context.get("fit_limit", 10)), admission=admission, action_limit=action_limit,
+                        as_of=context["at"])
+            result = headings() if wider_step is None else _headings_and_wider(
+                headings, lambda: wider_step(memory, programme_record, dict(context, discovery_catalogue=base)),
+                wider_first=context.get("wider_first") is True)
             if seed is not None:
                 result["seed"] = seed
             return result

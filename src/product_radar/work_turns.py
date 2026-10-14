@@ -16,7 +16,10 @@ from .research_memory import change, key
 
 
 TURN_KIND = "work-turn-v1"
-DEFAULT_POLICY = {"source_callbacks": 12, "model_executions": 10,
+# The shape of a turn's policy. A round's read and AI-call allowances come from
+# config/research/round_limits.json (``round_limits.round_policy``); these
+# defaults equal that file (a test keeps them equal).
+DEFAULT_POLICY = {"source_callbacks": 16, "model_executions": 10,
                   "purpose_items": {"C:product_query_profile": 20, "E:fit": 10, "E:source_support": 5, "F": 5,
                                     "photos": 10},
                   "exploration_slots": 2, "report_slots": 1, "review_slots": 2}

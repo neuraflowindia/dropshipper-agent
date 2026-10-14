@@ -88,12 +88,14 @@ class SourcePreparationProgressTests(unittest.TestCase):
         self.assertEqual([row["remaining"] for row in questions], list(range(2 * R, 0, -1)))
         self.assertTrue(all(row["stage"] == "acquire" and row["useful_result"] is False for row in rows))
         # Pending: each product's company pages (no destination yet), its four
-        # dropshipping-platform questions (no platform catalogue has been read yet)
-        # and the Meta depth follow-up (no free read yet).
+        # dropshipping-platform questions (no platform catalogue has been read yet),
+        # the Meta depth follow-up (no free read yet) and its three paid
+        # quick-commerce checks (reserved for later: no passed checklist yet, W5).
         platforms = [route for route in ROUTES if coverage.ROUTES[route]["source"] == "dropship-platforms"]
-        waiting = {"company-pages", *platforms} | ({"meta-ads-depth"} & set(ROUTES))
+        commerce = [route for route in ROUTES if coverage.ROUTES[route]["source"] == "quickcommerce"]
+        waiting = {"company-pages", *platforms, *commerce} | ({"meta-ads-depth"} & set(ROUTES))
         pending = 2 * len(waiting)
-        self.assertEqual(len(platforms), 4)
+        self.assertEqual((len(platforms), len(commerce)), (4, 3))
         self.assertEqual({row["route"] for row in result["pending_preparation"]}, waiting)
         self.assertEqual(rows[-1]["counts"], {"questions_total": 2 * R,
             "questions_prepared": 2 * R - pending, "questions_pending": pending})
@@ -102,6 +104,8 @@ class SourcePreparationProgressTests(unittest.TestCase):
         self.assertEqual(len(result["pending_preparation"]), pending)
         self.assertEqual({row["reason"] for row in result["pending_preparation"] if row["route"] in platforms},
                          {"DROPSHIP_CATALOGUE_PENDING"})
+        self.assertEqual({row["reason"] for row in result["pending_preparation"] if row["route"] in commerce},
+                         {"QUICKCOMMERCE_RESERVED_CHECKLIST"})
         self.assertEqual(result["source_attempts_created"], 0)
         self.assertEqual(current["counts"]["completed_results"], 0)
         self.assertEqual(current["counts"]["failures"], 0)

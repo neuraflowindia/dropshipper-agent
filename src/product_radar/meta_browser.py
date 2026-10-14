@@ -153,8 +153,14 @@ def parse_meta_snapshot(snapshot, request, navigation_status, *, legacy_dates=Fa
         return {"state": "blocked", "reason": "Meta returned HTTP " + str(navigation_status) + ".", "records": []}
     if navigation_status != 200:
         return {"state": "failed", "reason": "The main Meta page response was not confirmed successful.", "records": []}
+    return card_outcome(snapshot, request["limit"], legacy_dates=legacy_dates, legacy_images=legacy_images)
+
+
+def card_outcome(snapshot, limit, *, legacy_dates=False, legacy_images=False):
+    """The visible library cards of a returned, in-scope Ad Library page (a
+    keyword search or an advertiser's page, ``meta_advertisers``)."""
     records, rejected, ids = [], [], set()
-    for index, card in enumerate(snapshot["cards"][:request["limit"]]):
+    for index, card in enumerate(snapshot["cards"][:limit]):
         if (not isinstance(card, dict) or not isinstance(card.get("ad_id"), str)
                 or not re.fullmatch(r"[0-9]{1,40}", card["ad_id"])
                 or not isinstance(card.get("text"), str)
@@ -192,7 +198,7 @@ def parse_meta_snapshot(snapshot, request, navigation_status, *, legacy_dates=Fa
                         "presentation": {"body": body, **({"original_image_url": image} if image else {})}})
     text = snapshot.get("text", "")
     if records:
-        return {"state": "partial" if rejected or len(snapshot["cards"]) > request["limit"] else "usable",
+        return {"state": "partial" if rejected or len(snapshot["cards"]) > limit else "usable",
                 "reason": "Visible public library cards were captured; product relevance still needs review.", "records": records, "rejected": rejected}
     if re.search(r"no ads (?:match|found)|no results (?:found|for)|we couldn.t find any ads", text, re.I):
         return {"state": "empty", "reason": "The requested Meta search explicitly returned no ads.", "records": [], "rejected": rejected}

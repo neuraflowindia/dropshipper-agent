@@ -351,41 +351,20 @@ def _discovery_candidates(state, catalogues, config):
 
 
 def _settled(state, acquisition_id, imported_at, as_of, settle_days):
-    """Admission of a discovery capture is over: every item described and its
-    children decided, or recorded as failed/deferred, or the capture is older
-    than ``settle_days`` (it never holds new nominations for ever)."""
-    if timestamp(as_of) - timestamp(imported_at) >= timedelta(days=settle_days):
-        return True
-    problems = {row.get("affected_id") for row in state["problems"].values()}
-    for row in state["observations"].values():
-        if row["acquisition_id"] != acquisition_id:
-            continue
-        semantic = row["semantic_id"]
-        description = state["descriptions"].get(semantic)
-        if description is None:
-            if semantic not in problems:
-                return False
-            continue
-        for index in range(len(description["result"]["products"])):
-            child = key("child", [semantic, index, digest(description["result"])])
-            status = state["associations"].get(child, {}).get("status")
-            if status not in ("resolved", "excluded", "deferred") and child not in problems:
-                return False
-    return True
+    """Admission of a discovery capture is over (``discovery_admission.unsettled``)."""
+    from .discovery_admission import unsettled
+    return not unsettled(state, [{"acquisition_id": acquisition_id, "imported_at": imported_at}], as_of, settle_days)
 
 
 def advance_platform_discovery(memory, *, root, runner, as_of, flow_limit=10, catalogues=None):
     """Nominate a few new list items and continue their admission; returns new concept ids."""
-    from .catalogue_discovery import _acquisition_progress
-    from .fit_policy import FIT_POLICY_ID
-    from .research_flow import run_flow
+    from .discovery_admission import admit, unsettled
     config = settings()["discovery"]
     catalogues = catalogues or {route: load_catalogue(root, route) for route in ROUTES}
     state = memory.snapshot()
     discovery = sorted((row for row in state["captures"].values() if row.get("mapper_version") == DISCOVERY_MAPPER),
                        key=lambda row: row["imported_at"])
-    pending = [row for row in discovery if not _settled(state, row["acquisition_id"], row["imported_at"], as_of,
-                                                         config["settle_after_days"])]
+    pending = unsettled(state, discovery, as_of, config["settle_after_days"])
     today = sum(1 for row in state["observations"].values() if row["source"] in ROUTES
                 and row["facts"].get("list_type") == "dropship_discovery_list"
                 and timestamp(as_of) - timestamp(state["captures"][row["capture_id"]]["imported_at"]) < timedelta(hours=24))
@@ -408,20 +387,13 @@ def advance_platform_discovery(memory, *, root, runner, as_of, flow_limit=10, ca
         import_platform_capture(memory, route, aid, rows, observed_at=observed, reference=folder / "receipt.json",
                                 request=request, mapper=DISCOVERY_MAPPER)
     state = memory.snapshot()
-    pending = [row for row in sorted((row for row in state["captures"].values() if row.get("mapper_version") == DISCOVERY_MAPPER),
-                                     key=lambda row: row["imported_at"])
-               if not _settled(state, row["acquisition_id"], row["imported_at"], as_of, config["settle_after_days"])][:10]
+    pending = unsettled(state, sorted((row for row in state["captures"].values() if row.get("mapper_version") == DISCOVERY_MAPPER),
+                                      key=lambda row: row["imported_at"]), as_of, config["settle_after_days"])[:10]
     result = {"nominated": len(picked), "pending_acquisitions": len(pending), "new_concept_ids": []}
-    if not pending:
-        return result
-    run_flow(memory, runner, acquisition_ids=[row["acquisition_id"] for row in pending], limit=flow_limit, as_of=as_of,
-             fit_policy_id=FIT_POLICY_ID)
-    state = memory.snapshot()
-    new = set()
-    for row in pending:  # new = admitted types that did not exist when the items were nominated
-        baseline = load_json(Path(row["reference"]["folder"]) / row["reference"]["file"], 8 * 1024 * 1024)["baseline_concepts"]
-        new.update(_acquisition_progress(state, [row["acquisition_id"]], baseline)["new_concept_ids"])
-    result["new_concept_ids"] = sorted(new)
+    references = {row["acquisition_id"]: Path(row["reference"]["folder"]) / row["reference"]["file"] for row in pending}
+    # New = admitted types that did not exist when the items were nominated.
+    result["new_concept_ids"] = admit(memory, runner, [row["acquisition_id"] for row in pending], as_of=as_of,
+        flow_limit=flow_limit, baseline=lambda aid: load_json(references[aid], 8 * 1024 * 1024)["baseline_concepts"])
     return result
 
 

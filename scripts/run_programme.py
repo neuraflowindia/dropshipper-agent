@@ -9,7 +9,6 @@ programmes or accumulate separate paid allowances for missed research weeks.
 
 import argparse
 from collections import Counter
-from copy import deepcopy
 import json
 from pathlib import Path
 import sys
@@ -84,11 +83,9 @@ def _main(argv=None, *, memory=None, runner=None, handlers=None, steps=None, dis
     parser.add_argument("--live-model", action="store_true", help="Only the already-approved signed-in account and saved public inputs.")
     parser.add_argument("--funded-quickcommerce-fallback", action="store_true", help="Existing credits only; never buy or upgrade.")
     parser.add_argument("--max-cycles", type=int, help="Optional execution slice; unfinished work stays saved.")
-    parser.add_argument("--source-actions", type=int, default=12,
-        help="Shared source-callback limit per uninterrupted acquisition pass across the original and follow-on pools.")
-    parser.add_argument("--location-name")
-    parser.add_argument("--latitude")
-    parser.add_argument("--longitude")
+    parser.add_argument("--source-actions", type=int,
+        help="Shared source-callback limit per uninterrupted acquisition pass across the original and follow-on pools "
+             "(default: source_reads in config/research/round_limits.json).")
     parser.add_argument("--task-xml", action="store_true", help="Print an uninstalled Windows recurring-task definition.")
     parser.add_argument("--compare-task-xml", action="store_true", help="Read-only semantic comparison of two definitions supplied privately on stdin.")
     parser.add_argument("--plan-cooperative-upgrade", action="store_true", help="Print an exact read-only task upgrade plan supplied privately on stdin; never install or run it.")
@@ -119,6 +116,12 @@ def _main(argv=None, *, memory=None, runner=None, handlers=None, steps=None, dis
             return 1
     if args.cooperative_turns and (not (args.execute or args.task_xml) or args.compare_task_xml or args.plan_cooperative_upgrade or args.pause or args.resume):
         parser.error("--cooperative-turns requires execution or an uninstalled task definition")
+    if args.source_actions is None:
+        from product_radar.round_limits import round_limits
+        try:
+            args.source_actions = round_limits()["source_reads"]
+        except (SafetyError, OSError) as error:
+            parser.error("round limits unreadable: " + (str(error) if isinstance(error, SafetyError) else "ROUND_LIMITS_UNREADABLE"))
     if args.cooperative_turns and args.source_actions > 1000:
         parser.error("cooperative source actions must not exceed 1000 per saved turn")
     if args.compare_task_xml or args.plan_cooperative_upgrade:
@@ -154,10 +157,6 @@ def _main(argv=None, *, memory=None, runner=None, handlers=None, steps=None, dis
         parser.error("--source-run-id is only needed when the programme is first prepared")
     if (args.max_cycles is not None and args.max_cycles < 1) or args.source_actions < 1:
         parser.error("execution slices must be positive")
-    fields = (args.location_name, args.latitude, args.longitude)
-    if any(fields) and not all(fields):
-        parser.error("location name, latitude and longitude must be supplied together")
-    location = {"name": args.location_name, "lat": args.latitude, "lon": args.longitude} if all(fields) else None
     root = Path(root)
     memory = memory or ResearchMemory(runtime_path(root, "data/research/captured"),
                                       Journal(runtime_path(root, "data/benchmarks/state/apify")))
@@ -172,9 +171,9 @@ def _main(argv=None, *, memory=None, runner=None, handlers=None, steps=None, dis
         if args.tick and args.cooperative_turns:
             record = None  # Selection and admission happen together under the programme writer.
         elif args.tick:
-            record = due_programme(memory, location=location)
+            record = due_programme(memory)
         elif args.prepare:
-            record = prepare_programme(memory, args.programme_id, source_run_id=args.source_run_id, location=location)
+            record = prepare_programme(memory, args.programme_id, source_run_id=args.source_run_id)
         else:
             checked_state = memory.snapshot() if not args.execute else None
             record = load_programme(memory, args.programme_id, state=checked_state)
@@ -211,7 +210,11 @@ def _main(argv=None, *, memory=None, runner=None, handlers=None, steps=None, dis
         installed_sources = handlers is None
         if handlers is None:
             client = None
-            if args.funded_quickcommerce_fallback:
+            if args.funded_quickcommerce_fallback and not args.cooperative_turns:
+                # Paid checks run only in the cooperative turns, where every
+                # question passes admission and the credit gate before a call.
+                setup_failures["funded_quickcommerce"] = "QUICKCOMMERCE_COOPERATIVE_TURNS_REQUIRED"
+            elif args.funded_quickcommerce_fallback:
                 try:
                     from product_radar.quickcommerce import QuickCommerceClient, load_key
                     client = QuickCommerceClient(load_key())
@@ -220,9 +223,11 @@ def _main(argv=None, *, memory=None, runner=None, handlers=None, steps=None, dis
             shared_options = {"marketplace_options": {"shared_acquisitions": True},
                               "meta_options": {"shared_acquisitions": True},
                               "trends_options": {"shared_acquisitions": True},
-                              "supplier_options": {"respect_access_waits": True, "shared_acquisitions": True},
-                              "quickcommerce_options": {"respect_access_waits": True, "shared_acquisitions": True}} if args.cooperative_turns else {}
-            handlers = installed_source_handlers(memory, quickcommerce_client=client, **shared_options)
+                              "supplier_options": {"respect_access_waits": True, "shared_acquisitions": True}} if args.cooperative_turns else {}
+            # Paid quick-commerce checks pass admission and the credit gate; the
+            # credit records live with this project's spend watch.
+            handlers = installed_source_handlers(memory, quickcommerce_client=client,
+                                                 quickcommerce_options={"spend_root": root}, **shared_options)
         if discovery_step is None:
             try:
                 from product_radar.catalogue_discovery import create_catalogue_discovery_step
@@ -237,7 +242,10 @@ def _main(argv=None, *, memory=None, runner=None, handlers=None, steps=None, dis
                     seed_options = {"seed_inventory": load_seed_inventory(), "seed_source_root": root}
                 except (SafetyError, OSError) as error:
                     setup_failures["catalogue_seed"] = str(error) if isinstance(error, SafetyError) else "CATALOGUE_INVENTORY_UNREADABLE"
-                discovery_options = {"shared_marketplace": True, "renewable_waves": True} if args.cooperative_turns else {}
+                # W8: the wider-discovery lane follows the heading searches of each turn.
+                from product_radar.wider_discovery import wider_step
+                discovery_options = ({"shared_marketplace": True, "renewable_waves": True, "wider_step": wider_step}
+                                     if args.cooperative_turns else {})
                 discovery_step = create_catalogue_discovery_step(**seed_options, **discovery_options)
             except (SafetyError, OSError) as error:
                 setup_failures["catalogue_discovery"] = str(error) if isinstance(error, SafetyError) else "DISCOVERY_CATALOGUE_UNREADABLE"
@@ -260,13 +268,11 @@ def _main(argv=None, *, memory=None, runner=None, handlers=None, steps=None, dis
             print(json.dumps({"lane_setup_waiting": setup_failures,
                               "healthy_lanes_continue": True}), flush=True)
         if args.cooperative_turns:
-            from product_radar.work_turns import DEFAULT_POLICY
-            policy = deepcopy(DEFAULT_POLICY)
-            policy["source_callbacks"] = args.source_actions
-            policy["exploration_slots"] = min(policy["exploration_slots"], args.source_actions)
+            from product_radar.round_limits import round_policy
+            policy = round_policy(args.source_actions)  # the configured AI-call allowance, too
             completed = 0
             while args.max_cycles is None or completed < args.max_cycles:
-                result = advance_ready_programme_turn(memory, programme_id=programme_id, location=location,
+                result = advance_ready_programme_turn(memory, programme_id=programme_id,
                     root=root, runner=runner, handlers=handlers, source_limit=args.source_actions, steps=steps,
                     turn_policy=policy, discovery_step=discovery_step, platform_step=platform_step,
                     private_staging=private_staging,

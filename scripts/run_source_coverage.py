@@ -30,31 +30,21 @@ def main(argv=None, *, memory=None, handlers=None):
     parser.add_argument("--execute", action="store_true", help="Execute due registered public acquisitions in that finite run.")
     parser.add_argument("--continue", dest="continue_work", action="store_true", help="Prepare all current products and keep newly discovered page reads moving until only waiting or interpretation work remains.")
     parser.add_argument("--action-limit", type=int, help="Calls in this pass; remaining tasks stay queued, not discarded.")
-    parser.add_argument("--funded-quickcommerce-fallback", action="store_true", help="Use the already-configured catalogue credits as fallback; never buy credits or change billing.")
     parser.add_argument("--output", type=Path, help="Optional derived coverage JSON; not source proof or a client report.")
-    parser.add_argument("--location-name", help="Quick-commerce place name, with --latitude and --longitude.")
-    parser.add_argument("--latitude")
-    parser.add_argument("--longitude")
     args = parser.parse_args(argv)
     if (args.prepare or args.execute) and not args.run_id:
         parser.error("--run-id is required for preparing or executing work")
     if args.continue_work and not args.execute:
         parser.error("--continue requires --execute")
-    location_fields = (args.location_name, args.latitude, args.longitude)
-    if any(location_fields) and not all(location_fields):
-        parser.error("location name, latitude and longitude must be supplied together")
-    location = {"name": args.location_name, "lat": args.latitude, "lon": args.longitude} if all(location_fields) else None
     memory = memory or ResearchMemory(runtime_path(ROOT, "data/research/captured"), Journal(runtime_path(ROOT, "data/benchmarks/state/apify")))
     try:
         if handlers is None:
-            client = None
-            if args.execute and args.funded_quickcommerce_fallback:
-                from product_radar.quickcommerce import QuickCommerceClient, load_key
-                client = QuickCommerceClient(load_key())
-            handlers = installed_source_handlers(memory, quickcommerce_client=client)
+            # No paid quick-commerce client here: those checks run only in the
+            # programme's cooperative turns, behind admission and the credit gate.
+            handlers = installed_source_handlers(memory)
         if args.prepare:
             prepared = prepare_all_source_tasks(memory, run_id=args.run_id,
-                request_builder=product_source_request_builder(location=location, run_id=args.run_id))
+                request_builder=product_source_request_builder(run_id=args.run_id))
             print(json.dumps({key: value for key, value in prepared.items() if key not in {"task_ids", "pending_preparation"}}, indent=2), flush=True)
             print(json.dumps({"pending_preparation_reasons": dict(Counter(row["reason"] for row in prepared["pending_preparation"]))}), flush=True)
         if args.execute:
@@ -62,7 +52,7 @@ def main(argv=None, *, memory=None, handlers=None):
                 print(json.dumps({"source_progress": row}), flush=True)
             if args.continue_work:
                 result = continue_source_run(memory, args.run_id,
-                    request_builder=product_source_request_builder(location=location, run_id=args.run_id), handlers=handlers,
+                    request_builder=product_source_request_builder(run_id=args.run_id), handlers=handlers,
                     action_limit=args.action_limit, on_progress=progress,
                     on_pass=lambda status: print(json.dumps({"source_run_progress": status}), flush=True))
             else:

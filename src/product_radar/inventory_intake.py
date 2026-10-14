@@ -530,6 +530,7 @@ def admit_selected_inventory_work(memory, record, *, as_of, pool, limit=10):
                 for product in issue["products"][:10]}
     eligible = {row["concept_id"]: row for row in pool["eligible"]}
     origins = _origins(state); requests = []
+    commerce = {}  # quick-commerce admission per type, worked out once when needed
     candidates = list(intended)
     if shortfall:
         # The allocator correctly leaves currently fresh evidence out of a
@@ -599,6 +600,12 @@ def admit_selected_inventory_work(memory, record, *, as_of, pool, limit=10):
                 if table and (not accepted or required_refs[ref]["hash"] == digest(state[table][ref])):
                     frozen.append({"table": table, "id": ref, "hash": digest(state[table][ref])})
             if not frozen:
+                continue
+            # A paid quick-commerce row (W5) is refreshed for the issue like any
+            # other support (seven-day validity), but only while its type is
+            # still admitted for paid checks.
+            from .quickcommerce_plan import issue_refresh_held
+            if issue_refresh_held(state, cid, task["route"], cache=commerce):
                 continue
             expiry = timestamp(envelope["observed_at"]) + timedelta(days=7)
             due = expiry.isoformat()

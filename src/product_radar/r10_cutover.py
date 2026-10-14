@@ -24,7 +24,9 @@ REASON = ("R10 cutover: frozen under the Meta rule before " + FACTS_VERSION + " 
           "(development stage); the type is judged again under the current rule.")
 CONFIG_FILES = ("config/research/signed_in_reads.json", "config/research/dropship_platforms.json",
                 "config/research/crowding.json", "config/research/spend_watch.json",
-                "config/research/apify_allocation.json", "config/benchmarks/meta_first.json")
+                "config/research/apify_allocation.json", "config/research/quickcommerce_locations.json",
+                "config/research/round_limits.json", "config/research/wider_discovery.json",
+                "config/benchmarks/meta_first.json")
 ACCOUNT_LIST = "config/local/apify_accounts.json"
 
 

@@ -581,9 +581,9 @@ def adopt_meta_origin(memory, request, *, table, record_id, as_of, question_id=N
 
 
 def adopt_quickcommerce_origin(memory, request, *, table, record_id, as_of, question_id=None, artifact_roots=()):
-    """Legacy composite intents are unknown, not proof either leaf was free."""
+    """A saved paid question or capture is adopted as unknown, never launched again."""
     from .quickcommerce import validate_capture_receipt
-    from .quickcommerce_browser import prepare_single_source_query
+    from .quickcommerce_handlers import prepare_funded_query
     route = request.get("platform"); _date(as_of); identifier(record_id)
     state = memory.snapshot(); saved = state.get(table, {}).get(record_id); files = []
     if route not in {"blinkit", "zepto", "instamart"} or not isinstance(saved, dict):
@@ -608,7 +608,7 @@ def adopt_quickcommerce_origin(memory, request, *, table, record_id, as_of, ques
         files = [(proof, stat)]
     else:
         raise SafetyError("SOURCE_QUICKCOMMERCE_ORIGIN_INVALID")
-    if prepare_single_source_query(route, actual, prefer_funded=request.get("transport") == "funded-http") != request:
+    if prepare_funded_query(route, actual) != request:
         raise SafetyError("SOURCE_QUICKCOMMERCE_ORIGIN_SCOPE_INVALID")
     return _install_legacy_origin(memory, state, route, request, table=table, record_id=record_id, saved=saved,
         acquisition_id=aid, owner_id=owner_id, as_of=as_of, question_id=question_id, artifact_roots=artifact_roots, files=files)
@@ -872,44 +872,28 @@ def record_meta_response(memory, acquisition_id, *, folder, as_of, capture_ids=(
 
 
 def record_quickcommerce_response(memory, acquisition_id, *, reference, as_of, capture_ids=()):
-    """Verify exactly one public OR funded original, preserving its source date."""
+    """Verify the one paid provider original, preserving its source date."""
     from .quickcommerce import validate_capture_receipt
-    from .quickcommerce_browser import _public_original, prepare_single_source_query
+    from .quickcommerce_handlers import TRANSPORT, prepare_funded_query
     _date(as_of); state = memory.snapshot(); old = _record(state, acquisition_id)
     request = old["binding"]["request"]; route = old["binding"]["route"]
-    if route not in {"blinkit", "zepto", "instamart"}: raise SafetyError("SOURCE_QUICKCOMMERCE_SCOPE_INVALID")
+    if route not in {"blinkit", "zepto", "instamart"} or request.get("transport") != TRANSPORT:
+        raise SafetyError("SOURCE_QUICKCOMMERCE_SCOPE_INVALID")
     proof, stat, raw = _file(reference, old["binding"]["artifact_roots"]); original = decode_json(raw)
     if Path(proof["path"]).parent.name != acquisition_id: raise SafetyError("SOURCE_QUICKCOMMERCE_SCOPE_INVALID")
-    funded = request.get("transport") == "funded-http"
     files, artifacts = [(proof, stat)], {}
-    if funded:
-        actual = validate_capture_receipt(original)
-        if prepare_single_source_query(route, actual, prefer_funded=True) != request:
-            raise SafetyError("SOURCE_QUICKCOMMERCE_SCOPE_INVALID")
-        recognized = original["state"] in {"captured", "completed_no_results"} and original.get("raw_response") is not None
-        closed = original.get("transport_contract") == "quickcommerce-owned-http-v1" and original.get("owned_request_closed") is True
-        complete = bool(recognized and original.get("body_complete") is True and closed)
-        observed, dispatched, source_state = original["observed_at"], original["dispatch_started"], original["state"]
-        count, limit = len(original["products"]), bool(original.get("omitted"))
-        expense = {"collection_channel": "funded_provider", "provider_credits_expected": original.get("provider_credits_expected"),
-                   "provider_charge_usd": None, "apify_usd": original["apify_usd"]}
-        access = {"http_status": original.get("http_status"), "retry_after": original.get("retry_after"),
-                  "owned_process_exited": closed}
-    else:
-        original = _public_original(reference, route, acquisition_id)
-        if prepare_single_source_query(route, original["request"]) != request:
-            raise SafetyError("SOURCE_QUICKCOMMERCE_SCOPE_INVALID")
-        record = original["record"]; native = record.get("native") or {}
-        observed, dispatched, source_state = record["observed_at"], record["dispatch_started"], record["state"]
-        recognized, complete, count, limit = False, False, 0, False
-        closed = native.get("owned_process_exited") is True
-        expense = {"collection_channel": "direct_local", "provider_charge_usd": "0", "model_calls": 0}
-        access = {"http_status": record.get("http_status"), "retry_after": record.get("retry_after"), "owned_process_exited": closed}
-        native_path = Path(reference).parent / "native" / "native_result.json"
-        if native_path.is_file():
-            artifact, native_stat, native_raw = _file(native_path, old["binding"]["artifact_roots"])
-            if decode_json(native_raw) != native: raise SafetyError("SOURCE_QUICKCOMMERCE_TRANSPORT_INVALID")
-            artifacts["native_result.json"] = artifact; files.append((artifact, native_stat))
+    actual = validate_capture_receipt(original)
+    if prepare_funded_query(route, actual) != request:
+        raise SafetyError("SOURCE_QUICKCOMMERCE_SCOPE_INVALID")
+    recognized = original["state"] in {"captured", "completed_no_results"} and original.get("raw_response") is not None
+    closed = original.get("transport_contract") == "quickcommerce-owned-http-v1" and original.get("owned_request_closed") is True
+    complete = bool(recognized and original.get("body_complete") is True and closed)
+    observed, dispatched, source_state = original["observed_at"], original["dispatch_started"], original["state"]
+    count, limit = len(original["products"]), bool(original.get("omitted"))
+    expense = {"collection_channel": "funded_provider", "provider_credits_expected": original.get("provider_credits_expected"),
+               "provider_charge_usd": None, "apify_usd": original["apify_usd"]}
+    access = {"http_status": original.get("http_status"), "retry_after": original.get("retry_after"),
+              "owned_process_exited": closed}
     if timestamp(observed) > timestamp(as_of): raise SafetyError("SOURCE_ACQUISITION_SOURCE_DATE_INVALID")
     if (not isinstance(capture_ids, (list, tuple)) or len(capture_ids) > 40
             or any(not isinstance(item, str) for item in capture_ids) or len(set(capture_ids)) != len(capture_ids)):
@@ -917,15 +901,15 @@ def record_quickcommerce_response(memory, acquisition_id, *, reference, as_of, c
     captures = []
     for capture_id in capture_ids:
         capture = state["captures"].get(identifier(capture_id))
-        if (not funded or not capture or capture.get("acquisition_id") != acquisition_id or capture.get("source") != route
+        if (not capture or capture.get("acquisition_id") != acquisition_id or capture.get("source") != route
                 or capture.get("observed_at") != observed or capture.get("reference") != str(reference)
                 or capture.get("capture_hash") != digest(original)):
             raise SafetyError("SOURCE_ACQUISITION_CAPTURE_SCOPE_INVALID")
         captures.append({"id": capture_id, "hash": digest(capture)})
     data = {"receipt": proof, "artifacts": artifacts, "observed_at": observed, "dispatch_started": dispatched,
         "source_state": source_state, "complete": complete, "captures": captures,
-        "response_hash": digest(original.get("raw_response")) if funded else digest(original["record"].get("native")),
-        "coverage": {"body_complete": bool(funded and original.get("body_complete")), "byte_truncated": False,
+        "response_hash": digest(original.get("raw_response")),
+        "coverage": {"body_complete": bool(original.get("body_complete")), "byte_truncated": False,
             "scope_complete": recognized, "recognized": recognized, "delivered_count": count, "intentional_limit": limit},
         "expense_proof": expense, "access": access, "bridge_contract": "verified-quickcommerce-response-v1"}
     status = ("completed_empty" if complete and source_state == "completed_no_results" else

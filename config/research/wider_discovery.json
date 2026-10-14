@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "kind": "wider-discovery-v1",
+  "meta_advertisers": {"reads_per_round": 1, "ads_per_read": 8, "recheck_days": 30},
+  "trends_rising": {"reads_per_round": 1, "cards_per_read": 10, "max_age_days": 14},
+  "supplier_listings": {
+    "reads_per_round": {"indiamart": 1, "tradeindia": 1},
+    "listings_per_read": 5,
+    "recheck_days": 7,
+    "terms": {
+      "Home and Kitchen": ["kitchen organiser", "kitchen utensil", "storage container", "cleaning mop"],
+      "Home and Decor": ["home decor item", "wall hanging", "led fairy light", "artificial plant"],
+      "Baby Products": ["baby care product", "baby feeding bottle", "kids toy"],
+      "Travel and Outdoor": ["travel accessory", "travel bag", "camping tent", "car accessory"]
+    }
+  },
+  "admission": {"max_pending_reads": 3, "settle_after_days": 3, "daily_reads": 40},
+  "retry_after_hours": 24
+}

@@ -6,8 +6,10 @@ the provider's own pack list (active and inactive, trial packs excluded): each
 new pack is known by its purchase time and size, priced from the published
 pack table and given the provider's own expiry. A zero balance (or a provider
 "credits exhausted" refusal) makes the paid route wait; only a positive
-balance from a later free check clears it. Searches, purchases and retries
-never happen here.
+balance from a later free check clears it. After a provider refusal the
+balance it reported is not trusted: the wait clears only once the balance
+rises above the first reading after the refusal, or a new pack is detected.
+Searches, purchases and retries never happen here.
 """
 
 from copy import deepcopy
@@ -88,9 +90,15 @@ def record_credit_reading(root, reading, *, as_of=None, settings=None):
                                     "total_used": reading["total_used"], "active_packs": reading["active_packs"],
                                     "period": period}
         commerce.pop("last_check_failure", None)
+        refusal = commerce.get("refusal")
+        if refusal is not None and refusal["baseline"] is None:
+            refusal["baseline"] = reading["total_available"]  # the balance the refusal contradicted
+        risen = refusal is None or (reading["total_available"] > refusal["baseline"]
+                                    or len(commerce["detected_packs"]) > refusal["packs"])
         if reading["total_available"] == 0:
             set_wait(state, alerts, "quickcommerce", reason=REASON, at=at, label=LABEL, message=PAUSED, source="balance_check")
-        else:
+        elif risen:
+            commerce.pop("refusal", None)
             clear_wait(state, alerts, "quickcommerce", at=at, label=LABEL, message=RESUMED)
         observe_money(state, alerts, settings, at)
         return {"available": reading["total_available"], "wait": deepcopy(state["waits"].get("quickcommerce"))}
@@ -149,6 +157,8 @@ def record_credits_exhausted(root, *, as_of=None, settings=None):
     at = as_of or utc_now(); timestamp(at)
     settings = settings or load_settings()
     with writing(root, settings) as (state, alerts):
+        commerce = state["quickcommerce"]
+        commerce["refusal"] = {"at": at, "baseline": None, "packs": len(commerce.get("detected_packs", []))}
         return deepcopy(set_wait(state, alerts, "quickcommerce", reason=REASON, at=at, label=LABEL, message=PAUSED,
                                  source="provider_refusal"))
 

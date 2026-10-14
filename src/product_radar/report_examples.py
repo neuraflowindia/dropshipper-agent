@@ -31,6 +31,9 @@ FUNCTIONAL_REPORT_FIELDS = FIELDS + (
     "functional_route_proof", "supplier_scoped_terms", "supplier_scope_coverage")
 OPTIONAL_FUNCTIONAL_REPORT_FIELDS = ("example_review_proofs", "example_selection")
 MAX_EXAMPLES = 20
+# Directory listings that nominated a type (wider discovery, W8) are supplier
+# leads, not market examples: they come after every other example and say so.
+SUPPLIER_LISTING_LABELS = {"indiamart": "IndiaMART", "tradeindia": "TradeIndia"}
 MAX_BLOCK_BYTES = 1024 * 1024
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -263,6 +266,12 @@ def validate_frozen_functional_photo(product):
     return product
 
 
+def _ordered(candidates):
+    """Examples in offer order, every supplier directory listing after the others."""
+    return [value[1] for _, value in sorted(candidates.items(),
+            key=lambda item: (item[1][1]["source"] in SUPPLIER_LISTING_LABELS, item[0]))]
+
+
 def freeze_functional_examples(state, concept_id, *, as_of, max_examples=MAX_EXAMPLES):
     """Choose current actual admitted examples without a minimum-count gate.
 
@@ -322,7 +331,7 @@ def freeze_functional_examples(state, concept_id, *, as_of, max_examples=MAX_EXA
             if offer not in candidates or order > candidates[offer][0]:
                 candidates[offer] = (order, row)
             bindings[membership_id] = {"membership_hash": record["record_hash"], "record": deepcopy(record)}
-    ordered = [value[1] for _, value in sorted(candidates.items(), key=lambda item: item[0])]
+    ordered = _ordered(candidates)
     selected = ordered[:max_examples]
     result = {"recommendation_contract": RECOMMENDATION_CONTRACT,
               "functional_definition": deepcopy(meaning), "functional_definition_hash": digest(meaning),
@@ -484,10 +493,17 @@ def validate_functional_examples(value, *, concept_id):
     return value
 
 
+def example_source_label(row):
+    """An example's source as reports show it; a supplier directory listing is a lead."""
+    if row["source"] in SUPPLIER_LISTING_LABELS:
+        return SUPPLIER_LISTING_LABELS[row["source"]] + " · Supplier listing (lead)"
+    return row["source"]
+
+
 def example_workbook_rows(product):
     """The same factual rows used in rendering and delivery verification."""
     validate_functional_examples(product, concept_id=product["concept_id"])
-    return [[product["rank"], product["title"], row["title"], row["source"],
+    return [[product["rank"], product["title"], row["title"], example_source_label(row),
              row["seller"] or "Not stated", row["pack"] or "Not stated",
              (row["price"]["displayed"] + "; unit and price basis not verified") if row["price"] else "Not stated",
              row["observed_at"], row["url"] or "Not stated", product["concept_id"],

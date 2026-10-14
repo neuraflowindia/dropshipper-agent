@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "kind": "programme-round-limits-v1",
+  "source_reads": 16,
+  "ai_calls": 10
+}

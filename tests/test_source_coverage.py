@@ -533,58 +533,6 @@ class SourceCoverageTests(unittest.TestCase):
         self.assertEqual(updates, ["acquired", "acquired"])
         self.assertEqual(len(result["progress_errors"]), 2)
 
-    def test_quickcommerce_reconciliation_imports_original_success_without_second_search(self):
-        from product_radar.quickcommerce import QuickCommerceClient, prepare_query
-        from test_quickcommerce import LOCATION, Opener, Response, SECRET, payload
-        from unittest.mock import patch
-        import json
-        request = prepare_query("blinkit", "sink caddy", LOCATION)
-        self.plan([{"route": "blinkit", "request": {"query": "sink caddy", "location": LOCATION}, "concept_ids": ["first"]}])
-        opener = Opener(Response(json.dumps(payload(request)).encode()))
-        native = lambda *_args, **_kwargs: {"state": "unavailable", "navigation_started": False,
-                   "completed_at": NOW, "reason": "Synthetic native reader did not launch."}
-        handlers = installed_source_handlers(self.memory, quickcommerce_client=QuickCommerceClient(SECRET, opener=opener),
-                                              quickcommerce_options={"native_capture": native})
-        commit = self.memory.commit
-        once = []
-        def local_write_busy(event_id, changes, **options):
-            if any(row.get("table") == "captures" for row in changes) and not once:
-                once.append(True)
-                raise SafetyError("RUNNER_ALREADY_ACTIVE")
-            return commit(event_id, changes, **options)
-        with patch.object(self.memory, "commit", side_effect=local_write_busy), patch("product_radar.quickcommerce.utc_now", return_value=NOW):
-            first = self.run_sources(handlers)
-        self.assertEqual(first["counts"], {"blocked": 1})
-        self.assertEqual(len(opener.calls), 1)
-        task_id = first["results"][0]["task_id"]
-        acquisition_id = self.memory.snapshot()["query_tasks"][task_id]["acquisition_id"]
-        self.assertTrue((self.memory.root / "quickcommerce_captures" / acquisition_id / "capture.json").is_file())
-        self.assertEqual(len(self.memory.snapshot()["captures"]), 0)
-        recovered = self.run_sources(handlers)
-        self.assertEqual(recovered["counts"], {"acquired": 1})
-        self.assertEqual(len(opener.calls), 1)
-        self.assertEqual(len(self.memory.snapshot()["observations"]), 1)
-        self.assertEqual(self.memory.snapshot()["query_tasks"][task_id]["tries"], 1)
-        self.assertEqual(self.memory.snapshot()["query_tasks"][task_id]["acquisition_id"], acquisition_id)
-
-    def test_quickcommerce_saved_only_reconciliation_cannot_collect_when_file_missing(self):
-        from product_radar.quickcommerce import QuickCommerceClient
-        from test_quickcommerce import LOCATION, Opener, SECRET
-        self.plan([{"route": "blinkit", "request": {"query": "sink caddy", "location": LOCATION}, "concept_ids": ["first"]}])
-        opener = Opener()
-        native = lambda *_args, **_kwargs: {"state": "unavailable", "navigation_started": False,
-                   "completed_at": NOW, "reason": "Synthetic native reader did not launch."}
-        handlers = installed_source_handlers(self.memory, quickcommerce_client=QuickCommerceClient(SECRET, opener=opener),
-                                              quickcommerce_options={"native_capture": native})
-        def interrupted(_context):
-            raise TimeoutError()
-        handlers["blinkit"]["handler"] = interrupted
-        self.run_sources(handlers)
-        result = self.run_sources(handlers)
-        self.assertEqual(result["handler_calls"], 1)
-        self.assertEqual(result["results"][0]["reason"], "SOURCE_ORIGINAL_RECEIPT_PENDING")
-        self.assertEqual(opener.calls, [])
-
     def test_continue_run_prepares_real_new_company_dependencies_without_recollecting_searches(self):
         calls = []
         def builder(context):
@@ -1052,19 +1000,14 @@ class SourceCoverageTests(unittest.TestCase):
         for route in ("google-trends", "google-maps"):
             self.assertEqual(builder(self.query_context(route))["query"], "draining sink caddy")
 
-    def test_old_run_empty_or_different_location_does_not_consume_current_phrase_sequence(self):
+    def test_old_run_empty_does_not_consume_current_phrase_sequence(self):
+        # Quick commerce has one phrase and configured places instead
+        # (tests/test_quickcommerce_plan.py).
         self.query_profile()
         builder = product_source_request_builder()
         self.plan_query(builder)
         self.run_sources({"meta-ads": lambda context: self.receipt(context, state="empty")})
         self.assertEqual(builder(self.query_context(run_id="week-two"))["query"], "draining sink caddy")
-        mumbai = {"name": "Mumbai", "lat": "19.0760", "lon": "72.8777"}
-        first = product_source_request_builder(location=mumbai, run_id="week-one")
-        self.plan_query(first, route="blinkit")
-        self.run_sources({"blinkit": lambda context: self.receipt(context, state="empty")})
-        self.assertEqual(first(self.query_context("blinkit"))["query"], "sink organizer")
-        delhi = product_source_request_builder(location={"name": "Delhi", "lat": "28.6139", "lon": "77.2090"}, run_id="week-one")
-        self.assertEqual(delhi(self.query_context("blinkit"))["query"], "draining sink caddy")
 
     def test_alias_reuse_skips_normalised_duplicate_phrase_without_inventing_synonyms(self):
         self.query_profile(alternatives=False, aliases=["SINK CADDY", "draining sink holder"])
@@ -1227,11 +1170,19 @@ class SourceCoverageTests(unittest.TestCase):
         self.assertTrue(row["task_ids"])
 
     def test_installed_factory_is_one_real_handler_per_route_without_hidden_calls_or_optional_keys(self):
+        commerce = {"blinkit", "zepto", "instamart"}
         handlers = installed_source_handlers(self.memory)
-        self.assertEqual(set(handlers), set(ROUTES))
+        # Quick commerce is only the paid provider route: without its client it is Not connected.
+        self.assertEqual(set(handlers), set(ROUTES) - commerce)
         self.assertIn("meta-ads", handlers)
         self.assertIn("google-trends", handlers)
-        self.assertIn("blinkit", handlers)
+        from product_radar.quickcommerce import QuickCommerceClient
+        from test_quickcommerce import Opener, SECRET
+        opener = Opener()
+        paid = installed_source_handlers(self.memory, quickcommerce_client=QuickCommerceClient(SECRET, opener=opener),
+                                         quickcommerce_options={"spend_root": self.root})
+        self.assertEqual(set(paid), set(ROUTES))
+        self.assertEqual((opener.calls, opener.credit_calls), ([], []))
         self.assertEqual(self.memory.snapshot()["captures"], {})
 
     def test_concrete_free_marketplace_capture_import_controller_replay(self):

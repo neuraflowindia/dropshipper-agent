@@ -102,7 +102,7 @@ def _binding(record):
         raise SafetyError("PROGRAMME_CONTROL_INVALID")
     try:
         binding = {field: deepcopy(record[field]) for field in
-                ("kind", "programme_id", "source_run_id", "concept_ids", "week", "client_id", "release_slots", "location")}
+                ("kind", "programme_id", "source_run_id", "concept_ids", "week", "client_id", "release_slots")}
         inventory = record.get("reporting_inventory_concept_ids", [])
         if (not isinstance(inventory, list) or any(not isinstance(cid, str) for cid in inventory)
                 or len(set(inventory)) != len(inventory)
@@ -178,7 +178,7 @@ def _save(memory, record, *, cache=None):
 
 
 def _prepare_programme_locked(memory, programme_id, *, source_run_id=None, concept_ids=None,
-                      as_of=None, week=None, client_id="default", location=None,
+                      as_of=None, week=None, client_id="default",
                       reporting_inventory_concept_ids=None, reporting_inventory_reason=None):
     """Freeze the actual current product pool without any research calls."""
     from .source_coverage import _active_concepts
@@ -192,7 +192,7 @@ def _prepare_programme_locked(memory, programme_id, *, source_run_id=None, conce
     inventory = sorted(set(inventory) - set(ids))
     proposed = {"kind": VERSION, "programme_id": programme_id, "source_run_id": source_run_id,
         "concept_ids": ids, "week": week, "client_id": client_id,
-        "release_slots": release_slots(week, client_id=client_id), "location": deepcopy(location),
+        "release_slots": release_slots(week, client_id=client_id),
         "reporting_inventory_concept_ids": inventory}
     try:
         existing = load_programme(memory, programme_id)
@@ -202,7 +202,8 @@ def _prepare_programme_locked(memory, programme_id, *, source_run_id=None, conce
         existing = None
     if existing is not None:
         # Repreparing after discovery does not silently enlarge the frozen
-        # pool. Explicit different IDs, week or location require a new run.
+        # pool. Explicit different IDs or week require a new run. Quick-commerce
+        # places are configuration (quickcommerce_plan), not a frozen setting.
         if concept_ids is None:
             proposed["concept_ids"] = existing["concept_ids"]
         if reporting_inventory_concept_ids is None:
@@ -250,7 +251,7 @@ def _review_scopes(record):
                 or len(set(child["concept_ids"])) != len(child["concept_ids"])
                 or any(identifier(cid) in seen for cid in child["concept_ids"])
                 or identifier(child["source_run_id"]) in runs
-                or any(child[field] != record[field] for field in ("week", "client_id", "location", "release_slots"))):
+                or any(child[field] != record[field] for field in ("week", "client_id", "release_slots"))):
             raise SafetyError("PROGRAMME_CONTROL_INVALID")
         seen.update(child["concept_ids"]); runs.add(child["source_run_id"]); scopes.append(child)
     return scopes
@@ -3160,8 +3161,7 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
         shared_options = {"marketplace_options": {"shared_acquisitions": True},
                           "meta_options": {"shared_acquisitions": True},
                           "trends_options": {"shared_acquisitions": True},
-                          "supplier_options": {"respect_access_waits": True, "shared_acquisitions": True},
-                          "quickcommerce_options": {"respect_access_waits": True, "shared_acquisitions": True}} if shared_mode else {}
+                          "supplier_options": {"respect_access_waits": True, "shared_acquisitions": True}} if shared_mode else {}
         handlers = installed_source_handlers(memory, **shared_options)
     record = load_programme(memory, programme_id)
     cache = {"canonical": memory.snapshot()["batch_runs"].get(key("programme", programme_id))}
@@ -3171,7 +3171,7 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
         record["model_pause"] = {"reason": record["setup_failures"]["model"], "at": at,
             "next_retry_at": (timestamp(at) + timedelta(seconds=retry_seconds)).isoformat()}
     builder_options = {"shared_suppliers": True} if shared_mode else {}
-    request_builder = request_builder or product_source_request_builder(location=record["location"],
+    request_builder = request_builder or product_source_request_builder(
         run_id=record["source_run_id"], **builder_options)
     builders = {record["programme_id"]: request_builder}
     context = {"root": Path(root), "memory": memory, "handlers": handlers, "request_builder": request_builder,
@@ -3208,6 +3208,7 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
         execution_order["discovery_attempted"] = False
         execution_order["platforms_attempted"] = False
         context["priority_concept_ids"] = execution_order["priority_concept_ids"]
+        context["discovery_position"] = execution_order["discovery_position"]  # wider discovery's IndiaMART yield (W8)
         # Use the existing privacy-filtered recording vocabulary so this
         # remains visible even if an open turn is interrupted before close.
         record_event("programme_order", programme_id=record["programme_id"],
@@ -3247,9 +3248,12 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
             _observe(record, context, phase_state="finished", result=deepcopy(platforms), control_save=last_save)
 
         def run_discovery_lane():
-            # The two take turns going first each round (the first has first
-            # use of the held share); the platforms never wait on discovery.
-            for lane in ((run_platforms, run_discovery) if record["cycles"] % 2 else (run_discovery, run_platforms)):
+            # Heading searches, wider discovery (inside the discovery step) and the
+            # platforms take turns at the first use of the held share, one round
+            # each; the platforms never wait on discovery.
+            first = record["cycles"] % 3
+            context["wider_first"] = first == 2
+            for lane in ((run_platforms, run_discovery) if first == 1 else (run_discovery, run_platforms)):
                 if not owner_paused:
                     lane()
 
@@ -3333,7 +3337,7 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
                     acquisition_limits.setdefault(scope["programme_id"], context["source_limit"])
                 context["stage"] = stage; context["review_scope_id"] = scope["programme_id"]
                 if scope["programme_id"] not in builders:
-                    builders[scope["programme_id"]] = product_source_request_builder(location=scope["location"],
+                    builders[scope["programme_id"]] = product_source_request_builder(
                         run_id=scope["source_run_id"], **builder_options)
                 context["request_builder"] = builders[scope["programme_id"]]
                 context["reuse_run_ids"] = ([other["source_run_id"] for other in _review_scopes(record)
@@ -3757,7 +3761,6 @@ def _discovery_turn_readiness(memory, state, record, handlers, at, *, discovery_
     if getattr(discovery_step, "discovery_wave_contract", None) == WAVE_VERSION:
         result = discovery_wave_readiness(memory, record["programme_id"], discovery_step.discovery_catalogue,
             handlers=handlers, as_of=at, runner_available=runner_available, state=state,
-            location=record.get("location"),
             **discovery_step.discovery_wave_options)
         seed = catalogue_seed_lane_hint(memory, state, record["programme_id"], discovery_step, as_of=at)
         result["local_ready"] |= seed["ready"]
@@ -4758,7 +4761,7 @@ def programme_turn_readiness(memory, record, *, root, handlers=None, runner=None
             media_root=media_root, as_of=at, state=state, retry_seconds=retry_seconds)
 
 
-def advance_ready_programme_turn(memory, *, root, programme_id=None, client_id="default", location=None,
+def advance_ready_programme_turn(memory, *, root, programme_id=None, client_id="default",
                                  as_of=None, clock=utc_now, turn_policy=None, **options):
     """Opt-in existing-writer select → one saved round → close; never a driver."""
     if "max_cycles" in options:
@@ -4772,8 +4775,7 @@ def advance_ready_programme_turn(memory, *, root, programme_id=None, client_id="
             marketplace_options={"shared_acquisitions": True},
             meta_options={"shared_acquisitions": True},
             trends_options={"shared_acquisitions": True},
-            supplier_options={"respect_access_waits": True, "shared_acquisitions": True},
-            quickcommerce_options={"respect_access_waits": True, "shared_acquisitions": True})
+            supplier_options={"respect_access_waits": True, "shared_acquisitions": True})
     at = as_of or clock(); timestamp(at)
     with Journal(safe_path(memory.root, "programme_writer")).locked(), operation_writer(), \
             memory.defer_lookup_projection(flush_if=lambda: programme_service_state(memory)["enabled"]):
@@ -4798,7 +4800,7 @@ def advance_ready_programme_turn(memory, *, root, programme_id=None, client_id="
                      deadline_seconds=None, useful_result=False)
         try:
             record = (load_programme(memory, programme_id, state=selection_state) if programme_id is not None else
-                      _due_programme_locked(memory, as_of=at, client_id=client_id, location=location,
+                      _due_programme_locked(memory, as_of=at, client_id=client_id,
                                             cooperative=True, readiness=decision, state=selection_state,
                                             inventory_refresh=lambda row: _refresh_inventory_boundary(memory, row, as_of=at)))
             if programme_id is not None:
@@ -4878,7 +4880,7 @@ def _unused_reporting_inventory(memory, state, records, *, client_id, as_of):
         return [], "Earlier unused report inventory could not be verified; new research can continue."
 
 
-def _due_programme_locked(memory, *, as_of=None, client_id="default", location=None,
+def _due_programme_locked(memory, *, as_of=None, client_id="default",
                           cooperative=False, readiness=None, inventory_refresh=None, state=None):
     """Fair backlog/fresh-week rotation, never cloning an old product pool.
 
@@ -4927,12 +4929,10 @@ def _due_programme_locked(memory, *, as_of=None, client_id="default", location=N
                                   state=selection_state)
         if not existing:
             programme_id = "programme-" + client_id + "-" + week
-            if location is None and records:
-                location = deepcopy(max(records, key=lambda row: row["created_at"]).get("location"))
             inventory, inventory_reason = _unused_reporting_inventory(
                 memory, selection_state, records, client_id=client_id, as_of=at)
             current = _prepare_programme_locked(memory, programme_id, concept_ids=[] if records else None,
-                as_of=at, week=week, client_id=client_id, location=location,
+                as_of=at, week=week, client_id=client_id,
                 reporting_inventory_concept_ids=inventory, reporting_inventory_reason=inventory_reason)
             records.append(current); existing = [current]
             selection_state = memory.snapshot()
@@ -4975,12 +4975,10 @@ def _due_programme_locked(memory, *, as_of=None, client_id="default", location=N
         return load_programme(memory, min(moving, key=rotation)["programme_id"], state=selection_state)
     if not existing:
         programme_id = "programme-" + client_id + "-" + week
-        if location is None and records:
-            location = deepcopy(max(records, key=lambda row: row["created_at"]).get("location"))
         inventory, inventory_reason = _unused_reporting_inventory(memory, selection_state, records,
                                                                   client_id=client_id, as_of=at)
         return _prepare_programme_locked(memory, programme_id, concept_ids=[] if records else None,
-                                 as_of=at, week=week, client_id=client_id, location=location,
+                                 as_of=at, week=week, client_id=client_id,
                                  reporting_inventory_concept_ids=inventory,
                                  reporting_inventory_reason=inventory_reason)
     ready = [row for row in unfinished if not row.get("next_retry_at") or timestamp(row["next_retry_at"]) <= timestamp(at)]

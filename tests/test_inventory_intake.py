@@ -290,6 +290,22 @@ class InventoryDueIntegrationTests(unittest.TestCase):
             handlers={"amazon-bestsellers": lambda _context: None}, as_of=self.due)
         self.assertTrue(ready["ready_lanes"]["backlog"])
 
+    def test_issue_support_on_quickcommerce_is_refreshed_after_seven_days_only_while_admitted(self):
+        # A type allocated to an upcoming issue keeps the contract's seven-day
+        # validity on a paid quick-commerce row (not the 30-day no-repeat rule
+        # of ordinary planning), and is never refreshed once no longer admitted.
+        task_id = self.fixture.task_id
+        task = self.memory.snapshot()["query_tasks"][task_id]
+        self.memory.put("query_tasks", task_id, dict(task, route="blinkit"), previous=task)
+        with patch("product_radar.quickcommerce_plan.admission_hold", return_value="QUICKCOMMERCE_RESERVED_CROWDING_HIGH"):
+            held = admit_selected_inventory_work(self.memory, self.record, as_of=self.now, pool=self.pool)
+        self.assertEqual(held["inventory_work_ids"], [])
+        with patch("product_radar.quickcommerce_plan.admission_hold", return_value=None):
+            admitted = admit_selected_inventory_work(self.memory, self.record, as_of=self.now, pool=self.pool)
+        row = self.memory.snapshot()["batch_runs"][admitted["inventory_work_ids"][0]]
+        self.assertEqual(row["binding"]["source"]["route"], "blinkit")
+        self.assertEqual(row["progress"]["next_retry_at"], self.due)  # seven days after the last check
+
     def test_two_consumers_join_one_due_owner_and_protected_slots_are_not_refreshed(self):
         first = admit_selected_inventory_work(self.memory, self.record, as_of=self.now, pool=self.pool)
         second = prepare_programme(self.memory, "same-next-issue", concept_ids=[], week="2026-10-19", as_of=self.now)

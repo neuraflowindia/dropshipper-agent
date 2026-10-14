@@ -9,7 +9,8 @@ from product_radar.programme import _source_turn_readiness, prepare_programme
 from product_radar.source_acquisitions import claim_source_acquisition
 from product_radar.source_coverage import ROUTES, installed_source_handlers, prepare_source_tasks
 from product_radar.storage import atomic_json
-from test_quickcommerce import LOCATION
+from product_radar.quickcommerce import QuickCommerceClient
+from test_quickcommerce import LOCATION, SECRET
 import test_source_access_waits as source_fixtures
 
 
@@ -18,6 +19,11 @@ NOW = source_fixtures.NOW
 
 def forbidden(*_args, **_kwargs):
     raise AssertionError("Readiness must not call any actual reader")
+
+
+class ForbiddenOpener:
+    def open(self, *_args, **_kwargs):
+        forbidden()
 
 
 class ProgrammeReadinessSnapshotReviewTests(TestCase):
@@ -32,8 +38,9 @@ class ProgrammeReadinessSnapshotReviewTests(TestCase):
                               "http_reader": forbidden, "page_reader": forbidden, "browser_reader": forbidden},
             trends_options={"shared_acquisitions": True, "capture": forbidden},
             meta_options={"shared_acquisitions": True, "browser": forbidden},
-            quickcommerce_options={"shared_acquisitions": True, "respect_access_waits": True,
-                                   "native_capture": forbidden})
+            # The paid route, with a provider that must never be opened by readiness.
+            quickcommerce_client=QuickCommerceClient(SECRET, opener=ForbiddenOpener()),
+            quickcommerce_options={"spend_root": self.memory.root.parent})
         self.rows = []
         for route in ROUTES:
             if route == "amazon-bestsellers":
@@ -64,7 +71,7 @@ class ProgrammeReadinessSnapshotReviewTests(TestCase):
                              for request in requests)
         self.prepared = prepare_source_tasks(self.memory, self.rows, run_id="bulk-readiness", as_of=NOW)
         self.record = prepare_programme(self.memory, "bulk-programme", source_run_id="bulk-readiness",
-                                        concept_ids=["sink"], location=LOCATION, as_of=NOW)
+                                        concept_ids=["sink"], as_of=NOW)
 
     def canonical_files(self):
         return {str(path.relative_to(self.memory.root)): path.read_bytes()

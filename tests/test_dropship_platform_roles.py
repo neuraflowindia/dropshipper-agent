@@ -454,7 +454,7 @@ class DiscoveryTests(RolesCase):
                       for n in range(3)]
         self.assertEqual(rounds, [5, 5, 0])
 
-    def test_failed_or_old_items_count_as_settled_so_admission_never_stalls(self):
+    def test_failed_or_old_described_items_count_as_settled_so_admission_never_stalls(self):
         catalogues = self.catalogues()
         catalogues["deodap"]["items"] = {"k1": item("k1", "Kitchen Caddy Model A", roles=["bestseller"])}
         with patch("product_radar.research_flow.run_flow"):
@@ -462,10 +462,17 @@ class DiscoveryTests(RolesCase):
         state = self.memory.snapshot()
         capture = next(row for row in state["captures"].values() if row.get("mapper_version") == matching.DISCOVERY_MAPPER)
         self.assertFalse(roles._settled(state, capture["acquisition_id"], capture["imported_at"], AT, 3))
-        self.assertTrue(roles._settled(state, capture["acquisition_id"], capture["imported_at"],
-                                       later(capture["imported_at"], 4 * 86400), 3))
+        # An item the AI never described is never given up on, however old (W8 review).
+        self.assertFalse(roles._settled(state, capture["acquisition_id"], capture["imported_at"],
+                                        later(capture["imported_at"], 4 * 86400), 3))
         semantic = next(row["semantic_id"] for row in state["observations"].values()
                         if row["acquisition_id"] == capture["acquisition_id"])
+        # Once described, an old capture whose products are still undecided counts as settled.
+        described = deepcopy(state)
+        described["descriptions"][semantic] = {"result": {"products": [{"label": "Kitchen caddy"}]}, "job_id": "j"}
+        self.assertFalse(roles._settled(described, capture["acquisition_id"], capture["imported_at"], AT, 3))
+        self.assertTrue(roles._settled(described, capture["acquisition_id"], capture["imported_at"],
+                                       later(capture["imported_at"], 4 * 86400), 3))
         failed = deepcopy(state)
         failed["problems"]["p1"] = {"stage": "description", "affected_id": semantic, "reason": "AI_RESULT_INVALID"}
         self.assertTrue(roles._settled(failed, capture["acquisition_id"], capture["imported_at"], AT, 3))

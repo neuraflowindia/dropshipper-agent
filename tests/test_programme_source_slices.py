@@ -208,6 +208,7 @@ class ProgrammeSourceSliceTests(unittest.TestCase):
     def test_original_open_allowance_survives_slice_and_different_caller_policy(self):
         policy = deepcopy(DEFAULT_POLICY)
         policy["exploration_slots"] = 0
+        policy["source_callbacks"] = 12  # an original allowance unlike the configured default
         turn = open_work_turn(self.memory, "whole-programme", at=self.now,
             policy=policy, ready_lanes={"backlog": True, "exploration": False},
             report_ready=True)

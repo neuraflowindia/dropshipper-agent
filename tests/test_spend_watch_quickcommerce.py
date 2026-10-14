@@ -145,6 +145,21 @@ class QuickCommerceAllowanceTests(unittest.TestCase):
         self.assertEqual(len(self.alerts("paused")), 1)
         self.assertTrue(allowance_summary(self.root, settings=self.settings)["waits"])
 
+    def test_after_a_refusal_only_a_risen_balance_or_a_new_pack_clears_the_wait(self):
+        self.record(reading(44, 56, TRIAL))
+        record_credits_exhausted(self.root, as_of=NOW, settings=self.settings)
+        same = Client(reading(5, 95, dict(TRIAL, credits_remaining=5, credits_used=95)))
+        for at in (NOW, LATER):  # the reported balance the refusal contradicted is not trusted
+            self.assertEqual(quickcommerce_gate(self.root, same, as_of=at, settings=self.settings)["allowed"], False)
+        self.assertEqual(credit_wait(self.root)["source"], "provider_refusal")
+        risen = Client(reading(6, 95, dict(TRIAL, credits_remaining=6, credits_used=95)))
+        self.assertTrue(quickcommerce_gate(self.root, risen, as_of=LATER, settings=self.settings)["allowed"])
+        self.assertNotIn("refusal", load_state(self.root)["quickcommerce"])
+        record_credits_exhausted(self.root, as_of=LATER, settings=self.settings)
+        bought = Client(reading(5, 95, dict(TRIAL, credits_remaining=0, credits_used=100),
+                                dict(STARTER, credits_remaining=5, credits_used=2495)))
+        self.assertTrue(quickcommerce_gate(self.root, bought, as_of=LATER, settings=self.settings)["allowed"])
+
     def test_gate_always_checks_first_so_a_purchase_clears_the_wait(self):
         record_credits_exhausted(self.root, as_of=NOW, settings=self.settings)
         empty = Client(reading(0, 100, inactive=[dict(TRIAL, credits_remaining=0, credits_used=100)]))

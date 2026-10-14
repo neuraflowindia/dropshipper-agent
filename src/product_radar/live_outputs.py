@@ -35,7 +35,7 @@ from .runtime_storage import logical_path, runtime_path
 from .storage import Journal, atomic_bytes, atomic_json, load_json, safe_path
 from .report_examples import (RECOMMENDATION_CONTRACT, FUNCTIONAL_REPORT_FIELDS, OPTIONAL_FUNCTIONAL_REPORT_FIELDS,
     functional_report_fields, WORKBOOK_HEADERS as EXAMPLE_WORKBOOK_HEADERS,
-                              validate_functional_examples, example_workbook_rows)
+                              validate_functional_examples, example_source_label, example_workbook_rows)
 
 ROOT = Path(__file__).resolve().parents[2]
 LOGO = ROOT / "media" / "NeuraFlow" / "long_maroon_path_transparent_1024.png"
@@ -683,7 +683,7 @@ def _example_html(product, language):
     rows = []
     for row in product["example_products"]:
         price = (row["price"]["displayed"] + "; unit and price basis not verified") if row["price"] else "Price not stated"
-        cells = [row["title"], row["source"], row["seller"] or "Seller not stated", row["pack"] or "Pack not stated",
+        cells = [row["title"], example_source_label(row), row["seller"] or "Seller not stated", row["pack"] or "Pack not stated",
                  price, row["observed_at"][:10]]
         link = '<a href="' + escape(row["url"], quote=True) + '">Open source</a>' if row["url"] else "Link not stated"
         rows.append('<tr>' + ''.join('<td>' + escape(cell) + '</td>' for cell in cells) + '<td>' + link + '</td></tr>')

@@ -153,8 +153,7 @@ class SourcePlanningOwnerScopeTests(unittest.TestCase):
         return path
 
     def builder(self):
-        return coverage.product_source_request_builder(location=LOCATION, run_id="synthetic-week",
-                                                       shared_suppliers=True)
+        return coverage.product_source_request_builder(run_id="synthetic-week", shared_suppliers=True)
 
     def prepare(self, builder=None):
         return coverage.prepare_all_source_tasks(self.memory, run_id="synthetic-week",

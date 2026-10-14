@@ -391,7 +391,11 @@ def adapter(memory, client):
                     "state": target_state, "evidence_refs": imported["observation_ids"],
                     "reason": "Saved local catalogue results require product-family relevance review." if receipt["products"] else reason}
                     for target in context["concept_ids"]], "reason": reason,
-                "retryable": receipt.get("http_status") in (429, 500, 502, 503, 504)
+                # A "no credits" refusal (402) is not charged: it is retried, without
+                # using up a try, once credits are back. Its route-wide wait is the
+                # spend watch's credits wait, which a risen balance or new pack clears.
+                "retryable": receipt.get("http_status") in (402, 429, 500, 502, 503, 504)
                              or receipt.get("reason") in {"QUICKCOMMERCE_NETWORK_FAILED", "RUNNER_ALREADY_ACTIVE"},
-                **({"failure_scope": "route"} if receipt.get("http_status") in (401, 402, 403, 429) else {})}
+                **({"credit_refusal": True} if receipt.get("http_status") == 402 and receipt["dispatch_started"] else {}),
+                **({"failure_scope": "route"} if receipt.get("http_status") in (401, 403, 429) else {})}
     return collect

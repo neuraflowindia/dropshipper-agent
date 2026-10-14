@@ -630,10 +630,6 @@ def _marketplace_shared_wait(memory, state, route, task_id, at, *, request=None)
         if (original.get("kind") != CHECK_KIND or original.get("route") != route
                 or original.get("envelope", {}).get("failure_scope") != "route"):
             raise SafetyError("SOURCE_PROGRESS_STAGE_INVALID")
-        if route in {"blinkit", "zepto", "instamart"} and (request or {}).get("transport") == "funded-http":
-            from .quickcommerce_browser import _proved_public_only
-            if _proved_public_only(memory.root, original["envelope"], route):
-                continue  # An actual public refusal is not a funded-provider refusal.
         if (pause.get("task_id") == task_id and pause.get("next_retry_at")
                 and timestamp(pause["next_retry_at"]) <= timestamp(at)):
             continue
@@ -752,8 +748,7 @@ def direct_source_resolution_hooks(memory, *, route, root, prepare, saved, acces
                 if path.name in {"receipt.json", "deadline_reparse.json", "capture.json"} and path.parent.name == aid:
                     return path.parent
         if commerce:
-            return (memory.root / "quickcommerce_captures" / aid if request["transport"] == "funded-http" else
-                    memory.root / "quickcommerce_free" / "acquisitions" / aid)
+            return memory.root / "quickcommerce_captures" / aid
         return root / aid
 
     def resolve(context):
@@ -1222,7 +1217,6 @@ def installed_source_handlers(memory, *, marketplace_options=None, supplier_opti
     from .supplier_route_acquisition import create_supplier_handlers
     from .trends_controller import create_trends_handlers
     from .meta_browser import meta_direct_source_handlers
-    from .quickcommerce_browser import create_quickcommerce_handlers
     handlers.update(create_marketplace_handlers(memory, **(marketplace_options or {})))
     handlers.update(create_supplier_handlers(memory, **(supplier_options or {})))
     handlers.update(create_trends_handlers(memory, **(trends_options or {})))
@@ -1231,25 +1225,11 @@ def installed_source_handlers(memory, *, marketplace_options=None, supplier_opti
     handlers.update(create_dropship_handlers(memory))
     from .meta_depth import create_meta_depth_handlers
     handlers["meta-ads-depth"] = create_meta_depth_handlers(memory, **(meta_depth_options or {}))
-    commerce = create_quickcommerce_handlers(memory, funded_client=quickcommerce_client,
-                                             **(quickcommerce_options or {}))
-    def commerce_reconciler(callback):
-        def reconcile(context):
-            acquisition = context["acquisition_id"]
-            funded = safe_path(memory.root, "quickcommerce_captures", acquisition) / "capture.json"
-            public = safe_path(memory.root, "quickcommerce_free", "acquisitions", acquisition)
-            # All three are original source proof, never authority to search.
-            # The native case lets its own parser finish a saved-stage capture.
-            if not any(path.is_file() for path in (funded, public / "probe.json", public / "native/native_result.json",
-                                                   public / "native/native_outer_deadline.json")):
-                raise SafetyError("SOURCE_ORIGINAL_RECEIPT_PENDING")
-            return callback(dict(context, reconciling=True))
-        return reconcile
-    for route, value in commerce.items():
-        callback = value["handler"] if isinstance(value, dict) else value
-        handlers[route] = dict(value if isinstance(value, dict) else {},
-                               handler=callback, reconcile=value["reconcile"] if isinstance(value, dict)
-                                   and callable(value.get("resolve_source")) else commerce_reconciler(callback))
+    if quickcommerce_client is not None:
+        # The paid provider API is the only quick-commerce route; without its
+        # installed client the three routes stay Not connected.
+        from .quickcommerce_handlers import create_quickcommerce_handlers
+        handlers.update(create_quickcommerce_handlers(memory, quickcommerce_client, **(quickcommerce_options or {})))
     for route, handler in (("meta-ads", meta_handler), ("google-trends", trends_handler)):
         if handler is not None:
             handlers[route] = handler
@@ -1297,23 +1277,25 @@ def _functional_task_sparse(state, task_id, concept_id, meaning_hash, *, as_of):
     return True
 
 
-def product_source_request_builder(*, location=None, catalogue=None, run_id=None, shared_suppliers=False):
+def product_source_request_builder(*, catalogue=None, run_id=None, shared_suppliers=False):
     """Use accepted product-type wording, shared list scopes and real page URLs.
 
     The profile/cache is frozen by the caller's planning snapshot. There is no
     hidden model step or full-title fallback. Company reads are dependency work:
     no discovered destination means a recorded preparation gap, not a fake read.
+    Paid quick-commerce checks follow ``quickcommerce_plan`` (admission, one
+    phrase, configured places with the first place first).
     """
     if run_id is not None:
         identifier(run_id)
     if type(shared_suppliers) is not bool:
         raise SafetyError("SOURCE_SUPPLIER_SHARED_OPTION_INVALID")
-    profiles, histories = {}, {}
+    profiles, histories, holds, commerce = {}, {}, {}, {}
     planning_state, planning_run = None, None
     departments = {"Home and Decor": "kitchen/1380374031", "Home and Kitchen": "kitchen",
                    "Baby Products": "baby", "Travel and Outdoor": "luggage"}
     def build(context):
-        nonlocal planning_state, planning_run, profiles, histories
+        nonlocal planning_state, planning_run, profiles, histories, holds, commerce
         from .product_queries import resolve_query_profile
         from .discovery import normalise
         cid, state, route = context["concept_id"], context["state"], context["route"]
@@ -1321,7 +1303,7 @@ def product_source_request_builder(*, location=None, catalogue=None, run_id=None
             raise SafetyError("SUPPLIER_ROUTE_RETIRED")  # Never planned; fail closed if asked.
         current_run = run_id or context.get("run_id")
         if state is not planning_state or current_run != planning_run:
-            planning_state, planning_run, profiles, histories = state, current_run, {}, {}
+            planning_state, planning_run, profiles, histories, holds, commerce = state, current_run, {}, {}, {}, {}
             for task_id, task in state["query_tasks"].items():
                 if task.get("kind") != TASK_KIND or (current_run and task.get("run_id") != current_run):
                     continue
@@ -1373,12 +1355,40 @@ def product_source_request_builder(*, location=None, catalogue=None, run_id=None
             # advertisers or start dates (meta_depth.depth_request).
             from .meta_depth import depth_request
             return depth_request(state, cid, context)
+        group = ROUTES[route]["source"]
+        if group == "quickcommerce":
+            from .quickcommerce_plan import admission_hold
+            if "indexes" not in commerce:
+                from .crowding import load_thresholds
+                from .research_flow import evidence_indexes
+                commerce.update(indexes=evidence_indexes(state), thresholds=load_thresholds())
+            if cid not in holds:
+                holds[cid] = admission_hold(state, cid, indexes=commerce["indexes"], thresholds=commerce["thresholds"])
+            if holds[cid]:
+                raise SafetyError(holds[cid])  # reserved for later: a planning gap, not a failed check
         if cid not in profiles:
             profiles[cid] = resolve_query_profile(state, cid, catalogue=catalogue)
         profile = profiles[cid]
         if profile is None:
             raise SafetyError("PRODUCT_QUERY_PROFILE_REQUIRED")
-        group = ROUTES[route]["source"]
+        if group == "quickcommerce":
+            from .quickcommerce_plan import answered_at, first_place_relevant, load_settings, next_question
+            if "settings" not in commerce:
+                # Every saved question per type and app, from any run or phrase,
+                # with its answer time: a place answered recently is not re-asked.
+                commerce["settings"], commerce["tasks"] = load_settings(), {}
+                for task in state["query_tasks"].values():
+                    if task.get("kind") == TASK_KIND and ROUTES.get(task.get("route"), {}).get("source") == "quickcommerce":
+                        for target in task.get("targets", {}):
+                            commerce["tasks"].setdefault((target, task["route"]), []).append((task, answered_at(state, task)))
+            settings, at = commerce["settings"], context.get("as_of") or utc_now()
+            run = state["batch_runs"].get(key("source-run", current_run)) if current_run else None
+            def relevant():
+                if ("relevant", cid) not in commerce:
+                    commerce[("relevant", cid)] = first_place_relevant(state, cid, settings["places"][0], as_of=at)
+                return commerce[("relevant", cid)]
+            return next_question(context, profile, commerce["tasks"].get((cid, route), []), settings, run_id=current_run,
+                                 as_of=at, relevant=relevant, max_attempts=(run or {}).get("max_attempts", 2))
         if group == "dropship-platforms":
             # A local match of the platform's saved catalogue: every reviewed
             # phrase and the core label are the type's words; nothing is sent.
@@ -1419,12 +1429,6 @@ def product_source_request_builder(*, location=None, catalogue=None, run_id=None
             if route in {"amazon-search", "flipkart-search"}:
                 from .marketplace_browser import build_marketplace_request
                 return build_marketplace_request(route, term=query)
-            if group == "quickcommerce":
-                if location is None:
-                    raise SafetyError("SOURCE_QUICKCOMMERCE_LOCATION_PENDING")
-                from .quickcommerce import prepare_query
-                prepared = prepare_query(route, query, location)
-                return {"query": prepared["query"], "location": prepared["location"]}
             return {"query": query, "country": "IN"}
         previous_tasks, previous_receipts = [], []
         applicable = histories.get((cid, context["description_hash"], route), [])
@@ -2257,8 +2261,10 @@ def _envelope(receipt, context):
             "reused": receipt.get("reused") is True}
     if receipt.get("access_wait") is not None:
         value["access_wait"] = deepcopy(receipt["access_wait"])
-    if receipt.get("public_access_wait") is not None:
-        value["public_access_wait"] = deepcopy(receipt["public_access_wait"])
+    if (receipt.get("credit_refusal") is True and context["route"] in {"blinkit", "zepto", "instamart"}
+            and status == "blocked" and receipt["dispatch_started"] is True):
+        # The provider refused for lack of credits and charged nothing.
+        value["credit_refusal"] = True
     if receipt.get("supplier_lead_capture_ref") is not None:
         value["supplier_lead_capture_ref"] = deepcopy(receipt["supplier_lead_capture_ref"])
         value["supplier_results_hash"] = receipt.get("supplier_results_hash")
@@ -2355,32 +2361,33 @@ def _persist_receipt(memory, task_id, context, receipt):
                 or actual_failure["binding"]["next_retry_at"] != supplied.get("next_retry_at")):
             raise SafetyError("SOURCE_ACCESS_PROOF_INVALID")
         retry = actual_failure["binding"]["next_retry_at"]
-    public_wait = None
-    if value.get("public_access_wait") is not None:
-        from .quickcommerce_browser import validate_public_access_wait
-        public_wait = validate_public_access_wait(value["public_access_wait"], context["route"], context["acquisition_id"])
-        retry = public_wait["next_retry_at"]
     actual = value["dispatch_started"] is True or old.get("dispatch_started") is True
     attempts = list(old["attempt_refs"])
     if actual and context["acquisition_id"] not in attempts:
         attempts.append(context["acquisition_id"])
+    # An uncharged "no credits" refusal stays a real attempt in the record but
+    # does not use up the question's tries: it is asked again once credits return.
+    refusals = list(old.get("credit_refusal_refs", []))
+    if value.get("credit_refusal") and context["acquisition_id"] not in refusals:
+        refusals.append(context["acquisition_id"])
     local_failures = old.get("prelaunch_failures", 0)
     terminal_recovery = context.get("terminal_recovery") == "supplier-original-dispatch-recovery-v1"
     if terminal_recovery and actual and existing is None and context["acquisition_id"] not in old["attempt_refs"]:
         # The old wrapper called this same original navigation untried. Its
         # exact saved proof now corrects that one attribution, not a new run.
         local_failures = max(0, local_failures - 1)
-    elif (value["dispatch_started"] is False and existing is None and not terminal_recovery
-          and not (public_wait and public_wait["guard_skipped"])):
+    elif value["dispatch_started"] is False and existing is None and not terminal_recovery:
         local_failures += 1
     task = dict(old, status=value["status"], collector_dispatched=actual,
-                tries=len(attempts), attempt_refs=attempts, prelaunch_failures=local_failures,
+                tries=len([ref for ref in attempts if ref not in refusals]), attempt_refs=attempts,
+                prelaunch_failures=local_failures,
                 receipt_refs=list(dict.fromkeys(old["receipt_refs"] + [check_id])),
                 target_results=value["target_results"], reason=value["reason"],
                 next_retry_at=retry if value["retryable"] and value["status"] in {"failed", "blocked"} else None,
                 reconcile_required=value["dispatch_uncertain"] or value.get("supplier_original_pending") is True,
-                retryable=value["retryable"] and not value["dispatch_uncertain"]
-                    and not (public_wait and retry is None))
+                retryable=value["retryable"] and not value["dispatch_uncertain"])
+    if refusals:
+        task["credit_refusal_refs"] = refusals
     if "supplier_original_pending" in value:
         task["supplier_original_pending"] = value["supplier_original_pending"]
     task["revision"] = old.get("revision", 0) + 1
@@ -2389,17 +2396,14 @@ def _persist_receipt(memory, task_id, context, receipt):
     changes = [change("query_tasks", task_id, task, old)]
     if existing is None:
         changes.append(change("source_checks", check_id, check))
-    def validate_public_wait(_current):
-        if public_wait is not None:
-            from .quickcommerce_browser import validate_public_access_wait
-            validate_public_access_wait(value["public_access_wait"], context["route"], context["acquisition_id"])
+    def validate_supplier_proof(_current):
         if supplier_response is not None:
             from .source_acquisitions import _record, _response
             current_owner = _record(_current, context["acquisition_id"])
             if (current_owner["active_response_id"] != value["supplier_lead_capture_ref"]["id"]
                     or _response(_current, current_owner) != supplier_response):
                 raise SafetyError("SOURCE_SUPPLIER_ORIGINAL_PROOF_INVALID")
-    commit_options = {"validate": validate_public_wait} if public_wait is not None or supplier_response is not None else {}
+    commit_options = {"validate": validate_supplier_proof} if supplier_response is not None else {}
     memory.commit(key("source-apply", [task_id, digest(check), digest(old)]), changes, **commit_options)
     return dict(value, receipt_id=check_id)
 

@@ -1324,12 +1324,22 @@ class EssentialBackupSelectionTests(unittest.TestCase):
         self.assertIn("BACKUP_SELECTION_SOURCE_POINTER_CHANGED", {row["reason"] for row in selected["unsafe"]})
 
     def test_uncertain_acquisition_keeps_native_proof_before_outer_import(self):
-        self.state["query_tasks"]["task-one"] = {"acquisition_id": "acquisition-one", "route": "blinkit", "request_hash": "a" * 64,
+        self.state["query_tasks"]["task-one"] = {"acquisition_id": "acquisition-one", "route": "google-trends", "request_hash": "a" * 64,
                                                  "reconcile_required": True}
-        original = self.json("data/research/captured/quickcommerce_free/acquisitions/acquisition-one/native/native_outer_deadline.json",
+        original = self.json("data/research/captured/direct_trends/acquisition-one/native/native_outer_deadline.json",
                              {"navigation_started": None, "reason": "SOURCE_ACTION_TIMEOUT"})
         selected = self.select()
         self.assertIn(original.relative_to(self.root).as_posix(), self.files(selected))
+
+    def test_uncertain_paid_quickcommerce_call_keeps_its_intent_and_original_reply(self):
+        self.state["query_tasks"]["task-one"] = {"acquisition_id": "acquisition-one", "route": "blinkit", "request_hash": "a" * 64,
+                                                 "reconcile_required": True}
+        folder = "data/research/captured/quickcommerce_captures/acquisition-one/"
+        intent = self.json(folder + "funded_intent.json", {"request_hash": "b" * 64, "state": "dispatched"})
+        reply = self.json(folder + "original_response.json", {"state": "captured"})
+        rows = self.files(self.select())
+        for path in (intent, reply):
+            self.assertIn(path.relative_to(self.root).as_posix(), rows)
 
     def test_supplier_search_native_and_company_bundle_closure(self):
         native = self.json("data/research/captured/supplier_routes/native/request-one/native_result.json", {"navigation_started": True})
@@ -1679,6 +1689,23 @@ class EssentialBackupSelectionTests(unittest.TestCase):
         selected = self.select()
         self.assertEqual(selected["files"], [])
         self.assertEqual({row["reason"] for row in selected["unsafe"]}, {"CROWDING_SETTINGS_INVALID"})
+
+    def test_quickcommerce_places_are_a_checked_public_setting(self):
+        from product_radar.quickcommerce_plan import LOCATIONS
+        from product_radar.storage import load_json
+        good = load_json(LOCATIONS)
+        path = self.json("config/research/quickcommerce_locations.json", good)
+        selected = self.select()
+        self.assertEqual(self.files(selected)[path.relative_to(self.root).as_posix()]["kind"], "public_setting")
+        self.assertEqual(selected["unsafe"], [])
+        # The same rules the planner applies: exact coordinate text, unique places, known fields.
+        for bad in (dict(good, locations=[]), dict(good, locations=[dict(good["locations"][0], lat=19.076)]),
+                    dict(good, locations=good["locations"] + [good["locations"][0]]), dict(good, extra=1)):
+            with self.subTest(bad=bad):
+                self.json("config/research/quickcommerce_locations.json", bad)
+                selected = self.select()
+                self.assertEqual(selected["files"], [])
+                self.assertEqual({row["reason"] for row in selected["unsafe"]}, {"QUICKCOMMERCE_LOCATIONS_INVALID"})
 
     def test_apify_month_earmark_is_a_checked_public_setting(self):
         from product_radar.meta_depth_money import ALLOCATION

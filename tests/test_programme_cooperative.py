@@ -171,8 +171,7 @@ class CooperativeProgrammeTests(unittest.TestCase):
             "marketplace_options": {"shared_acquisitions": True},
             "meta_options": {"shared_acquisitions": True},
             "trends_options": {"shared_acquisitions": True},
-            "supplier_options": {"respect_access_waits": True, "shared_acquisitions": True},
-            "quickcommerce_options": {"respect_access_waits": True, "shared_acquisitions": True}})
+            "supplier_options": {"respect_access_waits": True, "shared_acquisitions": True}})
 
     def test_cooperative_original_and_follow_on_builders_share_supplier_mode(self):
         self.fixture.product("supplier-builder-later")
@@ -474,17 +473,39 @@ class CooperativeProgrammeTests(unittest.TestCase):
                     arguments.append("--cooperative-turns")
                 self.assertEqual(cli.main(arguments, memory=self.memory, root=self.root,
                     steps=self.fixture.noops(), private_staging=lambda *_args: {}, backup_step=lambda *_args: {}), 0)
-                expected = {"quickcommerce_client": None}
+                # Paid quick-commerce checks keep their credit records with this project (W5).
+                expected = {"quickcommerce_client": None, "quickcommerce_options": {"spend_root": Path(self.root)}}
                 if cooperative:
                     expected.update(marketplace_options={"shared_acquisitions": True},
                                     meta_options={"shared_acquisitions": True},
                                     trends_options={"shared_acquisitions": True},
-                                    supplier_options={"respect_access_waits": True, "shared_acquisitions": True},
-                                    quickcommerce_options={"respect_access_waits": True, "shared_acquisitions": True})
+                                    supplier_options={"respect_access_waits": True, "shared_acquisitions": True})
                 self.assertEqual(installed.call_args.kwargs, expected)
                 kwargs = discovery.call_args.kwargs
                 self.assertEqual(kwargs.get("renewable_waves", False), cooperative)
                 self.assertEqual(kwargs.get("shared_marketplace", False), cooperative)
+
+
+    def test_paid_quickcommerce_client_is_installed_only_for_cooperative_turns(self):
+        from product_radar.quickcommerce import QuickCommerceClient
+        cli = self.cli()
+        for cooperative in (False, True):
+            with self.subTest(cooperative=cooperative), patch("sys.stdout", new=StringIO()) as output, \
+                    patch.object(cli, "installed_source_handlers", return_value={}) as installed, \
+                    patch("product_radar.quickcommerce.load_key", return_value="fictional_test_key_1234567890") as key, \
+                    patch("product_radar.catalogue_discovery.create_catalogue_discovery_step",
+                          return_value=lambda *_args: {"state": "checked"}):
+                arguments = ["--programme-id", "whole-programme", "--execute", "--max-cycles", "1",
+                             "--funded-quickcommerce-fallback"] + (["--cooperative-turns"] if cooperative else [])
+                self.assertEqual(cli.main(arguments, memory=self.memory, root=self.root,
+                    steps=self.fixture.noops(), private_staging=lambda *_args: {}, backup_step=lambda *_args: {}), 0)
+                client = installed.call_args.kwargs["quickcommerce_client"]
+                if cooperative:
+                    self.assertIsInstance(client, QuickCommerceClient)
+                else:
+                    # Outside the cooperative turns no paid route can be reached at all.
+                    self.assertIsNone(client); key.assert_not_called()
+                    self.assertIn("QUICKCOMMERCE_COOPERATIVE_TURNS_REQUIRED", output.getvalue())
 
 
 class FunctionalProgrammeReaderTests(unittest.TestCase):

@@ -45,9 +45,9 @@ _SECRET_FIELDS = {"password", "api_key", "apikey", "access_token", "refresh_toke
 _DATA_EXTENSIONS = {".json", ".jsonl", ".csv", ".html", ".txt", ".pdf", ".xlsx", ".png", ".jpg", ".jpeg", ".webp"}
 _NATIVE_PROOF_SCRIPTS = {"native_expression.js", "native_ready.js"}
 _SOURCE_AREAS = {"direct_marketplace", "direct_trends", "direct_meta", "supplier_routes", "supplier_pages",
-                 "quickcommerce_captures", "quickcommerce_free", "all_source_dispatch", "trends_captures",
+                 "quickcommerce_captures", "all_source_dispatch", "trends_captures",
                  "trends_browser", "marketplace_browser", "amazon_trials", "image_captures",
-                 "trends_checks", "supplier_searches", "dropship_platforms", "meta_depth"}
+                 "trends_checks", "supplier_searches", "dropship_platforms", "meta_depth", "wider_discovery"}
 _MODEL_FILES = ("intent.json", "result.json", "completion.json", "failure.json", "runner_execution.json",
                 "execution_failure.json", "runner_preflight.json", "derived_result.json", "retries.json")
 _PROOF_FILES = {"snapshot.json", "scope.json", "transport.json", "parsed.json", "interpretation.json",
@@ -74,7 +74,9 @@ _PUBLIC_SETTINGS = ("config/service.json", "config/research/catalogue.json",
                     "config/operations/backup.json", "config/research/collection_cost_baseline.json",
                     "config/research/spend_watch.json", "config/research/signed_in_reads.json",
                     "config/research/dropship_platforms.json", "config/research/crowding.json",
-                    "config/research/apify_allocation.json", "config/benchmarks/meta_first.json")
+                    "config/research/apify_allocation.json", "config/benchmarks/meta_first.json",
+                    "config/research/quickcommerce_locations.json", "config/research/wider_discovery.json",
+                    "config/research/round_limits.json")
 _DEPENDENCIES = ("requirements-research.txt", "requirements-preview.txt")
 _ASSETS = ("media/NeuraFlow/long_maroon_path_transparent_1024.png",
            "assets/windows/neuraflow-dropshipper.ico", "assets/windows/neuraflow-dropshipper.png")
@@ -572,8 +574,7 @@ class _Selection:
         elif route == "google-trends":
             folders = [self.memory / "direct_trends" / acquisition_id]
         elif route in {"blinkit", "zepto", "instamart"}:
-            folders = [self.memory / "quickcommerce_captures" / acquisition_id,
-                       self.memory / "quickcommerce_free/acquisitions" / acquisition_id]
+            folders = [self.memory / "quickcommerce_captures" / acquisition_id]
         elif route in {"google-suppliers", "google-maps", "indiamart", "tradeindia", "company-pages"}:
             folders = [self.memory / "supplier_routes" / acquisition_id]
         elif route in {"deodap", "baapstore", "dropship-india", "dropdash"}:
@@ -583,7 +584,7 @@ class _Selection:
             return
         for folder in folders:
             for name in ("receipt.json", "capture.json", "probe.json", "intent.json", "progress.json", "outer_deadline.json",
-                         "supplier_outer_deadline.json"):
+                         "supplier_outer_deadline.json", "original_response.json", "funded_intent.json"):
                 self.add(folder / name, "source_capture", origin + "/original_acquisition/" + name, required=False)
             for native in (folder, folder / "native"):
                 for name in ("native_result.json", "native_dispatch.json", "native_outer_deadline.json"):
@@ -1172,6 +1173,15 @@ class _Selection:
             elif relative == "config/benchmarks/meta_first.json":
                 from .meta_depth import validate_reviewed_config
                 validate_reviewed_config(value)
+            elif relative == "config/research/wider_discovery.json":
+                from .wider_candidates import validate_settings
+                validate_settings(value)
+            elif relative == "config/research/round_limits.json":
+                from .round_limits import validate_round_limits
+                validate_round_limits(value)
+            elif relative == "config/research/quickcommerce_locations.json":
+                from .quickcommerce_plan import validate_settings
+                validate_settings(value)
             elif relative.endswith("/origin.json"):
                 if (set(value) != {"schema_version", "attempt_id", "config_hash", "account_id", "namespace", "generation"}
                         or type(value["schema_version"]) is not int or value["schema_version"] != 1

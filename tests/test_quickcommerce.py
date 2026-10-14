@@ -11,7 +11,7 @@ from urllib.error import HTTPError, URLError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from product_radar.models import SafetyError, digest
-from product_radar.quickcommerce import (MAX_BYTES, QuickCommerceClient, _NoRedirects,
+from product_radar.quickcommerce import (CREDITS_ENDPOINT, MAX_BYTES, QuickCommerceClient, _NoRedirects,
                                         adapter, map_response, prepare_query, save_capture)
 from product_radar.research_memory import ResearchMemory
 from product_radar.source_coverage import execute_source_run, prepare_source_tasks, source_coverage
@@ -48,11 +48,27 @@ class Response:
         self.closed = True
 
 
+def credits_payload(available=44, used=56):
+    """A synthetic free balance reply: one trial pack, never a real account."""
+    pack = {"credits_total": available + used, "credits_remaining": available, "credits_used": used, "is_trial": True,
+            "purchased_at": "2026-10-03T08:45:38+00:00", "expires_at": "2026-11-02T08:45:38+00:00"}
+    return {"summary": {"total_available": available, "total_used": used, "active_packs": 1},
+            "active": [pack], "inactive": []}
+
+
 class Opener:
-    def __init__(self, response=None, error=None):
-        self.response, self.error, self.calls = response, error, []
+    """Searches are counted in ``calls``; the free balance checks in ``credit_calls``."""
+
+    def __init__(self, response=None, error=None, credits=None):
+        self.response, self.error, self.calls, self.credit_calls = response, error, [], []
+        self.credits = credits_payload() if credits is None else credits
 
     def open(self, request, timeout):
+        if request.full_url == CREDITS_ENDPOINT:
+            self.credit_calls.append((request, timeout))
+            if isinstance(self.credits, Exception):
+                raise self.credits
+            return Response(json.dumps(self.credits).encode())
         self.calls.append((request, timeout))
         if self.error:
             raise self.error

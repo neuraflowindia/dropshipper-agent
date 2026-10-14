@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "kind": "quickcommerce-locations-v1",
+  "note": "The contract's three reference points. The first is checked first on all three apps; the others only after it shows a relevant reviewed result. A place answered for a type is not asked again within recheck_days, except that a type allocated to an upcoming issue is checked again once its support is older than seven days.",
+  "recheck_days": 30,
+  "locations": [
+    {"name": "Mumbai", "lat": "19.0760", "lon": "72.8777"},
+    {"name": "Delhi NCR", "lat": "28.6139", "lon": "77.2090"},
+    {"name": "Bengaluru", "lat": "12.9716", "lon": "77.5946"}
+  ]
+}
