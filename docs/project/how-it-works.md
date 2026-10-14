@@ -21,7 +21,7 @@ The program was designed around **14 places**, which we call "routes". As of 14 
 4. **Amazon India search**, to find similar listings.
 5. **Flipkart search**.
 6. **Google Trends**, which shows whether people in India are searching for something more or less over time. It shows ups and downs, not actual numbers of people.
-7. **Blinkit**, 8. **Zepto** and 9. **Swiggy Instamart**: the quick-delivery apps. They're meant to be checked for Mumbai, Delhi NCR and Bengaluru, but the automatic research hasn't been given those locations yet, so these checks haven't run (waiting for the owner's go-ahead).
+7. **Blinkit**, 8. **Zepto** and 9. **Swiggy Instamart**: the quick-delivery apps. They're meant to be checked for Mumbai, Delhi NCR and Bengaluru, but the automatic research hasn't been given those locations yet, so these checks haven't run. The owner gave the go-ahead on 14 October; switching them on is part of the agreed plan.
 
 **To find possible suppliers**
 
@@ -38,6 +38,14 @@ Separately, it saves real product photos where it can find suitable ones.
 - Empty: Amazon Movers & Shakers. Amazon itself says it has no such list for our categories, so it's checked at most once a week.
 - Blocked: Google Trends (Google turns away the program's hidden browser every time) and IndiaMART (it needs a login). When a site keeps refusing, the program waits longer each time (5 minutes, then 1 hour, then 6 hours, then a day) instead of knocking again and again.
 - Not yet switched on: Blinkit, Zepto and Instamart (no locations set).
+
+**Agreed on 14 October, not built yet** ([Plan R10](plan-2026-10-14-speed-sources-and-selection.md)):
+- A separate, signed-in browser for the program, so it can read Google Trends, IndiaMART, Dropship India and Dropdash (the owner signs in once).
+- Four dropshipping platforms (DeoDap, BaapStore, Dropship India, Dropdash) as new places to find products, check demand and find suppliers.
+- Amazon and Flipkart turned around: instead of counting as proof of demand, they show **how crowded** a product already is. Less crowded products come first.
+- Blinkit, Zepto and Instamart switched on for Mumbai, Delhi NCR and Bengaluru, using prepaid credits.
+- A much bigger map of product areas (about 1,200 headings), with the AI suggesting new ones as it goes.
+- A spending and allowance watch that warns at 50%, 75% and 90% of every allowance (Apify, quick-commerce credits, the AI subscription).
 
 **What it deliberately does *not* do**
 - It doesn't buy paid upgrades, extra credits, paid add-on packs or supplier memberships on its own.

@@ -21,7 +21,7 @@ Each topic has one main home. Other documents link to it rather than repeat its 
 | Desktop shortcut, Start/Stop, notification tray, installation and recovery | [Windows launcher](operations/windows_desktop_launcher.md) |
 | Provider-specific credentials and setup | [Apify connection](operations/providers/apify_connection.md), [account handover](operations/providers/apify_environment_handover.md), [Luna connection](operations/providers/codex_luna_connection.md), [quick commerce](operations/providers/quickcommerce_connection.md) |
 | Local versus hosted architecture and deferred alternatives | [Hosting decision](research/hosting/2026-10-03_local_vs_hosted.md) |
-| Open proposal (speed, product universe, sources, Amazon/Flipkart rule, AI judgment) and owner questions, 14 October | [Proposal](project/plan-2026-10-14-speed-sources-and-selection.md) |
+| Agreed programme after the owner's 14 October decisions (sources, crowding check, product map, spend watch) and its open questions | [Plan R10](project/plan-2026-10-14-speed-sources-and-selection.md) |
 | Indian dropshipping platforms (DeoDap, BaapStore, Dropship India, Dropdash) and paid search services, first look | [Platform research](research/sources/2026-10-14_dropshipping_platforms_and_search_services.md) |
 | Plain-language explanation of how the program works | [How it works](project/how-it-works.md) |
 

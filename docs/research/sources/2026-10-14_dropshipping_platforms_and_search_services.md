@@ -1,6 +1,6 @@
 # Dropshipping platforms and search services — first look (14 October 2026)
 
-Status: **research only; nothing built.** The client asked (13 October) that four Indian dropshipping platforms be considered as sources. The owner will obtain each platform's permission; nothing here has been connected. Public pages only were read: no login, no forms, a handful of fetches per site.
+Status: **first look; nothing built yet.** The client asked (13 October) that four Indian dropshipping platforms be considered as sources. On 14 October the owner confirmed permission from all four platforms and will create accounts on Dropship India and Dropdash; the build is package W4 of [Plan R10](../../project/plan-2026-10-14-speed-sources-and-selection.md). For this first look only public pages were read: no login, no forms, a handful of fetches per site.
 
 ## The four platforms
 
@@ -13,7 +13,7 @@ Status: **research only; nothing built.** The client asked (13 October) that fou
 | Trending / bestseller lists | "Bestselling Products" (275), state-wise best sellers, "Newly Launched", "Trending searches" | "Trending Products" (15) | Unknown | "Trending"/"High Demand" labels, "winning products" page |
 | Data visible publicly | Title, images, price vs MRP (e.g. ₹44 vs ₹349), stock flag, vendor, tags, date added | Reseller price vs MRP, images, SKU, weight, stock flag | — | — |
 | Technical route | Shopify `/products.json`, `/collections.json`, 14 product sitemaps work; robots allow; Cloudflare present but plain requests not blocked | Same as DeoDap | JavaScript app with a separate backend; needs login | Login + browser; app robots.txt `Disallow: /` |
-| Terms on automated access | Explicit ban without written permission | Copying ban without written permission | Explicit ban on crawling/scraping | Not read |
+| Terms on automated access | Ban without written permission (owner confirmed permission, 14 October) | Copying ban without written permission (permission confirmed) | Ban on crawling/scraping (permission confirmed) | Not read (permission confirmed) |
 
 Observations:
 - **DeoDap** is the richest and easiest (official Shopify feeds). Its newly launched and bestseller items are mostly low-cost imported gadgets, and its founder states it supplies sellers on Amazon, Flipkart and Meesho, so many items are probably already on those marketplaces. It looks most useful as a **supplier price benchmark and lead**, and its "Newly Launched" list as an early-signal source.

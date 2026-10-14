@@ -14,7 +14,7 @@ Requirements, categories, pricing, selection and report rules: [product and serv
 
 1. This brief.
 2. [Project tracker](pj-tracker.md): current completion checks, research counts, remaining work and open choices.
-3. [Open proposal and owner questions, 14 October](plan-2026-10-14-speed-sources-and-selection.md): speed, product universe, sources, the client's Amazon/Flipkart rule and AI judgment. Read before planning new work.
+3. [Plan R10, 14 October](plan-2026-10-14-speed-sources-and-selection.md): the owner's decisions of 14 October and the agreed programme (signed-in research browser, dropshipping platforms, quick commerce, Amazon/Flipkart crowding check, larger product map, spend watch). Read before building.
 4. [Documentation index](../README.md): which document owns which topic.
 5. Then, as the task needs: [implementation record](../operations/implementation_2026-10-11.md), [execution specification](../operations/benchmarks/2026-10-03/execution_specification.md), [operator guide](../operations/local_execution_and_provider_setup.md), [command reference](../operations/benchmarks/2026-10-03/offline_runner_guide.md).
 
@@ -31,4 +31,4 @@ Requirements, categories, pricing, selection and report rules: [product and serv
 
 ## Standing boundaries
 
-Ordinary research, focused checks and owner sign-in renewal are approved. Client publication or access changes, supplier contact, paid upgrades, credit purchases and the broad local/hosted release suites need separate owner approval. Visual redesign is outside the present work.
+Ordinary research, focused checks and owner sign-in renewal are approved. On 14 October the owner also approved reading the four dropshipping platforms, IndiaMART (signed in) and Google Trends, spending the existing quick-commerce credits and the free monthly Apify allowance automatically, and deploying the portal update when the first report set is ready ([Plan R10](plan-2026-10-14-speed-sources-and-selection.md)). Client publication or access changes, supplier contact, paid upgrades, credit purchases and the broad local/hosted release suites need separate owner approval. Visual redesign is outside the present work.
