@@ -1,6 +1,29 @@
 # Project tracker
 
-Latest state: **fresh start on 13 October 2026 at 18:38:54 UTC** (owner decision). This is the sole current progress summary. Requirements belong to the [product contract](../product/india_dropshipping_product_opportunity_radar_product_brief.md); technical changes and receipts belong to the [implementation record](../operations/implementation_2026-10-11.md) (fresh start: R08).
+Latest state: **14 October 2026, 09:46 UTC** — research running on commit `0a71c9c` (restarted 09:00 UTC). Fresh start was 13 October 2026 at 18:38:54 UTC (owner decision). This is the sole current progress summary. Requirements belong to the [product contract](../product/india_dropshipping_product_opportunity_radar_product_brief.md); technical changes and receipts belong to the [implementation record](../operations/implementation_2026-10-11.md) (fresh start: R08).
+
+## Current position — 14 October 2026
+
+| Measure (owner meter, 09:46 UTC; about 15 hours after the fresh start, about 12 hours of research) | Count |
+|---|---:|
+| Candidates | 26 |
+| Accepted narrow product types | 24 |
+| Checklist-assessed types | 21 |
+| Passing the checklist (≥5 Meets) | 15 |
+| **Report-eligible types** (need 20 across the two sets) | **6** |
+| Report sets produced | 0 / 2 |
+| AI jobs | 214 |
+| Provider (Apify) money since the fresh start | USD 0 |
+
+Counts move both ways: new evidence correctly sends a type back for re-checking (for example, one type dropped out for 7 minutes on 13 October and returned).
+
+What happened on 13–14 October:
+- A power cut stopped research at about 21:59 UTC on 13 October; it restarted by itself at 22:00 and recovered cleanly.
+- Repairs (implementation record [R09](../operations/implementation_2026-10-11.md#r09-source-routes-access-waits-and-report-pool-speed-1314-october)): Google Maps browser read restored and working again (6 of 7 Maps reads after the restart returned results); Google web supplier search retired; IndiaMART's login wall and Google gates recorded as blocked; escalating waits for sites that keep refusing; Meta completeness fixed; supplier outcome wording fixed; the report pool rebuilt about 6–8× faster. Rounds after the restart started every 1–8 minutes instead of about every 70 minutes.
+- Read-only diagnoses found the slowdown cause (fixed), an over-cautious AI on the checklist, an Amazon-built and bounded product universe, Trends blocked for the program's own browser, Movers & Shakers empty, IndiaMART behind a login, and quick-commerce checks never run (no location set). Details and **the owner questions** are in the [14 October proposal](plan-2026-10-14-speed-sources-and-selection.md).
+- The client asked (13 October) that products already established on Amazon India and Flipkart go later in the queue, and named four dropshipping platforms ([first look](../research/sources/2026-10-14_dropshipping_platforms_and_search_services.md)). Not built; awaiting owner decisions.
+
+Next actions, in order: (1) watch the restarted research for a few hours (round time, Maps results, no new failure types; one IndiaMART task showed `SUPPLIER_BROWSER_FALLBACK_PROOF_REQUIRED` waiting after the restart and should be checked); (2) after the owner answers the proposal's questions, plan and build the agreed changes; (3) finish the two report sets (needs the portal update deployed, question 10).
 
 ## Fresh start — 13 October 2026
 

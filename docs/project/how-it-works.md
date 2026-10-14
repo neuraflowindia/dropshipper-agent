@@ -12,7 +12,7 @@ A recommendation means "this looks worth trying". It doesn't promise sales or pr
 
 ## Where it looks
 
-The program checks **14 places**, which we call "routes":
+The program was designed around **14 places**, which we call "routes". As of 14 October 2026, 13 are still in use and several don't give results yet (see "What actually works today" below):
 
 **To see if people want the product (market checks)**
 1. **Meta Ad Library**: the public list of ads running on Facebook and Instagram. It shows who is advertising a product and for how long.
@@ -21,17 +21,23 @@ The program checks **14 places**, which we call "routes":
 4. **Amazon India search**, to find similar listings.
 5. **Flipkart search**.
 6. **Google Trends**, which shows whether people in India are searching for something more or less over time. It shows ups and downs, not actual numbers of people.
-7. **Blinkit**, 8. **Zepto** and 9. **Swiggy Instamart**: the quick-delivery apps. These are checked for Mumbai, Delhi NCR and Bengaluru.
+7. **Blinkit**, 8. **Zepto** and 9. **Swiggy Instamart**: the quick-delivery apps. They're meant to be checked for Mumbai, Delhi NCR and Bengaluru, but the automatic research hasn't been given those locations yet, so these checks haven't run (waiting for the owner's go-ahead).
 
 **To find possible suppliers**
 
-10. **Google search** for suppliers.
-11. **Google Maps**, for manufacturers and wholesalers.
+10. **Google search** for suppliers: **switched off on 14 October 2026.** Google refuses automated searches, and we don't get around blocks or pay for a search service.
+11. **Google Maps**, for manufacturers and wholesalers. It's read in the program's own browser window, which the owner has given permission for.
 12. **IndiaMART**.
 13. **TradeIndia**.
 14. **Supplier and company websites** themselves.
 
 Separately, it saves real product photos where it can find suitable ones.
+
+**What actually works today (14 October 2026)**
+- Working: Meta Ad Library, Amazon Best Sellers, Amazon search, Flipkart search, TradeIndia, Google Maps (just switched back on), company websites and photos.
+- Empty: Amazon Movers & Shakers. Amazon itself says it has no such list for our categories, so it's checked at most once a week.
+- Blocked: Google Trends (Google turns away the program's hidden browser every time) and IndiaMART (it needs a login). When a site keeps refusing, the program waits longer each time (5 minutes, then 1 hour, then 6 hours, then a day) instead of knocking again and again.
+- Not yet switched on: Blinkit, Zepto and Instamart (no locations set).
 
 **What it deliberately does *not* do**
 - It doesn't buy paid upgrades, extra credits, paid add-on packs or supplier memberships on its own.
@@ -109,7 +115,7 @@ This is a made-up example to show the steps. It isn't a real result.
 2. The AI reads the ad and defines the product as **"Adjustable doorway pull-up bar"**. It checks that this isn't a copy of something already found and that it isn't a big-brand product, and puts it in its main category.
 3. The checklist gives, say, 6 "Meets" (small, easy to ship, convenient, solves a problem, saves money on gym fees, good value) = **Good fit**.
 4. Market checks find several advertisers on Meta and similar listings on Amazon and Flipkart: **three supporting sites**, so it lands in the top priority group.
-5. A supplier search on IndiaMART and Google Maps finds two wholesale leads. One says it ships single pieces to customers and has no subscription. A real photo is saved.
+5. A supplier search on TradeIndia and Google Maps finds two wholesale leads. One says it ships single pieces to customers and has no subscription. A real photo is saved.
 6. The product has never been sent to this client, so it's marked **New** and placed in Thursday's report.
 7. The facts are frozen. The PDF(s) and Excel file are made, the owner checks and approves them, and on Thursday at 9:00 am the client sees it on the private website.
 

@@ -2,7 +2,7 @@
 
 **Project stage: Development and testing** (confirmed by the owner on 13 October 2026). Only the owner and the agent use the application; no client has received a live report. Precautions that exist only to protect real users (staged rollouts, careful migration of old states, backward compatibility) are not planned.
 
-**Version control:** the project is not yet attached to a Git repository (the `.git` folder is empty). The owner will connect one later; until then no commits or pushes are possible.
+**Version control:** GitHub repository `github.com/neuraflowindia/dropshipper-agent`, branch `main` (attached 13 October 2026). Commits use the private no-reply author address set in the repository's local Git settings. Research data, reports, credentials and `docs/project/handoff.md` are never committed.
 
 ## What the product is
 
@@ -14,8 +14,9 @@ Requirements, categories, pricing, selection and report rules: [product and serv
 
 1. This brief.
 2. [Project tracker](pj-tracker.md): current completion checks, research counts, remaining work and open choices.
-3. [Documentation index](../README.md): which document owns which topic.
-4. Then, as the task needs: [implementation record](../operations/implementation_2026-10-11.md), [execution specification](../operations/benchmarks/2026-10-03/execution_specification.md), [operator guide](../operations/local_execution_and_provider_setup.md), [command reference](../operations/benchmarks/2026-10-03/offline_runner_guide.md).
+3. [Open proposal and owner questions, 14 October](plan-2026-10-14-speed-sources-and-selection.md): speed, product universe, sources, the client's Amazon/Flipkart rule and AI judgment. Read before planning new work.
+4. [Documentation index](../README.md): which document owns which topic.
+5. Then, as the task needs: [implementation record](../operations/implementation_2026-10-11.md), [execution specification](../operations/benchmarks/2026-10-03/execution_specification.md), [operator guide](../operations/local_execution_and_provider_setup.md), [command reference](../operations/benchmarks/2026-10-03/offline_runner_guide.md).
 
 ## Code map
 
