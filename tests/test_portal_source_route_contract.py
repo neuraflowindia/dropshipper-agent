@@ -116,7 +116,7 @@ class PortalSourceContractTests(unittest.TestCase):
             from product_radar.report_source_facts import CLIENT_ROUTES
             self.assertEqual(proof, {"hash": digest(facts), "products": 10, "routes": len(CLIENT_ROUTES)})
             # Every planned route with the dropshipping platforms; the deeper Meta read folds into the Meta row.
-            self.assertEqual(len(CLIENT_ROUTES), 16)
+            self.assertEqual(len(CLIENT_ROUTES), 15)
             self.assertNotIn("meta-ads-depth", [row["route"] for row in facts["products"][0]["source_route_checks"]])
             chart = next(row for row in facts["products"][0]["source_route_checks"] if row["route"] == "google-trends")
             means = {metric["name"]: metric["value"] for metric in chart["measurements"]}

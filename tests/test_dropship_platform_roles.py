@@ -510,7 +510,6 @@ class DiscoveryTests(RolesCase):
     def readers(self):
         return {"deodap": feeds.FeedReader("deodap", pacing_root=self.pacing_root, fetcher=FeedDouble(pages())),
                 "baapstore": feeds.FeedReader("baapstore", pacing_root=self.pacing_root, fetcher=FeedDouble({})),
-                "dropship-india": signed.SignedInReader("dropship-india", pacing_root=self.pacing_root, browser=None),
                 "dropdash": signed.SignedInReader("dropdash", pacing_root=self.pacing_root, browser=None)}
 
     def test_platform_lane_step_refreshes_then_records_presence_leads_and_admission(self):
@@ -521,8 +520,8 @@ class DiscoveryTests(RolesCase):
         with patch.object(roles, "_readers", return_value=readers), \
                 patch("product_radar.programme.programme_service_state", return_value={"enabled": True}):
             summary = roles.platform_step(self.memory, {}, {"at": later(AT, 3600), "runner": FakeRunner()})
-        self.assertEqual(list(summary["refresh"]), ["dropship-india", "dropdash", "deodap", "baapstore"])
-        self.assertEqual(summary["refresh"]["dropship-india"]["reason"], "OWNER_SIGN_IN_REQUIRED")
+        self.assertEqual(list(summary["refresh"]), ["dropdash", "deodap", "baapstore"])
+        self.assertEqual(summary["refresh"]["dropdash"]["reason"], "OWNER_SIGN_IN_REQUIRED")
         self.assertEqual((summary["presence"]["checked"], summary["presence"]["unchanged"], summary["leads"]), (1, 0, 1))
         self.assertIsInstance(summary["discovery"]["new_concept_ids"], list)
         self.assertIsNotNone(roles.current_platform_presence(self.memory.snapshot(), self.cid))

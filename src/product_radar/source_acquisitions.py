@@ -38,7 +38,7 @@ CAPTURE_SOURCES = {"meta-ads": "meta", "amazon-bestsellers": "amazon",
     "amazon-search": "amazon", "flipkart-search": "flipkart", "google-trends": "trends",
     "blinkit": "blinkit", "zepto": "zepto", "instamart": "instamart", "google-suppliers": "supplier",
     "google-maps": "supplier", "indiamart": "supplier", "tradeindia": "supplier", "company-pages": "supplier",
-    "deodap": "deodap", "baapstore": "baapstore", "dropship-india": "dropship-india", "dropdash": "dropdash",
+    "deodap": "deodap", "baapstore": "baapstore", "dropdash": "dropdash",
     "meta-ads-depth": "meta"}
 
 

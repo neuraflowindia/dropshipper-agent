@@ -16,7 +16,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from .models import SafetyError, timestamp, utc_now
-from .signed_in_browser import SITES, records_lock, records_path
+from .signed_in_browser import SITES, records_lock, records_path, without_retired_sites
 from .storage import atomic_json, load_json
 
 SETTINGS = Path(__file__).resolve().parents[2] / "config/research/signed_in_reads.json"
@@ -71,7 +71,7 @@ def _records(root):
     path = _path(root)
     if not path.exists() and not path.is_symlink():
         return {"schema_version": 1, "reads": {}}
-    value = load_json(path, 1024 * 1024)
+    value = without_retired_sites(load_json(path, 1024 * 1024), "reads")
     reads = value.get("reads") if isinstance(value, dict) else None
     if (not isinstance(value, dict) or set(value) != {"schema_version", "reads"}
             or type(value["schema_version"]) is not int or value["schema_version"] != 1

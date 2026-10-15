@@ -82,7 +82,7 @@ These are dependency milestones inside one approved continuous programme, not se
 
 ## 5. Source capability and coverage contracts
 
-Represent each route separately. The current route set, roles and retired routes are in [section 30](#30-current-source-routes-after-plan-r10-15-october): Meta (free read and the paid deeper read, one site), Amazon search/bestseller lists and Flipkart search as the crowding check, signed-in Google Trends, Blinkit, Zepto and Instamart (paid, admitted checks), the four dropshipping platforms, IndiaMART (signed in), Google Maps, TradeIndia, company/product/terms pages and product-image reads. Amazon Movers & Shakers and Google Search supplier discovery are retired. “Google works” does not prove Maps or Trends; known TradeIndia page capture does not prove directory discovery.
+Represent each route separately. The current route set, roles and retired routes are in [section 30](#30-current-source-routes-after-plan-r10-15-october): Meta (free read and the paid deeper read, one site), Amazon search/bestseller lists and Flipkart search as the crowding check, signed-in Google Trends, Blinkit, Zepto and Instamart (paid, admitted checks), the three dropshipping platforms (DeoDap, BaapStore, Dropdash), IndiaMART (signed in), Google Maps, TradeIndia, company/product/terms pages and product-image reads. Amazon Movers & Shakers and Google Search supplier discovery are retired. “Google works” does not prove Maps or Trends; known TradeIndia page capture does not prove directory discovery.
 
 Each route has source, purpose, country/location, access mode, parser/build/schema version, bounds, tested outcome/time and safe receipt. Each product question has concept/description hash, missing question, semantic request, route/action/attempt references, state and reopening trigger. A route failure does not create a failed product attempt for every concept.
 
@@ -1997,13 +1997,13 @@ This section owns the current route set. It supersedes the route lists and route
 | `google-trends` | trends | Per-type market check; rising related queries feed discovery | Signed-in research browser only; 90 s spacing, 200 a day; proof gate after each sign-in. |
 | `blinkit`, `zepto`, `instamart` | quickcommerce | Per-type paid check with admission (checklist passed, crowding Low or Medium); neutral context, never discovery | Provider API only (one credit per search); Mumbai first, Delhi NCR and Bengaluru after a relevant Mumbai result; 30-day no-repeat, 7-day refresh for issue types; free balance check before each batch. Requires `--funded-quickcommerce-fallback` with `--cooperative-turns`. |
 | `deodap`, `baapstore` | dropship-platforms | Discovery from list items; per-type presence fact (not a market vote until the ranking design); supplier lead | Public Shopify feeds; 5 s spacing, 1,500 a day; full catalogue weekly, lists daily. |
-| `dropship-india`, `dropdash` | dropship-platforms | Same roles as above, from a sample of the catalogue and list pages | Signed-in research browser; read-only allow-list; 30 s spacing, 300 a day; plan or membership walls wait. |
+| `dropdash` | dropship-platforms | Same roles as above, from a sample of the catalogue and list pages | Signed-in research browser; read-only allow-list; 30 s spacing, 300 a day; plan or membership walls wait. |
 | `indiamart` | supplier | Supplier search; mapped-term listings feed discovery (labelled as leads) | Signed-in research browser; 30 s spacing, 150 a day, 4 reads a round; parser v6. |
 | `google-maps` | supplier | Supplier search | Owned-browser read directly, no plain read first. |
 | `tradeindia` | supplier | Supplier search; mapped-term listings feed discovery (labelled as leads) | Plain read first, browser read when the layout is not recognised. |
 | `company-pages` | supplier | Follow-up pages of discovered companies | Unchanged. |
 
-Every signed-in read shares 300 seconds of browser time a round and waits calmly (`OWNER_SIGN_IN_REQUIRED`, `OWNER_SIGN_IN_WINDOW_OPEN`, `OWNER_DESKTOP_UNAVAILABLE`, pacing and round-share codes) instead of failing. Every new route id is registered in all route tables listed in the plan's rules and mirrored in the portal packet checker; new client packets carry 16 route rows.
+Every signed-in read shares 300 seconds of browser time a round and waits calmly (`OWNER_SIGN_IN_REQUIRED`, `OWNER_SIGN_IN_WINDOW_OPEN`, `OWNER_DESKTOP_UNAVAILABLE`, pacing and round-share codes) instead of failing. Every new route id is registered in all route tables listed in the plan's rules and mirrored in the portal packet checker; new client packets carry 15 route rows.
 
 **Retired routes.** Their saved questions and answers stay readable as closed history; nothing new is planned, sent or waited on.
 
@@ -2011,6 +2011,7 @@ Every signed-in read shares 300 seconds of browser time a round and waits calmly
 |---|---|---|
 | Amazon search, Amazon bestseller lists and Flipkart search **as discovery** | W6 (`4707231`) | They run only as each type's crowding check; Meta, the platforms and wider discovery produce candidates. |
 | Amazon Movers & Shakers | W6 (`4707231`) | None (`CLOSED_ROUTES`); its pages were empty for our categories. |
+| Dropship India (`dropship-india`) | 15 October 2026 (owner) | None. Removed entirely (route, settings, sign-in tab, pacing, packet row): it showed nothing useful, signed in or not. It never ran live, so it left no saved history; a saved sign-in or pacing record still naming it is read without it. |
 | Google Search supplier route | R09 (14 October) | IndiaMART, TradeIndia, Google Maps and company pages. |
 | Quick-commerce discovery and the free quick-commerce browser route | W5 (`6630cbc`) | The paid API route with admission; `scripts/collect_quickcommerce.py` deleted. |
 | The single-location quick-commerce options `--location-name`, `--latitude`, `--longitude` | W5 (`6630cbc`) | `config/research/quickcommerce_locations.json`; location left the programme's frozen settings, so the launcher passes no location flags. |

@@ -34,24 +34,6 @@
         {"role": "trending", "handles": ["trending-products"], "pattern": null, "max_pages": 1}
       ]
     },
-    "dropship-india": {
-      "transport": "signed-in-browser",
-      "base_url": "https://dropshipindia.live",
-      "requests_per_round": 1,
-      "full_refresh_days": 7,
-      "list_refresh_hours": 24,
-      "raw_retention_days": 21,
-      "price_basis": "Dropship price shown to the signed-in research account.",
-      "stated_terms": null,
-      "terms_url": null,
-      "product_path": "^https://(?:www\\.)?dropshipindia\\.live/(?:product|products)/[A-Za-z0-9._~%-]+/?$",
-      "product_pages_per_day": 40,
-      "pages": [
-        {"role": "catalogue", "url": "https://dropshipindia.live/products", "max_pages": 5},
-        {"role": "trending", "url": "https://dropshipindia.live/trending-products", "max_pages": 2},
-        {"role": "high_demand", "url": "https://dropshipindia.live/high-demand-products", "max_pages": 2}
-      ]
-    },
     "dropdash": {
       "transport": "signed-in-browser",
       "base_url": "https://app.dropdash.co",

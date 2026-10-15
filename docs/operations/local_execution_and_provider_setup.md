@@ -112,16 +112,16 @@ Built on branch `r10` (Plan R10, waves 1–4) and loaded at the W13 cutover; unt
 
 ### 8.1 Signing in to the research sites (owner, once and whenever a sign-in expires)
 
-Google Trends, IndiaMART, Dropship India and Dropdash are read in the program's own Chrome profile while signed in with the separate research Gmail. That profile lives in the owner's Windows account (`%LOCALAPPDATA%\NeuraFlowDropshipper\research-browser-profile`), never in the everyday Chrome profile, Git or the daily backups. The program never reads, stores or prints passwords or cookies.
+Google Trends, IndiaMART and Dropdash are read in the program's own Chrome profile while signed in with the separate research Gmail. That profile lives in the owner's Windows account (`%LOCALAPPDATA%\NeuraFlowDropshipper\research-browser-profile`), never in the everyday Chrome profile, Git or the daily backups. The program never reads, stores or prints passwords or cookies.
 
 1. Open the **NeuraFlow Dropshipper** window and click **Sign in to research sites**. (Command alternative: `.venv/bin/python scripts/research_sign_in.py open`.)
-2. A plain Chrome window opens with seven tabs: Google, Google Trends, IndiaMART, DeoDap, BaapStore, Dropship India and Dropdash. Sign in on each; DeoDap and BaapStore are optional because their public feeds are read without signing in.
+2. A plain Chrome window opens with six tabs: Google, Google Trends, IndiaMART, DeoDap, BaapStore and Dropdash. Sign in on each; DeoDap and BaapStore are optional because their public feeds are read without signing in.
 3. Close the Chrome window. While it is open, signed-in reads wait (`OWNER_SIGN_IN_WINDOW_OPEN`) and never close it.
 4. The sign-in line in the window clears after the next reads see the sites signed in. `.venv/bin/python scripts/research_sign_in.py status` reports each site as signed in / sign-in needed / expired / not checked from what the latest reads saw; it visits no site.
 
 If a read meets a site's sign-in wall, that site's sign-in is recorded as expired: its routes wait with `OWNER_SIGN_IN_REQUIRED`, the window shows "Sign-in expired: …" and Windows shows one notification. Everything else keeps running. Signed-in reads use a real window that starts minimised without taking focus; while Windows is locked or signed out they wait (`OWNER_DESKTOP_UNAVAILABLE`). If the button says a research read is using the browser, try again in a minute.
 
-On the signed-in sites the program only reads: it never pays, accepts a plan or membership prompt, or clicks contact, "View number", "Get best price" or "Send enquiry". A plan or membership page on Dropship India or Dropdash makes that platform wait (`DROPSHIP_PLAN_REQUIRED`) and shows a line in the window.
+On the signed-in sites the program only reads: it never pays, accepts a plan or membership prompt, or clicks contact, "View number", "Get best price" or "Send enquiry". A plan or membership page on Dropdash makes it wait (`DROPSHIP_PLAN_REQUIRED`) and shows a line in the window. (Dropship India was dropped by the owner on 15 October 2026 because it showed nothing useful, signed in or not; the program no longer opens it.)
 
 After each new sign-in, Google Trends must pass its proof gate: three complete signed-in reads including at least one verified chart export. The window's Trends line shows the count; if Google still refuses, the route stays blocked with the exact reason and research continues without Trends.
 

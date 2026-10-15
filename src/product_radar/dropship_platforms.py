@@ -1,10 +1,12 @@
-"""The four Indian dropshipping platforms (owner decision D1, Plan R10 W4).
+"""The three Indian dropshipping platforms (owner decision D1, Plan R10 W4).
 
 DeoDap and BaapStore publish official Shopify feeds (``platform_feeds``);
-Dropship India and Dropdash are read in the owner's signed-in research profile
-(``platform_signed_in``). Every read is kept as a file under
-``<store>/dropship_platforms/<route>/raw/`` and merged into one current
-catalogue per platform; only matched, relevant items become research events.
+Dropdash is read in the owner's signed-in research profile
+(``platform_signed_in``). The owner dropped a fourth, Dropship India, on
+15 October 2026: it showed nothing useful, signed in or not. Every read is
+kept as a file under ``<store>/dropship_platforms/<route>/raw/`` and merged
+into one current catalogue per platform; only matched, relevant items become
+research events.
 A listing is supplier and presence information, never a market vote (that
 waits for the ranking redesign).
 
@@ -48,10 +50,10 @@ from .models import SafetyError, canonical, decode_json, timestamp, utc_now
 from .storage import atomic_bytes, atomic_json, file_lock, load_json, safe_path
 
 GROUP = "dropship-platforms"
-ROUTES = ("deodap", "baapstore", "dropship-india", "dropdash")
+ROUTES = ("deodap", "baapstore", "dropdash")
 FEED_ROUTES = ("deodap", "baapstore")
-SIGNED_IN_ROUTES = ("dropship-india", "dropdash")
-LABELS = {"deodap": "DeoDap", "baapstore": "BaapStore", "dropship-india": "Dropship India", "dropdash": "Dropdash"}
+SIGNED_IN_ROUTES = ("dropdash",)
+LABELS = {"deodap": "DeoDap", "baapstore": "BaapStore", "dropdash": "Dropdash"}
 # A relevant item on any of these lists is on a bestseller / trending /
 # high-demand list; "new_arrival" is the separate newly-launched signal.
 LIST_ROLES = ("bestseller", "trending", "high_demand", "winning", "state_bestseller")

@@ -517,7 +517,7 @@ class SignedInTrendsTests(unittest.TestCase):
 
     def test_trends_reads_confirm_the_google_account_sign_in(self):
         self.sign_in()
-        for site in ("indiamart", "dropship-india", "dropdash"):
+        for site in ("indiamart", "dropdash"):
             record_site_observation(self.signed, site, True)
         self.assertEqual(site_states(self.signed)["google"]["state"], "not_checked")
         self.assertEqual(sign_in_line(self.signed), "Sign-ins will be confirmed on the next research reads.")

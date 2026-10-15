@@ -1,6 +1,6 @@
 """One programme round's share of the signed-in research browser (Plan R10).
 
-Every signed-in read (Google Trends, IndiaMART, Dropship India, Dropdash)
+Every signed-in read (Google Trends, IndiaMART, Dropdash)
 uses the one visible research browser. Inside a programme round
 (``signed_in_round``) they share ``round.signed_in_seconds`` of browser time
 (``config/research/signed_in_reads.json``; 5 minutes), and a site listed in

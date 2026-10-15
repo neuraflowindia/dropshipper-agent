@@ -318,7 +318,7 @@ const SOURCE_ROUTE_FIXTURE = [
   ['google-suppliers', 'Google supplier search', 'supplier'], ['google-maps', 'Google Maps supplier search', 'supplier'],
   ['indiamart', 'IndiaMART', 'supplier'], ['tradeindia', 'TradeIndia', 'supplier'], ['company-pages', 'Supplier company pages', 'supplier'],
   ['deodap', 'DeoDap', 'dropship-platforms'], ['baapstore', 'BaapStore', 'dropship-platforms'],
-  ['dropship-india', 'Dropship India', 'dropship-platforms'], ['dropdash', 'Dropdash', 'dropship-platforms'],
+  ['dropdash', 'Dropdash', 'dropship-platforms'],
 ];
 function sourcePacket() {
   const p = platformPacket();

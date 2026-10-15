@@ -24,7 +24,7 @@ What was built, with its settings files, wait codes and known limits, is recorde
 | L2 | **Quick commerce repeats:** a city already answered for a type is not asked again for 30 days; the only exception is a type allocated to an upcoming issue, which is checked again once its quick-commerce support is older than seven days (the contract's validity). |
 | L3 | **The free quick-commerce browser route is deleted,** not kept as a fallback: the public app pages blocked every pilot read and never gave verified local rows. The paid provider API is the only quick-commerce route. |
 | L4 | **Supplier listings found by wider discovery are labelled as leads** in reports ("IndiaMART · Supplier listing (lead)"), placed after every other example, never shown as market examples. |
-| L5 | **Signed-in browser time per round:** all signed-in reads (Trends, IndiaMART, Dropship India, Dropdash) share 300 seconds a round; the platform lane's refresh of all four platforms is also limited to 150 seconds a round (signed-in pages first, feeds with what is left); IndiaMART makes at most 4 reads a round so supplier searches cannot fill the round. |
+| L5 | **Signed-in browser time per round:** all signed-in reads (Trends, IndiaMART, Dropdash) share 300 seconds a round; the platform lane's refresh of all three platforms is also limited to 150 seconds a round (signed-in pages first, feeds with what is left); IndiaMART makes at most 4 reads a round so supplier searches cannot fill the round. |
 | L6 | **The Amazon-page seed lane is retired** (D4): the 224 headings it produced stay; the product map is now built only from the new materials (W10). |
 | L7 | **AI money guard:** when Codex reports a plan limit reached, research AI waits (`AI_PLAN_LIMIT_CREDITS_PROTECTED`) before any job is saved, so the paid Codex credits are never drawn; a drop in credits during a research call pauses AI (`AI_PAID_CREDITS_USED`) until the next reset. Allowance use alone never pauses AI (A4). |
 | L8 | **Old Trends routes stay until the W13 proof:** the hidden-browser and Playwright Trends transports and their manual scripts are no longer used by research and are deleted once the signed-in route passes its live proof gate. |
@@ -35,8 +35,8 @@ This document replaces the 14 October morning proposal. The owner answered its e
 
 | # | Decision |
 |---|---|
-| D1 | **Dropshipping platforms:** the owner confirmed permission from all four platforms (DeoDap, BaapStore, Dropship India, Dropdash). Use them fully: catalogue, new arrivals, bestseller/trending lists, prices, supplier details. |
-| D2 | **Logins:** the owner signs in once with a separate research Gmail (chosen 14 October; the address is kept out of the public repository) to Google, Trends, IndiaMART and the four platforms. The program reads these sites in a browser while signed in. |
+| D1 | **Dropshipping platforms:** the owner confirmed permission from the platforms (DeoDap, BaapStore, Dropdash; a fourth, Dropship India, was dropped by the owner on 15 October because it showed nothing useful, signed in or not). Use them fully: catalogue, new arrivals, bestseller/trending lists, prices, supplier details. |
+| D2 | **Logins:** the owner signs in once with a separate research Gmail (chosen 14 October; the address is kept out of the public repository) to Google, Trends, IndiaMART and the platforms (Dropdash needs it; DeoDap and BaapStore are optional). The program reads these sites in a browser while signed in. |
 | D3 | **Apify** is not a paid subscription: the free plan gives USD 5 of usage every month (renews monthly, no card). Use that free monthly allowance automatically for deeper Meta reads. No paid Apify plan. |
 | D4 | **Amazon India and Flipkart are turned around:** they stop being discovery sources and stop being positive market votes. They become a **crowding check** ("how crowded is this product already?"). Low presence is good; crowded products go later in the queue. |
 | D5 | **Google Trends:** the owner reports permission from Google (Google India's Trends team, approved up their chain) to use Trends; Google will not build a special API for us. Read Trends in the program's browser. |
@@ -98,8 +98,8 @@ An independent review (14 October, read-only, extra-high effort) checked this pl
 
 ### W1. Signed-in research browser and owner sign-in
 
-- **Status: built** (`60fffb0`). The sign-in window opens seven tabs: Google, Google Trends, IndiaMART, DeoDap, BaapStore, Dropship India and Dropdash (DeoDap and BaapStore optional). Live check pending (W13).
-- **Objective:** one lasting, separate Chrome profile for the program (never the owner's everyday profile) so Trends, IndiaMART, Dropship India and Dropdash can be read while signed in; the owner signs in once.
+- **Status: built** (`60fffb0`). The sign-in window opens six tabs: Google, Google Trends, IndiaMART, DeoDap, BaapStore and Dropdash (DeoDap and BaapStore optional). Live check pending (W13).
+- **Objective:** one lasting, separate Chrome profile for the program (never the owner's everyday profile) so Trends, IndiaMART and Dropdash can be read while signed in; the owner signs in once.
 - **Profile:** Windows folder `%LOCALAPPDATA%\NeuraFlowDropshipper\research-browser-profile` (path resolved through PowerShell, not hard-coded). `native_public_browser.native_snapshot` gains `profile="signed-in"`; all other routes keep the throwaway profile.
 - **Changes the lasting profile needs** (`native_public_browser.py:72-75,123,254`): delete any old `DevToolsActivePort` file before each start; close Chrome with the browser's own close command first and force-kill only as a fallback (protects saved sign-ins); one signed-in Chrome at a time through a lock that also covers the owner's sign-in window.
 - **Visible but out of the way:** Google refuses hidden browsers, so signed-in reads use a real visible window, started minimised **without taking focus** (SW_SHOWMINNOACTIVE) and with `--disable-renderer-backgrounding --disable-backgrounding-occluded-windows --disable-background-timer-throttling` so pages render fully while minimised. No disguise and no fake browser identity. Reads need the owner's Windows session to be signed in (the scheduled task already runs in it); while Windows is locked or signed out, signed-in routes wait with `OWNER_DESKTOP_UNAVAILABLE`.
@@ -125,12 +125,12 @@ An independent review (14 October, read-only, extra-high effort) checked this pl
 - **Google Maps (D11):** `supplier_search.supplier_request_for_state` (101-117) returns the browser request directly for `google-maps`; the proof gates at 726-730, 811-812 and 854 accept a Maps browser read without a plain read; the plain-read-first branch for Maps is deleted.
 - **Tests:** wall while signed in, parser v6 on saved fixtures, pacing, Maps browser-first planning and gate.
 
-### W4. Four dropshipping platforms
+### W4. Three dropshipping platforms
 
-- **Status: built** (`4707231`), except role (b): until the owner's ranking design is settled, a platform listing is recorded as a per-type **presence fact** (relevant items, bestseller/trending/new-arrival membership, price, stock, how much of the platform was read) for the coming score, not as a market vote. The platforms' refresh has its own 150-second budget a round (L5). The signed-in pages of Dropship India and Dropdash have not yet been seen signed in; their layouts are checked at W13.
-- **Route ids:** four separate routes (`deodap`, `baapstore`, `dropship-india`, `dropdash`) in a new source group `dropship-platforms`, counted as **one** market site.
+- **Status: built** (`4707231`), except role (b): until the owner's ranking design is settled, a platform listing is recorded as a per-type **presence fact** (relevant items, bestseller/trending/new-arrival membership, price, stock, how much of the platform was read) for the coming score, not as a market vote. The platforms' refresh has its own 150-second budget a round (L5). Dropdash's signed-in pages have not yet been seen signed in; its layout is checked at W13. Dropship India was built as a fourth platform and removed entirely on 15 October 2026 (owner decision: it showed nothing useful, signed in or not).
+- **Route ids:** three separate routes (`deodap`, `baapstore`, `dropdash`) in a new source group `dropship-platforms`, counted as **one** market site.
 - **DeoDap and BaapStore (public Shopify feeds):** `collections.json`, collection product lists and `products.json`, one request every 5 seconds, daily ceiling 1,500 per platform. Fields: title, images, price and MRP, stock flag, vendor, tags, created date, collection membership (new arrivals, bestsellers, trending, state-wise bestsellers). A full catalogue refresh at most weekly; new-arrival and bestseller collections daily.
-- **Dropship India and Dropdash (signed in, W1):** browser reads of the catalogue, trending / "high demand" / "winning products" pages and product pages; one read every 30 seconds, daily ceiling 300 each.
+- **Dropdash (signed in, W1):** browser reads of the catalogue, "winning products" and trending pages and product pages; one read every 30 seconds, daily ceiling 300.
 - **Per-type check:** Shopify feeds cannot be searched, so each type is checked by a **local match against the saved catalogue** (title and tag words from the type's definition and phrases), then AI relevance review of the few best matches (batched with W7's combined review).
 - **Roles:** (a) **discovery:** new arrivals, bestsellers and trending items become candidates; (b) **market site:** only a relevant item on a bestseller / trending / high-demand list counts, as "reasonably positive"; a plain listing does **not** count (the contract says suppliers never vote); (c) **supplier lead:** a relevant listing is recorded as supplier effort and a lead with price and stated dropship terms (`supplier_effort.record_supplier_effort`); (d) **product map** input (W10).
 - **Tests:** feed parsing on saved fixtures, pacing and ceilings, local matching, roles, supplier-lead mapping, market-site mapping, replay, portal checker rows.
@@ -184,7 +184,7 @@ An independent review (14 October, read-only, extra-high effort) checked this pl
 ### W10. Bigger product map and AI expansion switched on (D8)
 
 - **Status: built** (`42be726`): 48 sub-areas (12 per category) with a target of 25 headings each; materials are platform collections and items, Trends rising queries, relevant advertisers' other ads and supplier listings from W8 (IndiaMART/TradeIndia category trees are not read separately). Every new heading must carry a Meta discovery phrase. The Amazon-page seed lane is retired (L6). The map grows inside the ordinary round allowance (one build call and at most one renewal call a round); there is no separate bulk run.
-- **Target:** about 1,200 headings (4 categories × about 12 sub-areas × about 25 headings), built mainly from non-Amazon material: DeoDap/BaapStore collection trees, Dropship India/Dropdash catalogues, IndiaMART/TradeIndia category trees, Meta advertisers and the existing headings.
+- **Target:** about 1,200 headings (4 categories × about 12 sub-areas × about 25 headings), built mainly from non-Amazon material: DeoDap/BaapStore collection trees, the Dropdash catalogue, IndiaMART/TradeIndia category trees, Meta advertisers and the existing headings.
 - **Builder:** the existing seed path (`catalogue_seed.py`, AI role C, one branch per call) is extended to take these new materials as branch inputs; this builds the map. `catalogue_expansion.run_expansion` (one concept at a time, at most five) is then switched on in the discovery step for **renewal**: one AI slot per round when new material exists (new arrivals, rising queries, new advertisers). About 200–300 AI jobs for the first build (estimate, measured by W12).
 - **AI schema:** phrase sources add `dropship` (`research_ai.py:233-235`; `catalogue.py:103` already accepts `supplier` and `quickcommerce`).
 - **Heading order:** never-served first, then headings with fresh signals, rotating categories; headings whose types came out High crowding move back. Replaces alphabetical order (`catalogue_discovery.py:350,484-490`).
@@ -218,7 +218,7 @@ An independent review (14 October, read-only, extra-high effort) checked this pl
 
 - **Status: not started.** The lead's cutover helper is `scripts/r10_cutover.py check|apply`.
 - Clean stop (`desktop_research_control.py stop`), copy the store to a dated backup folder (new records cannot be read by older code), load the new code, start.
-- **Live proof gates**, each recorded with dates: Trends 3/3 exports after sign-in; IndiaMART, Dropship India, Dropdash signed-in reads; ten signed-in reads with no focus taken; DeoDap and BaapStore feeds; quick-commerce results in three cities; one Apify depth read; crowding level on at least 10 types; AI usage percent visible; one flag shown in the desktop app.
+- **Live proof gates**, each recorded with dates: Trends 3/3 exports after sign-in; IndiaMART and Dropdash signed-in reads; ten signed-in reads with no focus taken; DeoDap and BaapStore feeds; quick-commerce results in three cities; one Apify depth read; crowding level on at least 10 types; AI usage percent visible; one flag shown in the desktop app.
 - **Speed:** measure round time and new types per hour for at least 3 hours. If the median round takes longer than 15 minutes, or the research process stays above 80% of a processor core with rounds slowing, profile it and fix the cause inside this programme (as with the report-pool fix on 14 October).
 - Watch items carried over: the IndiaMART task waiting with `SUPPLIER_BROWSER_FALLBACK_PROOF_REQUIRED` (resolved by W3) and the Trends wait that sat at attempt 1 (replaced by W2).
 
@@ -243,7 +243,7 @@ An independent review (14 October, read-only, extra-high effort) checked this pl
 | W1 sign-in browser + desktop app | Medium–large | 1–1.5 days |
 | W2 Trends | Small–medium | 0.5 day |
 | W3 IndiaMART + Maps | Medium | 0.5–1 day |
-| W4 four platforms | Large | 2–3 days |
+| W4 platforms (three since 15 October) | Large | 2–3 days |
 | W5 quick commerce | Medium | 0.5–1 day |
 | W6 crowding check | Large | 2–3 days |
 | W7 market sites + combined review + dry run | Medium | 1–1.5 days |
@@ -312,14 +312,13 @@ Defaults the agent will use without asking: spend alerts in the desktop app, met
 
 ## 7. What the owner does (step by step, when the time comes)
 
-1. **Accounts:** if not done yet, create accounts on Dropship India (dropshipindia.live) and Dropdash (dropdash.co). If you agree with A3, first create a new Gmail for research and use it for these accounts and for IndiaMART.
-2. **Sign in once (after wave 1 is built):** the NeuraFlow Dropshipper window shows "Sign-in needed". Click **Sign in to research sites**. A Chrome window opens with seven tabs (DeoDap and BaapStore are optional; their public feeds are read without signing in):
+1. **Accounts:** if not done yet, create an account on Dropdash (dropdash.co). (Dropship India is no longer used.) If you agree with A3, first create a new Gmail for research and use it for this account and for IndiaMART.
+2. **Sign in once (after wave 1 is built):** the NeuraFlow Dropshipper window shows "Sign-in needed". Click **Sign in to research sites**. A Chrome window opens with six tabs (DeoDap and BaapStore are optional; their public feeds are read without signing in):
    1. Google: sign in with the research Gmail (or the business Gmail if you prefer).
    2. Google Trends: it should already show you as signed in; if not, click **Sign in** at the top right.
    3. IndiaMART: click **Sign In**; use "Continue with Google" if shown, otherwise type your mobile number and the one-time code IndiaMART texts you.
    4. DeoDap and 5. BaapStore: optional; sign in only if you have accounts there.
-   6. Dropship India: sign in with the account you created.
-   7. Dropdash: sign in with the account you created.
+   6. Dropdash: sign in with the account you created.
    Close the Chrome window. The program picks up the sign-ins on its next reads and the "Sign-in needed" line disappears.
 3. **Quick-commerce pack (if A7 is yes):** when the window says the credits are low: open quickcommerceapi.com, sign in, click **Pricing**, choose **Starter – ₹500**, pay. The program notices the new credits by itself.
 4. **Optional, any time:** apply for Google's official Trends API at developers.google.com/search/apis/trends ("Apply for the alpha"), describing this product research use; your Google contact may be able to speed it up.

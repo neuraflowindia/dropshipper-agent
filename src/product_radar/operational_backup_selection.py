@@ -577,7 +577,7 @@ class _Selection:
             folders = [self.memory / "quickcommerce_captures" / acquisition_id]
         elif route in {"google-suppliers", "google-maps", "indiamart", "tradeindia", "company-pages"}:
             folders = [self.memory / "supplier_routes" / acquisition_id]
-        elif route in {"deodap", "baapstore", "dropship-india", "dropdash"}:
+        elif route in {"deodap", "baapstore", "dropdash"}:
             # The per-type match receipt; the platforms' raw reads stay in their own rolling folders.
             folders = [self.memory / "dropship_platforms/matches" / acquisition_id]
         else:

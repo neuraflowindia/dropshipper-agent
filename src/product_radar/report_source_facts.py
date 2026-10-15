@@ -40,7 +40,7 @@ ROUTE_LABELS = {
     "blinkit": "Blinkit", "zepto": "Zepto", "instamart": "Instamart",
     "google-suppliers": "Google supplier search", "google-maps": "Google Maps supplier search",
     "indiamart": "IndiaMART", "tradeindia": "TradeIndia", "company-pages": "Supplier company pages",
-    "deodap": "DeoDap", "baapstore": "BaapStore", "dropship-india": "Dropship India", "dropdash": "Dropdash",
+    "deodap": "DeoDap", "baapstore": "BaapStore", "dropdash": "Dropdash",
     "meta-ads-depth": "Facebook Ads Library (deeper read)",
 }
 METRICS = {

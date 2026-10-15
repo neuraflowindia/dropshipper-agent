@@ -526,12 +526,12 @@ namespace NeuraFlow.Dropshipper {
                     checks["sign_in_button_action"] = controls.SignIns == 2 && !window.SignInButton.Enabled &&
                         window.Controls["SignInNeeds"].Text == "The sign-in window is open.\nGoogle Trends check: 1 of 3 signed-in reads saved complete results." && window.StartButton.Enabled;
                     controls.PlatformLines.Add("Dropdash needs you to sign in (Sign in to research sites).");
-                    controls.PlatformLines.Add("Dropship India shows a paid plan or membership page instead of products.");
+                    controls.PlatformLines.Add("BaapStore shows a paid plan or membership page instead of products.");
                     int linesBefore = window.Controls["SignInNeeds"].Height;
                     await window.RefreshStatus();
                     checks["platform_lines_in_sign_in_area"] = window.Controls["SignInNeeds"].Text ==
                         "The sign-in window is open.\nDropdash needs you to sign in (Sign in to research sites)." +
-                        "\nDropship India shows a paid plan or membership page instead of products." +
+                        "\nBaapStore shows a paid plan or membership page instead of products." +
                         "\nGoogle Trends check: 1 of 3 signed-in reads saved complete results." &&
                         window.Controls["SignInNeeds"].Height > linesBefore &&
                         window.Controls["SpendLines"].Top >= window.Controls["SignInNeeds"].Bottom;

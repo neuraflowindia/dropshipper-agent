@@ -50,7 +50,7 @@ export const utcAt = value => {
 };
 // Saved facts the score reads (Python platform_roles / crowding; a Python test keeps them equal).
 export const PRESENCE = Object.freeze({ kind: 'dropship-platform-presence', version: 'dropship-presence-v2', days: 7,
-  routes: ['deodap', 'baapstore', 'dropship-india', 'dropdash'],
+  routes: ['deodap', 'baapstore', 'dropdash'],
   states: ['relevant', 'relevant_delisted', 'no_relevant_items', 'no_relevant_items_in_sample', 'review_pending', 'not_checked'] });
 // thresholds mirrors config/research/crowding.json (its version is required of every frozen fact).
 export const CROWDING = Object.freeze({ kind: 'crowding-fact-v1', version: 'crowding-v2', parser_version: 3,

@@ -43,7 +43,7 @@ _SITES = {"amazon-bestsellers": "Amazon bestsellers",
     "google-trends": "Google Trends", "blinkit": "Blinkit", "zepto": "Zepto", "instamart": "Instamart",
     "google-suppliers": "Google supplier results", "google-maps": "Google Maps",
     "indiamart": "IndiaMART", "tradeindia": "TradeIndia", "company-pages": "supplier websites",
-    "deodap": "DeoDap", "baapstore": "BaapStore", "dropship-india": "Dropship India", "dropdash": "Dropdash",
+    "deodap": "DeoDap", "baapstore": "BaapStore", "dropdash": "Dropdash",
     "meta-ads-depth": "Facebook ads (deeper read)"}
 _DETAILS = {"product_map": "Growing the product map from platform, Trends, Meta and supplier material.",
     "discovery_questions": "Choosing the next searches and checking their saved results.",

@@ -87,7 +87,7 @@ class SourcePreparationProgressTests(unittest.TestCase):
         self.assertEqual([row["scanned"] for row in questions], list(range(2 * R)))
         self.assertEqual([row["remaining"] for row in questions], list(range(2 * R, 0, -1)))
         self.assertTrue(all(row["stage"] == "acquire" and row["useful_result"] is False for row in rows))
-        # Pending: each product's company pages (no destination yet), its four
+        # Pending: each product's company pages (no destination yet), its three
         # dropshipping-platform questions (no platform catalogue has been read yet),
         # the Meta depth follow-up (no free read yet) and its three paid
         # quick-commerce checks (reserved for later: no passed checklist yet, W5).
@@ -95,7 +95,7 @@ class SourcePreparationProgressTests(unittest.TestCase):
         commerce = [route for route in ROUTES if coverage.ROUTES[route]["source"] == "quickcommerce"]
         waiting = {"company-pages", *platforms, *commerce} | ({"meta-ads-depth"} & set(ROUTES))
         pending = 2 * len(waiting)
-        self.assertEqual((len(platforms), len(commerce)), (4, 3))
+        self.assertEqual((len(platforms), len(commerce)), (3, 3))
         self.assertEqual({row["route"] for row in result["pending_preparation"]}, waiting)
         self.assertEqual(rows[-1]["counts"], {"questions_total": 2 * R,
             "questions_prepared": 2 * R - pending, "questions_pending": pending})

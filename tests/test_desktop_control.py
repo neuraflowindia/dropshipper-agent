@@ -135,7 +135,7 @@ class DesktopControlTests(unittest.TestCase):
         self.assertEqual(result["spend_alerts"], [])
         self.assertFalse(result["sign_in"]["window_open"])
         self.assertEqual([row["site"] for row in result["sign_in"]["needs"]],
-                         ["google", "google-trends", "indiamart", "dropship-india", "dropdash"])
+                         ["google", "google-trends", "indiamart", "dropdash"])
         self.assertTrue(all(set(row) == {"id", "site", "label", "state"} for row in result["sign_in"]["needs"]))
         self.assertTrue(result["sign_in"]["line"].startswith("Sign-in needed: Google account"))
         self.assertEqual(result["sign_in"]["trends_line"], "Google Trends: waiting for the owner to sign in.")
@@ -158,14 +158,14 @@ class DesktopControlTests(unittest.TestCase):
         captured = self.root / "data/research/captured"
         with patch.object(controls, "owned_programmes", return_value=[]):
             self.assertEqual(controls.status(self.root)["sign_in"]["platform_lines"], [])
-        for route, reason in (("dropdash", "OWNER_SIGN_IN_REQUIRED"), ("dropship-india", "DROPSHIP_PLAN_REQUIRED"),
+        for route, reason in (("dropdash", "OWNER_SIGN_IN_REQUIRED"), ("baapstore", "DROPSHIP_PLAN_REQUIRED"),
                               ("deodap", "DROPSHIP_FEED_UNAVAILABLE")):  # the last is not the owner's to act on
             refresh = platforms.load_refresh(captured, route)
             platforms._save_refresh(captured, route, dict(refresh, wait={"reason": reason, "at": "2026-10-14T10:00:00+00:00"}))
         with patch.object(controls, "owned_programmes", return_value=[]):
             lines = controls.status(self.root)["sign_in"]["platform_lines"]
         self.assertEqual(len(lines), 2)
-        self.assertTrue(lines[0].startswith("Dropship India shows a paid plan or membership page"))
+        self.assertTrue(lines[0].startswith("BaapStore shows a paid plan or membership page"))
         self.assertEqual(lines[1], "Dropdash needs you to sign in (Sign in to research sites).")
         (captured / "dropship_platforms/dropdash/refresh.json").write_text("{corrupt")
         summary = controls.sign_in_summary(self.root)  # a corrupt platform record never hides the sign-in needs

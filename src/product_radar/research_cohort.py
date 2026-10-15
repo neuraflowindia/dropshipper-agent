@@ -21,7 +21,7 @@ _SOURCES = {"meta-ads": "meta", "amazon-search": "marketplace", "flipkart-search
             "amazon-bestsellers": "marketplace", "google-trends": "trends",
             "blinkit": "quickcommerce", "zepto": "quickcommerce", "instamart": "quickcommerce",
             "deodap": "dropship-platforms", "baapstore": "dropship-platforms",
-            "dropship-india": "dropship-platforms", "dropdash": "dropship-platforms", "meta-ads-depth": "meta"}
+            "dropdash": "dropship-platforms", "meta-ads-depth": "meta"}
 
 
 def discovery_questions(state, *, programme_id=None, as_of=None):

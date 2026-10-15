@@ -16,7 +16,7 @@ Status, 15 October 2026: the new set-up below (agreed on 14 October in [Plan R10
 
 **To find new product ideas**
 1. **Meta Ad Library**: the public list of ads running on Facebook and Instagram. It shows who is advertising a product and for how long. The program also looks at the other ads of advertisers it has already found useful.
-2. **Four dropshipping platforms**: **DeoDap**, **BaapStore**, **Dropship India** and **Dropdash**. Their new arrivals, bestseller and trending lists suggest products. All four gave permission.
+2. **Three dropshipping platforms**: **DeoDap**, **BaapStore** and **Dropdash**. Their new arrivals, bestseller and trending lists suggest products. All three gave permission. (A fourth, Dropship India, was dropped by the owner on 15 October because it showed nothing useful, signed in or not.)
 3. **Google Trends** "rising" searches, and new listings on **IndiaMART** and **TradeIndia** in our categories.
 
 **To check each product**
@@ -24,7 +24,7 @@ Status, 15 October 2026: the new set-up below (agreed on 14 October in [Plan R10
 5. **Google Trends**: whether people in India are searching for it more or less over time. It shows ups and downs, not actual numbers of people.
 6. **Amazon India and Flipkart**, turned around: they no longer suggest new products, and their main job now is to show **how crowded** a product already is (Low, Medium or High), from how many similar listings there are, how many ratings they have and whether they're on a bestseller list. A product isn't ready for a report until this check is done. (Until the owner settles the new way of ranking products, they still also count as a supporting site in the old ranking described below.)
 7. **Blinkit**, **Zepto** and **Swiggy Instamart** (the quick-delivery apps), in Mumbai first, then Delhi NCR and Bengaluru only if Mumbai shows something relevant. Each check costs a prepaid credit, so only products that already pass the checklist and aren't too crowded get checked, and the same city isn't asked again for 30 days.
-8. **The four dropshipping platforms** again: whether the product is listed, at what price, and whether it's on their bestseller or trending lists.
+8. **The three dropshipping platforms** again: whether the product is listed, at what price, and whether it's on their bestseller or trending lists.
 
 **To find possible suppliers**
 9. **IndiaMART** (read while signed in), 10. **TradeIndia**, 11. **Google Maps** (read straight in the program's own browser), 12. **supplier and company websites**, and 13. the **dropshipping platforms**, whose listings count as supplier leads.
@@ -33,7 +33,7 @@ Google search for suppliers was switched off on 14 October (Google refuses autom
 
 Separately, it saves real product photos where it can find suitable ones.
 
-**Signing in once.** Google Trends, IndiaMART, Dropship India and Dropdash are read while signed in with a separate research Gmail, in the program's own Chrome window (never the owner's everyday Chrome). The owner clicks **Sign in to research sites** in the NeuraFlow Dropshipper window, signs in on each tab and closes it. If a sign-in runs out, the window says so and only that site waits. The program never stores passwords, never pays and never clicks "contact" or "get price" buttons.
+**Signing in once.** Google Trends, IndiaMART and Dropdash are read while signed in with a separate research Gmail, in the program's own Chrome window (never the owner's everyday Chrome). The owner clicks **Sign in to research sites** in the NeuraFlow Dropshipper window, signs in on each tab and closes it. If a sign-in runs out, the window says so and only that site waits. The program never stores passwords, never pays and never clicks "contact" or "get price" buttons.
 
 **When a site says no.** It writes that down and waits longer each time (5 minutes, then 1 hour, then 6 hours, then a day) instead of knocking again and again. Google Trends must first prove it works: after signing in, its first three reads must save complete results. If Google still refuses, research carries on without Trends.
 

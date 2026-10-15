@@ -1,4 +1,4 @@
-"""The four dropshipping platforms' saved catalogues (Plan R10 W4).
+"""The three dropshipping platforms' saved catalogues (Plan R10 W4).
 
 DeoDap and BaapStore feed pages are trimmed real public Shopify feeds saved on
 14 October 2026 (tests/fixtures/dropship_platforms); the signed-in pages are
@@ -496,7 +496,7 @@ class FeedRefreshTests(PlatformCase):
 
 
 class SignedInTests(PlatformCase):
-    route = "dropship-india"
+    route = "dropdash"
 
     def setUp(self):
         super().setUp()
@@ -540,18 +540,18 @@ class SignedInTests(PlatformCase):
 
     def test_signed_in_cycle_reads_catalogue_pages_lists_and_product_pages(self):
         self.sign_in()
-        self.serve = {"https://dropshipindia.live/products": "catalogue",
-                      "https://dropshipindia.live/products?page=2": "catalogue_page_2",
-                      "https://dropshipindia.live/trending-products": "trending",
-                      "https://dropshipindia.live/high-demand-products": "trending",
-                      "https://dropshipindia.live/products/steel-draining-sink-caddy": "product",
-                      "https://dropshipindia.live/products/kids-bath-toy-set": "product_sparse"}
+        self.serve = {"https://app.dropdash.co/products": "catalogue",
+                      "https://app.dropdash.co/products?page=2": "catalogue_page_2",
+                      "https://app.dropdash.co/trending-products": "trending",
+                      "https://app.dropdash.co/winning-products": "trending",
+                      "https://app.dropdash.co/products/steel-draining-sink-caddy": "product",
+                      "https://app.dropdash.co/products/kids-bath-toy-set": "product_sparse"}
         outcomes, clock = self.run_reads(5)
         self.assertEqual([row["state"] for row in outcomes], ["reading"] * 4 + ["current"])
         self.assertEqual(outcomes[-1]["reads"], 0)
         self.assertEqual([call["url"] for call in self.calls], [
-            "https://dropshipindia.live/products", "https://dropshipindia.live/products?page=2",
-            "https://dropshipindia.live/trending-products", "https://dropshipindia.live/high-demand-products"])
+            "https://app.dropdash.co/products", "https://app.dropdash.co/products?page=2",
+            "https://app.dropdash.co/winning-products", "https://app.dropdash.co/trending-products"])
         self.assertTrue(all(call["options"] == {"profile": "signed-in", "root": self.pacing_root} for call in self.calls))
         catalogue = platforms.load_catalogue(self.store, self.route)
         self.assertEqual(catalogue["scope"], "sample")
@@ -560,7 +560,8 @@ class SignedInTests(PlatformCase):
         caddy_item = catalogue["items"]["steel-draining-sink-caddy"]
         self.assertEqual((caddy_item["title"], caddy_item["price"], caddy_item["mrp"], caddy_item["in_stock"]),
                          ("Steel Draining Sink Caddy", "149", "499", True))
-        self.assertEqual(sorted(caddy_item["roles"]), ["high_demand", "trending"])
+        # Listed on the trending and winning pages; the kids set's own "High Demand" badge is its role.
+        self.assertEqual(sorted(caddy_item["roles"]), ["trending", "winning"])
         self.assertEqual(sorted(catalogue["items"]["kids-bath-toy-set"]["roles"]), ["high_demand"])
         self.assertIs(catalogue["items"]["kids-bath-toy-set"]["in_stock"], False)
         # Words in a title are not list badges; a "/month" plan figure is never a price.
@@ -571,7 +572,7 @@ class SignedInTests(PlatformCase):
         # The next day's lists cycle also reads the listed items' product pages for their own stated terms.
         outcomes, _ = self.run_reads(6, start=later(START, 86400 + 300))
         catalogue = platforms.load_catalogue(self.store, self.route)
-        self.assertIn("https://dropshipindia.live/products/steel-draining-sink-caddy", [call["url"] for call in self.calls])
+        self.assertIn("https://app.dropdash.co/products/steel-draining-sink-caddy", [call["url"] for call in self.calls])
         caddy_item = catalogue["items"]["steel-draining-sink-caddy"]
         self.assertEqual(caddy_item["terms"], "Free shipping across India; dispatch within 24 hours; COD available; "
                                               "Returns accepted within 7 days")
@@ -582,23 +583,23 @@ class SignedInTests(PlatformCase):
         self.assertIn("product-page", kids["collections"])
         self.assertEqual(sorted(kids["roles"]), ["high_demand"])
         # A sampled catalogue never drops an item it did not see again.
-        self.serve = {"https://dropshipindia.live/products": "catalogue_page_2",
-                      "https://dropshipindia.live/trending-products": "trending",
-                      "https://dropshipindia.live/high-demand-products": "trending"}
+        self.serve = {"https://app.dropdash.co/products": "catalogue_page_2",
+                      "https://app.dropdash.co/trending-products": "trending",
+                      "https://app.dropdash.co/winning-products": "trending"}
         self.run_reads(6, start=later(START, 8 * 86400))
         self.assertIn("kids-bath-toy-set", platforms.load_catalogue(self.store, self.route)["items"])
 
     def test_plan_walls_and_redirects_wait_a_day_and_never_click(self):
         self.sign_in()
-        self.serve = {"https://dropshipindia.live/products": "plan_wall"}
+        self.serve = {"https://app.dropdash.co/products": "plan_wall"}
         outcomes, _ = self.run_reads(1)
         self.assertEqual((outcomes[0]["state"], outcomes[0]["reason"]), ("waiting", "DROPSHIP_PLAN_REQUIRED"))
         refresh = platforms.load_refresh(self.store, self.route)
         self.assertEqual(timestamp(refresh["blocked_until"]) - timestamp(START), timedelta(days=1))
         self.assertEqual(platforms.platform_lines(self.store), [
-            "Dropship India shows a paid plan or membership page instead of products. The program never pays or accepts a "
+            "Dropdash shows a paid plan or membership page instead of products. The program never pays or accepts a "
             "plan; it looks again in a day. Nothing to do unless you choose to upgrade."])
-        self.serve = {"https://dropshipindia.live/products": "redirected_to_plans"}
+        self.serve = {"https://app.dropdash.co/products": "redirected_to_plans"}
         outcomes, _ = self.run_reads(1, start=later(START, 86400 + 10))
         self.assertEqual(outcomes[0]["reason"], "DROPSHIP_PLAN_REQUIRED")
         self.assertEqual(len(self.calls), 2)
@@ -606,15 +607,15 @@ class SignedInTests(PlatformCase):
 
     def test_a_redirect_elsewhere_is_refused(self):
         self.sign_in()
-        self.serve = {"https://dropshipindia.live/products": "catalogue"}
-        self.pages["catalogue"]["url"] = "https://dropshipindia.live/products?sort=new"
+        self.serve = {"https://app.dropdash.co/products": "catalogue"}
+        self.pages["catalogue"]["url"] = "https://app.dropdash.co/products?sort=new"
         outcomes, _ = self.run_reads(1)
         self.assertEqual(outcomes[0]["reason"], "DROPSHIP_PAGE_REDIRECTED")
         self.assertEqual(platforms.load_catalogue(self.store, self.route)["items"], {})
 
     def test_account_details_are_removed_and_unreadable_saved_results_quarantined(self):
         self.sign_in()
-        self.serve = {"https://dropshipindia.live/products": "catalogue"}
+        self.serve = {"https://app.dropdash.co/products": "catalogue"}
         self.run_reads(1)
         reads = platforms.platform_folder(self.store, self.route) / "reads"
         saved = (reads / "r000001" / "native_result.json").read_text()
@@ -622,16 +623,16 @@ class SignedInTests(PlatformCase):
         self.assertIn("[email redacted]", saved)
         raw = platforms.load_raw(self.store, self.route, platforms.raw_files(self.store, self.route)[0])
         self.assertNotIn("research.owner@example.com", raw["body"])
-        self.serve = {"https://dropshipindia.live/products?page=2": "garbled"}
+        self.serve = {"https://app.dropdash.co/products?page=2": "garbled"}
         self.run_reads(1, start=later(START, 40))
         self.assertFalse((reads / "r000002" / "native_result.json").exists())
         self.assertEqual(len(list((reads / "signed-in-quarantine").iterdir())), 1)
 
     def test_sign_in_wall_records_an_expired_sign_in(self):
         self.sign_in()
-        self.serve = {"https://dropshipindia.live/products": "catalogue"}
+        self.serve = {"https://app.dropdash.co/products": "catalogue"}
         self.run_reads(1)
-        self.serve = {"https://dropshipindia.live/products?page=2": "wall"}
+        self.serve = {"https://app.dropdash.co/products?page=2": "wall"}
         outcomes, _ = self.run_reads(1, start=later(START, 40))
         self.assertEqual((outcomes[0]["state"], outcomes[0]["reason"]), ("waiting", "OWNER_SIGN_IN_REQUIRED"))
         self.assertEqual(site_states(self.pacing_root)[self.route]["state"], "expired")
@@ -647,11 +648,11 @@ class SignedInTests(PlatformCase):
 
     def test_a_busy_browser_uncounts_the_read_and_a_broken_one_is_a_failure(self):
         self.sign_in()
-        self.serve = {"https://dropshipindia.live/products": "busy"}
+        self.serve = {"https://app.dropdash.co/products": "busy"}
         outcomes, _ = self.run_reads(1)
         self.assertEqual((outcomes[0]["state"], outcomes[0]["reason"], outcomes[0]["reads"]), ("waiting", "SIGNED_IN_BROWSER_BUSY", 0))
         self.assertEqual(load_json(pacing._path(self.pacing_root), 1024 * 1024)["reads"][self.route], [])
-        self.serve = {"https://dropshipindia.live/products": "broken"}
+        self.serve = {"https://app.dropdash.co/products": "broken"}
         outcomes, _ = self.run_reads(1, start=later(START, 600))
         self.assertEqual((outcomes[0]["state"], outcomes[0]["reason"]), ("waiting", "DROPSHIP_PAGE_READ_FAILED"))
         self.assertEqual(len(load_json(pacing._path(self.pacing_root), 1024 * 1024)["reads"][self.route]), 1)
@@ -705,36 +706,36 @@ class SignedInTests(PlatformCase):
         for forbidden in (".click(", "submit", "dispatchEvent", ".focus(", "scroll", "location.assign", "location.href =",
                           "fetch(", "XMLHttpRequest", ".value =", "localStorage", "cookie"):
             self.assertNotIn(forbidden, script)
-        for url in ("https://dropshipindia.live/checkout", "https://dropshipindia.live/cart/add",
-                    "https://dropshipindia.live/plans", "https://dropshipindia.live/pricing",
-                    "https://dropshipindia.live/subscribe?plan=gold", "https://dropshipindia.live/products/x?add_to_store=1",
-                    "https://dropshipindia.live/contact-us", "https://dropshipindia.live/wallet/recharge",
-                    "https://dropshipindia.live/account/settings", "https://dropshipindia.live/orders/1",
-                    "https://dropshipindia.live/upgrade", "https://dropshipindia.live/premium/products",
-                    "https://dropshipindia.live/products/x/buy-now", "https://dropshipindia.live/free-trial",
-                    "https://dropshipindia.live/membership", "https://dropshipindia.live/place-order",
-                    "https://dropshipindia.live/winning-products",  # not a configured page: never opened
-                    "https://dropshipindia.live/products?page=2&plan=gold", "https://dropshipindia.live/products?sort=new",
-                    "https://elsewhere.example/products", "https://dropshipindia.live/products#top"):
+        for url in ("https://app.dropdash.co/checkout", "https://app.dropdash.co/cart/add",
+                    "https://app.dropdash.co/plans", "https://app.dropdash.co/pricing",
+                    "https://app.dropdash.co/subscribe?plan=gold", "https://app.dropdash.co/products/x?add_to_store=1",
+                    "https://app.dropdash.co/contact-us", "https://app.dropdash.co/wallet/recharge",
+                    "https://app.dropdash.co/account/settings", "https://app.dropdash.co/orders/1",
+                    "https://app.dropdash.co/upgrade", "https://app.dropdash.co/premium/products",
+                    "https://app.dropdash.co/products/x/buy-now", "https://app.dropdash.co/free-trial",
+                    "https://app.dropdash.co/membership", "https://app.dropdash.co/place-order",
+                    "https://app.dropdash.co/high-demand-products",  # not a configured page: never opened
+                    "https://app.dropdash.co/products?page=2&plan=gold", "https://app.dropdash.co/products?sort=new",
+                    "https://elsewhere.example/products", "https://app.dropdash.co/products#top"):
             with self.assertRaisesRegex(SafetyError, "DROPSHIP_PAGE_NOT_READ_ONLY"):
                 signed.read_only_url(self.route, url)
-        for url in ("https://dropshipindia.live/products/kids-pay-pretend-set", "https://dropshipindia.live/products",
-                    "https://dropshipindia.live/products?page=3", "https://dropshipindia.live/trending-products?page=2"):
+        for url in ("https://app.dropdash.co/products/kids-pay-pretend-set", "https://app.dropdash.co/products",
+                    "https://app.dropdash.co/products?page=3", "https://app.dropdash.co/trending-products?page=2"):
             self.assertEqual(signed.read_only_url(self.route, url), url)
         # A next-page link to a forbidden step is simply not followed.
         parsed = signed.parse_snapshot(self.route, {"kind": "page", "handle": "page-catalogue", "role": "catalogue", "page": 1,
-                                                    "max_pages": 5, "url": "https://dropshipindia.live/products"},
+                                                    "max_pages": 5, "url": "https://app.dropdash.co/products"},
                                        self.pages["catalogue_page_2"])
         self.assertEqual(parsed["follow"], [])
 
     def test_markers_and_card_parsing(self):
         self.assertIs(signed.signed_in_marker(self.pages["wall"]), False)
-        self.assertIs(signed.signed_in_marker(dict(self.pages["unrecognised"], url="https://dropshipindia.live/signin")), False)
+        self.assertIs(signed.signed_in_marker(dict(self.pages["unrecognised"], url="https://app.dropdash.co/signin")), False)
         self.assertIs(signed.signed_in_marker(self.pages["catalogue"]), True)
         self.assertIsNone(signed.signed_in_marker(self.pages["unrecognised"]))
         self.assertIsNone(signed.signed_in_marker(None))
         parsed = signed.parse_snapshot(self.route, {"kind": "page", "handle": "page-catalogue", "role": "catalogue", "page": 1,
-                                                    "max_pages": 5, "url": "https://dropshipindia.live/products"},
+                                                    "max_pages": 5, "url": "https://app.dropdash.co/products"},
                                        self.pages["catalogue"])
         self.assertEqual([row["item_id"] for row in parsed["items"]], ["steel-draining-sink-caddy", "kids-bath-toy-set",
                                                                        "best-selling-trending-lunch-box"])
@@ -744,11 +745,11 @@ class SignedInTests(PlatformCase):
         self.assertEqual(signed.prices("Plans from ₹ 499/month\nOnly ₹ 1,299 per year\nPrice ₹ 99"), ("99", None))
         self.assertIs(signed.plan_wall({"kind": "page"}, self.pages["catalogue"]), False)  # a banner beside products
         self.assertIs(signed.plan_wall({"kind": "page"}, self.pages["plan_wall"]), True)
-        self.assertEqual(parsed["follow"][0]["url"], "https://dropshipindia.live/products?page=2")
+        self.assertEqual(parsed["follow"][0]["url"], "https://app.dropdash.co/products?page=2")
         self.assertEqual([row["handle"] for row in parsed["collections"]], ["page-catalogue", "kitchen-tools"])
         product = signed.parse_snapshot(self.route, {"kind": "product", "item_id": "steel-draining-sink-caddy", "role": None,
                                                      "page": 1, "max_pages": 1, "title": "Card title",
-                                                     "url": "https://dropshipindia.live/products/steel-draining-sink-caddy"},
+                                                     "url": "https://app.dropdash.co/products/steel-draining-sink-caddy"},
                                         dict(self.pages["product"], product={"title": " ", "text": "₹ 50", "terms": []}))
         # The card's title, never the browser tab's document title.
         self.assertEqual((product["items"][0]["title"], product["items"][0]["price"]), ("Card title", "50"))

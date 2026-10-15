@@ -248,7 +248,7 @@ def platform_hold(root, route, *, signed_in_root=None, as_of=None):
 
 
 def create_dropship_handlers(memory, *, signed_in_root=None):
-    """Installed per-type handlers for the four platform routes (local work only).
+    """Installed per-type handlers for the three platform routes (local work only).
 
     The question is answered before callback admission
     (``source_access_preflight`` returns the saved local answer), so it never

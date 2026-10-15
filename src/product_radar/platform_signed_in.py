@@ -1,4 +1,4 @@
-"""Dropship India and Dropdash, read in the owner's signed-in research profile (D1, D2).
+"""Dropdash, read in the owner's signed-in research profile (D1, D2).
 
 Reading only. The page snapshot below copies the rendered page's title, text,
 product cards (with their own title, badge and image elements), the product

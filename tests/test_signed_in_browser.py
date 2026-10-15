@@ -25,7 +25,7 @@ from product_radar.models import SafetyError
 from product_radar.source_coverage import SIGNED_IN_ACCESS_IDENTITY, signed_in_access_scope, source_access_scope
 
 PROFILE = "C:\\Users\\owner\\AppData\\Local\\NeuraFlowDropshipper\\research-browser-profile"
-REQUIRED = ["google", "google-trends", "indiamart", "dropship-india", "dropdash"]
+REQUIRED = ["google", "google-trends", "indiamart", "dropdash"]
 
 
 def decoded(command):
@@ -123,8 +123,9 @@ class SignedInBrowserTests(unittest.TestCase):
         self.assertEqual(request["urls"], [row["url"] for row in signed.SITES.values()])
         hosts = " ".join(request["urls"])
         for host in ("accounts.google.com", "trends.google.com", "indiamart.com", "deodap.in", "baapstore.com",
-                     "dropshipindia.live", "app.dropdash.co"):
+                     "app.dropdash.co"):
             self.assertIn(host, hosts)
+        self.assertNotIn("dropshipindia", hosts)  # dropped by the owner on 15 October 2026
         window = signed.sign_in_window(self.root)
         self.assertTrue(window["open"]); self.assertEqual(window["last_opened_at"], window["checked_at"])
         # Program Chrome left behind is closed before deciding the owner's window is already open.
@@ -208,7 +209,7 @@ class SignedInBrowserTests(unittest.TestCase):
         for site in ("deodap", "baapstore"):
             self.assertIsNone(signed.signed_in_wait(self.root, site))
         self.assertEqual(signed.site_states(self.root)["deodap"]["state"], "not_checked")
-        self.assertIn("Sign-in needed: Google account, Google Trends, IndiaMART, Dropship India, Dropdash.",
+        self.assertIn("Sign-in needed: Google account, Google Trends, IndiaMART, Dropdash.",
                       signed.sign_in_line(self.root))
 
     def test_open_window_holds_reads_until_rechecked(self):
@@ -244,7 +245,7 @@ class SignedInBrowserTests(unittest.TestCase):
         signed.record_site_observation(self.root, "dropdash", False, observed_at="2026-10-14T10:30:00+00:00")
         self.assertEqual(signed.site_states(self.root)["dropdash"]["state"], "sign_in_needed")
         signed.record_site_observation(self.root, "google", True, observed_at="2026-10-14T10:30:00+00:00")
-        for site in ("google", "google-trends", "indiamart", "dropship-india"):
+        for site in ("google", "google-trends", "indiamart"):
             signed.record_site_observation(self.root, site, True, observed_at="2026-10-14T10:31:00+00:00")
         signed.record_site_observation(self.root, "dropdash", True, observed_at="2026-10-14T10:32:00+00:00")
         self.assertEqual(signed.sign_in_line(self.root), "Research sites are signed in.")
@@ -326,6 +327,8 @@ class SignedInBrowserTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(SafetyError):
                 signed.site_states(self.root)
         (folder / "site-states.json").unlink()
+        with self.assertRaisesRegex(SafetyError, "OBSERVATION_INVALID"):
+            signed.record_site_observation(self.root, "dropship-india", True)  # a retired site is never recorded
         bad_windows = ({"schema_version": 1, "open": True, "checked_at": None, "last_opened_at": "2026-10-14T10:00:00+00:00"},
                        {"schema_version": 1, "open": "no", "checked_at": None, "last_opened_at": None},
                        {"schema_version": 1, "open": False, "checked_at": "later", "last_opened_at": None},
@@ -338,6 +341,31 @@ class SignedInBrowserTests(unittest.TestCase):
     def test_closed_window_note_without_change_writes_nothing(self):
         signed.note_sign_in_window(self.root, False)
         self.assertFalse((self.root / "data").exists())
+
+    def test_saved_records_naming_a_retired_site_load_without_it(self):
+        from product_radar import signed_in_pacing as pacing
+        folder = self.root / "data/operations/signed-in-browser"; folder.mkdir(parents=True)
+        row = {"signed_in": True, "observed_at": "2026-10-14T10:00:00+00:00", "since": "2026-10-14T10:00:00+00:00",
+               "last_signed_in_at": "2026-10-14T10:00:00+00:00", "route": None}
+        (folder / "site-states.json").write_text(json.dumps({"schema_version": 1, "sites": {"dropship-india": row,
+                                                                                             "indiamart": row}}))
+        (folder / "read-pacing.json").write_text(json.dumps({"schema_version": 1, "reads": {
+            "dropship-india": ["2026-10-14T10:00:00+00:00"], "indiamart": ["2026-10-14T10:00:00+00:00"]}}))
+        states = signed.site_states(self.root)
+        self.assertNotIn("dropship-india", states)
+        self.assertEqual(states["indiamart"]["state"], "signed_in")
+        self.assertNotIn("Dropship India", signed.sign_in_line(self.root))
+        self.assertEqual(pacing.signed_in_pace(self.root, "indiamart", as_of="2026-10-14T10:00:10+00:00")["reason"],
+                         "SIGNED_IN_READ_SPACING")
+        # The next save of either record leaves the retired site out.
+        signed.record_site_observation(self.root, "dropdash", True, observed_at="2026-10-14T11:00:00+00:00")
+        self.assertEqual(set(json.loads((folder / "site-states.json").read_text())["sites"]), {"indiamart", "dropdash"})
+        pacing.reserve_signed_in_read(self.root, "indiamart", at="2026-10-14T11:00:00+00:00")
+        self.assertEqual(set(json.loads((folder / "read-pacing.json").read_text())["reads"]), {"indiamart"})
+        # Any other unknown site is still refused.
+        (folder / "site-states.json").write_text(json.dumps({"schema_version": 1, "sites": {"other": row}}))
+        with self.assertRaisesRegex(SafetyError, "SIGNED_IN_RECORD_INVALID"):
+            signed.site_states(self.root)
 
     def test_records_hold_no_page_content_passwords_or_cookies(self):
         signed.note_sign_in_window(self.root, True, opened=True)

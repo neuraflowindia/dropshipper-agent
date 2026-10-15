@@ -75,7 +75,6 @@ ROUTES = {
     # saved catalogue; supplier and presence information, never a market vote.
     "deodap": {"source": "dropship-platforms", "demand_group": None},
     "baapstore": {"source": "dropship-platforms", "demand_group": None},
-    "dropship-india": {"source": "dropship-platforms", "demand_group": None},
     "dropdash": {"source": "dropship-platforms", "demand_group": None},
     # A paid follow-up to the free Meta read (W11, meta_depth): asked only when
     # that read lacks advertisers or start dates. Its ads count in the single

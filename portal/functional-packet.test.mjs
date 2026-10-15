@@ -559,7 +559,7 @@ print(json.dumps({'folded':FOLDED_ROUTES,'note':DEEPER_META_NOTE,'client':list(C
   assert.deepEqual(foldedRoutes,expected.folded);
   assert.equal(deeperMetaNote,expected.note);
   assert.ok(!expected.client.includes('meta-ads-depth')&&!expected.packet.includes('meta-ads-depth'));
-  assert.equal(expected.client.length,16);
+  assert.equal(expected.client.length,15);
 });
 
 test('free and deeper Meta reads of one ad count once, exactly like the Python owner',()=>{

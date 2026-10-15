@@ -15,7 +15,7 @@ Double-click **NeuraFlow Dropshipper** on the Windows desktop. A small graphical
 | Click the window's **X**. | It hides in the tray; it does not exit or stop research. The window explains this. |
 | Click **Exit**. | Research is stopped first, then the graphical application closes and its tray icon is removed. |
 | Open the shortcut again while the app is already open or hidden. | The existing window is restored. A second control window or duplicate research run is not started. |
-| Click **Sign in to research sites**. | A plain Chrome window opens on the program's own research profile with tabs for Google, Google Trends, IndiaMART, DeoDap, BaapStore, Dropship India and Dropdash. Sign in, then close that Chrome window. The button is disabled while it opens. If a research read is using the browser, the window says "A research read is using the browser. Try again in a minute." Start and Stop are not affected. Steps: [operator guide 8.1](local_execution_and_provider_setup.md#81-signing-in-to-the-research-sites-owner-once-and-whenever-a-sign-in-expires). |
+| Click **Sign in to research sites**. | A plain Chrome window opens on the program's own research profile with tabs for Google, Google Trends, IndiaMART, DeoDap, BaapStore and Dropdash. Sign in, then close that Chrome window. The button is disabled while it opens. If a research read is using the browser, the window says "A research read is using the browser. Try again in a minute." Start and Stop are not affected. Steps: [operator guide 8.1](local_execution_and_provider_setup.md#81-signing-in-to-the-research-sites-owner-once-and-whenever-a-sign-in-expires). |
 
 Windows decides whether a tray icon is directly beside the clock or inside the expandable hidden-icons area. Look in that area if the icon is not immediately visible. The app does not change Windows' global notification settings to force placement.
 
@@ -44,7 +44,7 @@ Below the buttons, one text area grows with its lines (it never clips them):
 | **Sign-in needed: …** / **Sign-in expired: …** | Those sites' research waits until you click **Sign in to research sites** and sign in again. Other research continues. |
 | **The sign-in window is open.** | Signed-in reads wait until you close that Chrome window. |
 | **Sign-ins will be confirmed on the next research reads.** / **Research sites are signed in.** | Nothing to do. |
-| A platform line, such as "Dropdash needs you to sign in (Sign in to research sites)." or "Dropship India shows a paid plan or membership page instead of products." | One line per dropshipping platform that is waiting on something you can see. The program never pays or accepts a plan. |
+| A platform line, such as "Dropdash needs you to sign in (Sign in to research sites)." or "BaapStore shows a paid plan or membership page instead of products." | One line per dropshipping platform that is waiting on something you can see. The program never pays or accepts a plan. |
 | **Google Trends check: N of 3 signed-in reads saved complete results.** | The proof gate after each new sign-in. The same line says when the check passed, or when Trends is waiting, paused or refused, with the reason and the next try; research continues without Trends meanwhile. |
 
 Windows shows one notification when new needs appear ("Sign-in needed for …" or "The … sign-in has expired."); a need already notified is not notified again.

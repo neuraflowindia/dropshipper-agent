@@ -42,7 +42,7 @@ const SOURCE_ROUTES = Object.freeze([
   ['google-suppliers', 'Google supplier search', 'supplier'], ['google-maps', 'Google Maps supplier search', 'supplier'],
   ['indiamart', 'IndiaMART', 'supplier'], ['tradeindia', 'TradeIndia', 'supplier'], ['company-pages', 'Supplier company pages', 'supplier'],
   ['deodap', 'DeoDap', 'dropship-platforms'], ['baapstore', 'BaapStore', 'dropship-platforms'],
-  ['dropship-india', 'Dropship India', 'dropship-platforms'], ['dropdash', 'Dropdash', 'dropship-platforms'],
+  ['dropdash', 'Dropdash', 'dropship-platforms'],
 ]);
 // The paid deeper Meta read (W11, internal route meta-ads-depth) has no client
 // row of its own: its ads count in the Facebook Ads Library row, which notes it.
