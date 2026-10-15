@@ -14,7 +14,7 @@ from product_radar import programme, research_segments as segments
 from product_radar.models import SafetyError, digest
 from product_radar.operational_backup import (_checkpoint, create_operational_backup,
     verify_operational_backup)
-from product_radar.operations import operation_run, operation_writer, record_event
+from product_radar.operations import LOCAL_PHASE_DEADLINES, operation_run, operation_writer, record_event
 from product_radar.research_memory import ResearchMemory
 from product_radar.storage import Journal, atomic_json, load_json
 from product_radar.work_turns import DEFAULT_POLICY, reserve_source_callback
@@ -408,7 +408,10 @@ class ResearchProjectionBatchTests(unittest.TestCase):
         self.assertEqual([row["event"] for row in phases], ["phase_started", "phase_finished"])
         self.assertGreaterEqual(phases[1]["timings"]["research_lookup_save"], 0)
         self.assertGreaterEqual(phases[1]["elapsed_seconds"], phases[1]["timings"]["research_lookup_save"])
-        self.assertTrue(all(row.get("useful_result") is False and row.get("deadline_seconds") is None for row in phases))
+        self.assertTrue(all(row.get("useful_result") is False for row in phases))
+        # A local time limit only for the window's warning; never a website deadline.
+        self.assertEqual([row.get("deadline_seconds") for row in phases],
+                         [LOCAL_PHASE_DEADLINES["research_lookup_save"], None])
 
     def test_nested_live_phase_is_not_relabelled_or_given_a_fresh_clock(self):
         with operation_run(self.root) as recorder, operation_writer():

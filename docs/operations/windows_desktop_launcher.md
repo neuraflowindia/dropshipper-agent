@@ -1,6 +1,6 @@
 # Windows desktop and tray controls
 
-Updated: 15 October 2026 (Plan R10 sign-in button, sign-in/Trends/platform lines and spend lines built on branch `r10`; they appear once the rebuilt app is installed at the W13 cutover). This is the installed owner control for the existing research program. It is not a second research system or proof that the unfinished research/report work is complete.
+Updated: 15 October 2026 (Plan R10 sign-in button, sign-in/Trends/platform lines, spend lines and the progress watch built on branch `r10`; they appear once the rebuilt app is installed at the W13 cutover). This is the installed owner control for the existing research program. It is not a second research system or proof that the unfinished research/report work is complete.
 
 ## Open and use it
 
@@ -28,12 +28,30 @@ Windows decides whether a tray icon is directly beside the clock or inside the e
 | **Stopping research…** | The off choice is saved, but an identified process has not exited yet. The app does not falsely report Stopped or allow a conflicting Start. |
 | **Research is stopped.** | The off choice is saved and no identified research process is running. Start is enabled and Stop is disabled. |
 | **Controls need attention.** | The current state could not be confirmed. The window gives the reason and retries its status check. This is not a successful Stop. |
+| **Last run …** (under "Research is on" or "Research is stopped") | How the previous research run ended, in plain words, with its exit code: "finished normally" (plus its last note, for example "it used this round's allowance of website checks (normal)"), "was stopped" (your Stop), "stopped with a problem: …" or "stopped making progress … so it was stopped". |
+| **Needs attention: …** | A warning from the progress watch (below). The explanation text grows to show it in full and pushes the buttons down. |
 
 Start and Stop are both disabled during a change. The window remains responsive while Windows communicates with WSL. Exit waits for an honest stopped state; a kernel-blocked process can take longer to exit. The controller does not forcibly kill all Python processes, shut down WSL, delete locks, reset spending, or touch another project. A provider request already received outside the computer can still finish; its original intent/receipt must be reconciled on the normal research restart, not blindly repeated.
 
 Stop also applies while the research is waiting for an AI answer. This programme explicitly tells its AI runner to preserve an owner interruption instead of treating it as an ordinary failed item and moving on. The runner closes only the helper process group it created, saves the interruption record, and ends the programme. A complete answer that already arrived is saved for reuse on restart; a partial answer is not accepted. A failure to save a diagnostic record must not turn Stop into permission to continue. This behavior is checked with both manufactured failure cases and a real, cost-free local helper process.
 
 The on/off choice survives closing the window and restarting Windows. The existing task still checks every 15 minutes and at sign-in, but now launches the same native executable in its invisible worker mode. While stopped, that check returns without research or a console window. The desktop window itself opens when the owner opens the shortcut; installing it does not add an automatic GUI at sign-in.
+
+### Progress watch: warnings and the automatic restart of a stuck run
+
+Research keeps running by itself, and the window tells you when it is not:
+
+| What happens | What you see and what the program does |
+|---|---|
+| A long local check (for example the 10–13 minute "which work is ready" check) | Research saves a small "still working" note at most every 30 seconds, so a slow but healthy check is never mistaken for a stuck one. No warning. |
+| No completed result for 30 minutes, although research is still recording activity | **Needs attention:** "No completed result has been recorded for at least 30 minutes…". Research continues. |
+| A step runs past its time limit | **Needs attention:** "The current step has passed its time limit…". Local steps now have limits too (the ready-work check and choosing which research to resume: 30 minutes each; saving the research lookup file: 10 minutes). The limit only raises the warning; it never cancels the step. |
+| Nothing at all recorded for 30 minutes | **Needs attention:** "Research has not recorded any progress for 30 minutes. If nothing changes by 45 minutes, it is stopped and the next scheduled run starts it again." |
+| Nothing at all recorded for 45 minutes | The hidden worker stops that research run the same way Stop does (Ctrl+C to its own processes only). If it is still there after 5 minutes, it is told to end; after 1 more minute it is ended. Your research switch **stays on**, so the next scheduled run (within 15 minutes) starts research again. A receipt `watchdog_restart` is saved. A research run left behind by an earlier worker is noted on one scheduled run and stopped on the next one if it still has recorded nothing new. Time while the computer sleeps does not count. |
+| The same problem ends 3 runs in a row (including 3 automatic restarts in a row) | **Needs attention:** "The last 3 research runs all stopped with the same problem: … this probably needs a fix." Research keeps retrying. Your own Stop never counts as a problem. |
+| Research is on, nothing is running and no scheduled run has started for over 20 minutes | **Needs attention:** "No scheduled research run has started for N minutes… The Windows scheduled task may not be running. Click Stop, then Start, to start research now." |
+
+Windows shows **one** notification titled "Research needs attention" per stuck run (or per failure streak, or per late schedule), after the warning has stayed on screen for about 3 minutes of the computer being awake, so waking the computer from sleep does not cause a false alarm. The thresholds live in `config/research/progress_watch.json`; changing them needs no rebuild of the app.
 
 ### Sign-in, Trends and platform lines
 
@@ -63,11 +81,12 @@ Under the sign-in area, one line per allowance with its percent used, for exampl
 | Icon | `assets/windows/neuraflow-dropshipper.ico`, with seven sizes from 16 to 256 pixels; the companion PNG is its large preview. |
 | Existing scheduled task | `NeuraFlow-Dropshipper-Research`. Its owner, triggers, conditions and privileges are preserved. Only its executable action and working directory were changed. |
 | Existing owner switch | `data/research/captured/programme_service/control.json` inside the working-records folder, now `/home/anan/neuraflow-dropshipper-data/` on the Linux disk (named in `config/local/runtime_storage.json`). This remains the sole saved research on/off decision. If that folder is missing the controls report an error instead of a default "on". |
-| Local action receipts | `data/operations/desktop/YYYY-MM-DD.jsonl` inside the same Linux working-records folder. These record Start, Stop and worker entry/exit; status polling does not create repeated action records. |
-| Research output/errors | `data\operations\desktop\windows-YYYY-MM-DD.log` in this project folder on D: (Windows side; **Open logs** opens it). The hidden Windows worker drains and saves the existing program's output. It does not copy account configuration or environment variables. |
+| Local action receipts | `data/operations/desktop/YYYY-MM-DD.jsonl` inside the same Linux working-records folder. These record Start, Stop, worker start and finish (exit code, how it ended, its run id, last reason and failure reason), and the progress watch's `watchdog_observed` / `watchdog_restart` receipts. Status polling only reads them and never adds records. |
+| Research output/errors | `data\operations\desktop\windows-YYYY-MM-DD.log` in this project folder on D: (Windows side; **Open logs** opens it). The hidden Windows worker drains and saves the existing program's output. If the worker itself fails (for example unreadable launcher settings or WSL not starting), it writes one `launcher worker_failed <type>: <message>` line there (or next to the app when the settings could not be read) instead of failing silently. It does not copy account configuration or environment variables. |
+| Run activity | `data/operations/research-runs/current.json` (the latest activity, read by the window) and one `run-<id>.jsonl` log per research run, inside the Linux working-records folder. Each record carries a `code_version`: one fingerprint of every Python file of the research program plus its entry script, so records show exactly which code ran. |
 | Installation/readback | Written by the Windows installer/test scripts to `data\operations\desktop\` in this project folder on D:. The 11 October `installation.json`, `task-before-<time>.xml` files and test receipts were moved unchanged to `archive/2026-10-13-before-fresh-start/data/operations/desktop/`. |
 
-This launcher's action records do **not** finish the larger planned whole-program logging/progress repair. In particular, Running is not proof of useful progress and the underlying research ordering/timeout/report problems remain separate work.
+Running is still not proof of useful progress: the progress watch above shows when research is stuck or keeps failing, and restarts a stuck run, but it does not fix the cause of a repeated failure. Research ordering, website timeouts and report problems remain separate work.
 
 ## Rebuild or reinstall
 
@@ -90,7 +109,7 @@ The older [direct-WSL setup script](../../scripts/setup_programme_task.ps1) is a
 | Check group on 11 October | Result | Evidence under `archive/2026-10-13-before-fresh-start/data/operations/desktop` |
 |---|---:|---|
 | Local project controls, interruption handling, scheduling, saved-answer reuse and existing related research rules. These use manufactured data, not live provider requests. | 296 / 296 passed, across groups of 188 and 108. | `python-controls-tests-20261011.log` and `python-model-reuse-tests-20261011.log`. |
-| Native window and tray handlers, with fake research. | 15 / 15 passed (11 October; the R10 self-test adds sign-in, Trends, platform and spend checks, run at the W13 rebuild). | `gui-self-test.json` and `gui-self-test.png`. |
+| Native window and tray handlers, with fake research. | 15 / 15 passed (11 October). The R10 self-test now has 29 checks (adding sign-in, Trends, platform, spend, the attention line and notification, and worker-failure logging); it runs at the W13 rebuild. | `gui-self-test.json` and `gui-self-test.png`. |
 | Actual installed shortcut, real Start/Stop, hide/restore, Exit, preserved schedule, manually invoked installed task while stopped and icon assignment. | 15 / 15 passed on the final executable. | `installed-test.json` and its dated copy. |
 
 These are focused launcher and affected-code checks, not a full project acceptance run or a new project-completion percentage.

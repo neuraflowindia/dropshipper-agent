@@ -6,6 +6,7 @@ reading them never replays research, changes intent, or contacts a provider.
 
 from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import lru_cache
 from hashlib import sha256
 import json
 import logging
@@ -24,6 +25,23 @@ from .storage import atomic_json, load_json, safe_path
 from .source_deadline import diagnostic_source_work
 
 _ACTIVE = ContextVar("product_radar_operation_run", default=None)
+PACKAGE = Path(__file__).resolve().parent
+PROGRESS_WATCH_SETTINGS = PACKAGE.parents[1] / "config/research/progress_watch.json"
+_WATCH_FIELDS = ("attention_no_activity_seconds", "attention_no_result_seconds", "watchdog_no_activity_seconds",
+                 "watchdog_poll_seconds", "watchdog_interrupt_grace_seconds", "watchdog_terminate_grace_seconds",
+                 "scheduled_run_overdue_seconds", "repeated_failure_runs")
+# Used only when the checked-in settings file is missing or invalid, so a bad
+# edit can never stop research or hide its status; the worker records that.
+PROGRESS_WATCH_DEFAULTS = {"attention_no_activity_seconds": 1800, "attention_no_result_seconds": 1800,
+                           "watchdog_no_activity_seconds": 2700, "watchdog_poll_seconds": 60,
+                           "watchdog_interrupt_grace_seconds": 300, "watchdog_terminate_grace_seconds": 60,
+                           "scheduled_run_overdue_seconds": 1200, "repeated_failure_runs": 3}
+# Time limits for local steps that never contact a website. They only decide
+# when the window says a step is over time; they never cancel the step.
+LOCAL_PHASE_DEADLINES = {"readiness": 1800, "programme_selection": 1800, "research_lookup_save": 600}
+# At most one heartbeat per run in this many seconds, so a long local check is
+# visibly alive in the saved activity without filling the run log.
+HEARTBEAT_SECONDS = 30
 _CODE = re.compile(r"[A-Z][A-Z0-9_]{0,159}\Z")
 _TOKEN = re.compile(r"[a-zA-Z0-9_.:-]{1,200}\Z")
 _STEPS = {"admission": "Checking whether research can start.",
@@ -95,7 +113,7 @@ def _fields(values):
     result = {}
     for name in ("programme_id", "review_scope_id", "turn_id", "concept_id", "task_id", "job_id", "acquisition_id",
                  "stage", "phase", "next_phase", "phase_state", "state", "route", "role", "next_action", "error_type",
-                 "record_kind", "record_id"):
+                 "record_kind", "record_id", "checkpoint"):
         value = values.get(name)
         if isinstance(value, str) and _TOKEN.fullmatch(value):
             result[name] = value
@@ -141,6 +159,86 @@ def error_details(error, *, root=None):
     return result
 
 
+@lru_cache(maxsize=1)
+def code_version():
+    """One fingerprint of the code this process runs, computed once per process.
+
+    Every ``.py`` file of the running ``product_radar`` package plus the
+    programme entry script, by content (not dates), so any code change shows
+    up in the run records. Git is not needed. Returns ``(hex, complete)``;
+    an unreadable file is named in the hash and makes ``complete`` false.
+    """
+    version, complete = sha256(), True
+    files = sorted(PACKAGE.rglob("*.py"))
+    entry = PACKAGE.parents[1] / "scripts/run_programme.py"
+    for path in [*files, entry] if entry.is_file() else files:
+        name = path.relative_to(PACKAGE.parents[1]).as_posix()
+        version.update(name.encode() + b"\0")
+        try:
+            version.update(sha256(path.read_bytes()).digest())
+        except OSError:
+            complete = False
+            version.update(b"unreadable")
+    return version.hexdigest(), complete
+
+
+def progress_watch_settings(path=None):
+    """The checked-in progress watch thresholds (seconds and a run count)."""
+    value = load_json(path or PROGRESS_WATCH_SETTINGS, 16384)
+    if (not isinstance(value, dict) or value.get("schema_version") != 1
+            or value.get("kind") != "progress-watch-settings-v1"
+            or not set(_WATCH_FIELDS) <= set(value) or set(value) - {*_WATCH_FIELDS, "schema_version", "kind", "note"}
+            or any(type(value[name]) is not int or not 1 <= value[name] <= 7 * 86400 for name in _WATCH_FIELDS)
+            or value["attention_no_activity_seconds"] >= value["watchdog_no_activity_seconds"]
+            or value["watchdog_poll_seconds"] >= value["watchdog_no_activity_seconds"]
+            or value["repeated_failure_runs"] < 2):
+        raise SafetyError("PROGRESS_WATCH_SETTINGS_INVALID")
+    return {name: value[name] for name in _WATCH_FIELDS}
+
+
+def progress_watch_or_defaults():
+    """The settings, or the built-in defaults when the file cannot be used.
+    Returns ``(settings, from_file)``."""
+    try:
+        return progress_watch_settings(), True
+    except SafetyError:
+        return dict(PROGRESS_WATCH_DEFAULTS), False
+
+
+# Plain words for the reason codes the window can show. Unknown codes are
+# shown as the code itself, so nothing is hidden.
+REASON_TEXT = {
+    "WORK_TURN_SOURCE_LIMIT": "it used this round's allowance of website checks (normal)",
+    "WORK_TURN_MODEL_LIMIT": "it used this round's allowance of AI answers (normal)",
+    "SOURCE_ACCESS_WAIT": "a website asked us to wait before checking it again",
+    "SOURCE_ACTION_TIMEOUT": "a website took too long to answer",
+    "SUPPLIER_COMPANY_ORIGINAL_PENDING": "a supplier website check is still waiting to be finished",
+    "SUPPLIER_BROWSER_FALLBACK_PROOF_REQUIRED": "a supplier website needs a browser check that is not ready yet",
+    "PRODUCT_IMAGE_USABLE_SAVED": "a usable product photo was saved",
+    "RESEARCH_INDEX_SIZE_LIMIT": "the research lookup file reached its size limit",
+    "RESEARCH_INDEX_WRITE_UNAVAILABLE": "the research lookup file could not be updated",
+    "DIRECT_TRENDS_RECEIPT_MISMATCH": "a Google Trends answer did not match its question",
+    "AI_PROVIDER_REQUEST_FAILED": "the AI service did not answer",
+    "SOURCE_ACQUISITION_SOURCE_DATE_INVALID": "a website gave a date that could not be read",
+    "RUNNER_ALREADY_ACTIVE": "another research run was already working",
+    "PROGRAMME_LOCAL_FILE_FAILED": "a saved research file could not be read or written",
+    "PROGRESS_WATCH_RESTART": "it stopped making progress, so it was stopped to be restarted automatically",
+    "WORKER_EXIT_FAILED": "it stopped with an error",
+}
+
+
+def plain_reason(code):
+    """Plain words for one reason code, or the code itself when unknown."""
+    if not isinstance(code, str) or not code:
+        return None
+    return REASON_TEXT.get(code, "code " + code)
+
+
+def _minutes(seconds):
+    minutes = max(1, round(seconds / 60))
+    return f"{minutes} minute" + ("" if minutes == 1 else "s")
+
+
 class _Formatter(logging.Formatter):
     def format(self, record):
         return json.dumps(record.msg, separators=(",", ":"), ensure_ascii=False)
@@ -179,16 +277,10 @@ class OperationRun:
         self.logger = logging.Logger("product-radar." + self.run_id)
         self.logger.propagate = False
         self.handler = None
-        version = sha256()
-        for name in ("scripts/run_programme.py", "src/product_radar/programme.py", "src/product_radar/source_coverage.py",
-                     "src/product_radar/operations.py", "src/product_radar/source_deadline.py"):
-            path = self.root / name
-            try:
-                if path.is_file():
-                    version.update(name.encode()); version.update(path.read_bytes())
-            except OSError:
-                self._failed()
-        self.code_version = version.hexdigest()
+        self.last_heartbeat = None
+        self.code_version, complete = code_version()
+        if not complete:
+            self._failed()
         try:
             safe_path(self.folder).mkdir(parents=True, exist_ok=True)
             self.handler = _Handler(safe_path(self.folder / (self.run_id + ".jsonl")), when="H", interval=1,
@@ -321,6 +413,24 @@ def record_event(event, **values):
     recorder = _ACTIVE.get()
     if recorder:
         recorder.emit(event, **values)
+
+
+def record_heartbeat(event, **values):
+    """A throttled "still working" event inside a long local step.
+
+    At most one per run every ``HEARTBEAT_SECONDS``. It refreshes the saved
+    activity time only: no phase, deadline, step, result or count changes.
+    """
+    recorder = _ACTIVE.get()
+    if recorder is None:
+        return
+    now = time.monotonic()
+    if recorder.last_heartbeat is not None and now - recorder.last_heartbeat < HEARTBEAT_SECONDS:
+        return
+    recorder.last_heartbeat = now
+    for name in ("stage", "phase", "next_phase", "detail", "next_action", "reason", "useful_result", "state"):
+        values.pop(name, None)
+    recorder.emit(event, **values)
 
 
 def record_saved_decision(committed, *, record_kind, record_id, concept_id=None):
@@ -470,19 +580,86 @@ def read_operation_status(root, *, as_of=None):
         useful = row.get("last_useful_result_at")
         result["seconds_since_useful_result"] = (round(max(0, (timestamp(at) - timestamp(useful)).total_seconds()), 1)
                                                  if useful else None)
-        result["attention"] = None
+        result["attention"] = result["attention_kind"] = None
+        watch = progress_watch_or_defaults()[0]
         phase_age, deadline = result["seconds_in_current_phase"], row.get("phase_deadline_seconds")
-        if active and type(deadline) in (int, float) and phase_age is not None and phase_age > deadline:
+        useful_age = result["seconds_since_useful_result"]
+        if useful_age is None:
+            useful_age = max(0, (timestamp(at) - timestamp(row["started_at"])).total_seconds())
+        if active and age >= watch["attention_no_activity_seconds"]:
+            result["attention_kind"] = "no_activity"
+            result["attention"] = (f"Research has not recorded any progress for {_minutes(age)}. If nothing changes "
+                f"by {_minutes(watch['watchdog_no_activity_seconds'])}, it is stopped and the next scheduled run starts it again.")
+        elif active and type(deadline) in (int, float) and phase_age is not None and phase_age > deadline:
+            result["attention_kind"] = "phase_over_time"
             result["attention"] = "The current step has passed its time limit. Its saved attempt needs recovery; other ready work should continue."
-        elif active and row.get("phase") not in {"model_call", "transport"}:
-            useful_age = result["seconds_since_useful_result"]
-            if useful_age is None:
-                useful_age = max(0, (timestamp(at) - timestamp(row["started_at"])).total_seconds())
-            if useful_age >= 300:
-                result["attention"] = "No completed result has been recorded for at least five minutes. The last saved step is still preparation or local processing."
+        elif (active and row.get("phase") not in {"model_call", "transport"}
+                and useful_age >= watch["attention_no_result_seconds"]):
+            result["attention_kind"] = "no_result"
+            result["attention"] = (f"No completed result has been recorded for at least {_minutes(useful_age)}. "
+                "Research is still recording activity, but only preparation or local checks.")
         return result
     except (OSError, SafetyError, ValueError, TypeError, KeyError):
         return {"state": "unreadable", "checked_at": at, "message": "The saved activity could not be read."}
+
+
+def _error_code(error_type):
+    if error_type in {"OSError", "PermissionError", "FileNotFoundError", "IsADirectoryError", "NotADirectoryError"}:
+        return "PROGRAMME_LOCAL_FILE_FAILED"
+    if error_type:
+        return ("PROGRAMME_ERROR_" + re.sub(r"[^A-Z0-9_]", "_", error_type.upper()))[:160]
+    return "WORKER_EXIT_FAILED"
+
+
+def run_outcome(root, pid, *, since, tail_bytes=262144):
+    """How one finished research process ended, from its own saved run log.
+
+    Finds the run log started by process ``pid`` at or after ``since`` (an
+    ISO instant) and reads only its last part. Returns the run id, the last
+    recorded reason code, the failure reason (when the run stopped with an
+    error) and its error type, or ``None`` when no such log exists. Read only.
+    """
+    from datetime import datetime, timezone
+    start = timestamp(since)
+    folder = safe_path(runtime_path(root, "data/operations/research-runs"))
+    if type(pid) is not int or not folder.is_dir():
+        return None
+    candidates = []
+    for path in folder.glob("run-*.jsonl"):
+        try:
+            if not path.is_symlink() and path.is_file() and datetime.fromtimestamp(path.stat().st_mtime, timezone.utc) >= start:
+                candidates.append(path)
+        except OSError:
+            continue
+    for path in sorted(candidates, key=lambda item: item.stat().st_mtime, reverse=True):
+        try:
+            with path.open("rb") as stream:
+                first = json.loads(stream.readline())
+                if not isinstance(first, dict) or first.get("pid") != pid or timestamp(first.get("at")) < start:
+                    continue
+                size = stream.seek(0, os.SEEK_END)
+                stream.seek(max(0, size - tail_bytes))
+                lines = stream.read().splitlines()
+        except (OSError, ValueError, SafetyError):
+            continue
+        result = {"run_id": first.get("run_id") if _TOKEN.fullmatch(str(first.get("run_id"))) else None,
+                  "last_reason": None, "failure_reason": None, "error_type": None}
+        for line in lines:
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue  # the first line of a tail can be cut in half
+            if not isinstance(row, dict):
+                continue
+            reason = row.get("reason") if isinstance(row.get("reason"), str) and _CODE.fullmatch(row["reason"]) else None
+            if reason:
+                result["last_reason"] = reason
+            if row.get("event") in {"programme_stopped_for_recovery", "invocation_failed"}:
+                error_type = row.get("error_type") if isinstance(row.get("error_type"), str) and _TOKEN.fullmatch(row["error_type"]) else None
+                result["error_type"] = error_type
+                result["failure_reason"] = reason or _error_code(error_type)
+        return result
+    return None
 
 
 def operation_log_summary(root, *, since=None, max_bytes=512 * 1024 * 1024):

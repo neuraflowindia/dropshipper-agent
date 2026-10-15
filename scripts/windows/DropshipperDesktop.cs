@@ -53,6 +53,11 @@ namespace NeuraFlow.Dropshipper {
         public SignInStatus sign_in { get; set; }
         public List<SpendLine> spend { get; set; }
         public List<SpendAlert> spend_alerts { get; set; }
+        // A plain warning when research is not making progress (or keeps
+        // failing, or the schedule stopped). attention_id names the incident:
+        // the run id for a stuck run, so one notification per run.
+        public string attention { get; set; }
+        public string attention_id { get; set; }
     }
 
     internal sealed class SpendLine {
@@ -191,6 +196,15 @@ namespace NeuraFlow.Dropshipper {
         private readonly Label heading, detail, checkedAt, signInLine, spendLines, hint;
         private readonly HashSet<string> notifiedNeeds = new HashSet<string>();
         private readonly HashSet<string> notifiedAlerts = new HashSet<string>();
+        private readonly HashSet<string> notifiedAttention = new HashSet<string>();
+        private string pendingAttention;
+        private int pendingAttentionSeen;
+        // A warning must be seen on this many status checks in a row (4 seconds
+        // apart, only while the computer is awake) before a notification, so a
+        // computer just woken from sleep never raises a false alarm.
+        internal int AttentionConfirmRefreshes = 45;
+        internal int AttentionNotificationsShown { get; private set; }
+        internal string LastAttentionNotification { get; private set; }
         private string signInNotice;
         internal int NotificationsShown { get; private set; }
         internal int SpendNotificationsShown { get; private set; }
@@ -241,7 +255,7 @@ namespace NeuraFlow.Dropshipper {
             stopMenu = new ToolStripMenuItem("Stop", null, async delegate { await Change("stop"); });
             menu.Items.Add(startMenu); menu.Items.Add(stopMenu);
             menu.Items.Add("Open logs", null, delegate {
-                try { controls.OpenLogs(); } catch (Exception) { detail.Text = "The log folder could not be opened."; }
+                try { controls.OpenLogs(); } catch (Exception) { SetDetailText("The log folder could not be opened."); }
             });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Exit (stop research)", null, async delegate { await ExitResearch(); });
@@ -287,13 +301,14 @@ namespace NeuraFlow.Dropshipper {
             Latest = state;
             heading.Text = state.state == "running" ? "Research is running" : state.state == "ready" ? "Research is on" :
                 state.state == "stopping" ? "Stopping research…" : "Research is stopped";
-            detail.Text = state.message;
+            SetDetailText(state.message);
             checkedAt.Text = "Checked at " + DateTime.Now.ToString("h:mm:ss tt") + " on this computer.";
             Tray.Text = "NeuraFlow Dropshipper — " + state.state;
             SetButtons(!changing && !exitRequested && !state.enabled && state.active_processes == 0,
                        !changing && !exitRequested && state.enabled);
             ApplySignIn(state.sign_in);
             ApplySpend(state);
+            ApplyAttention(state);
             if (exitRequested && !state.enabled && state.active_processes == 0) {
                 allowClose = true; Close();
             }
@@ -328,10 +343,41 @@ namespace NeuraFlow.Dropshipper {
                 new Size(signInLine.Width, 0), TextFormatFlags.WordBreak).Height + 4);
             Relayout();
         }
+        private int Scaled(int designed) {
+            // The designed gaps were laid out for a 460-pixel-wide text column;
+            // keep them in proportion when Windows scales the window.
+            return (int)Math.Round(designed * detail.Width / 460.0);
+        }
+        private void SetDetailText(string text) {
+            if (detail.Text == text) return;
+            detail.Text = text;
+            // The explanation grows with its lines (activity, last run, warnings)
+            // and pushes the buttons down, never clipping a warning.
+            detail.Height = Math.Max(Scaled(47), TextRenderer.MeasureText(text, detail.Font,
+                new Size(detail.Width, 0), TextFormatFlags.WordBreak).Height + 4);
+            Relayout();
+        }
         private void Relayout() {
+            checkedAt.Top = detail.Bottom + Scaled(7);
+            StartButton.Top = StopButton.Top = ExitButton.Top = checkedAt.Bottom + Scaled(15);
+            SignInButton.Top = StartButton.Bottom + Scaled(14);
+            signInLine.Top = SignInButton.Bottom + Scaled(6);
             spendLines.Top = signInLine.Bottom + 4;
             hint.Top = spendLines.Top + spendLines.Height + 4;
             ClientSize = new Size(ClientSize.Width, hint.Bottom + 12);
+        }
+        private void ApplyAttention(ResearchStatus state) {
+            // The warning itself is already in the explanation text. One Windows
+            // notification per incident, after it is confirmed on repeated checks.
+            if (String.IsNullOrEmpty(state.attention) || String.IsNullOrEmpty(state.attention_id)) {
+                pendingAttention = null; pendingAttentionSeen = 0; return;
+            }
+            if (state.attention_id != pendingAttention) { pendingAttention = state.attention_id; pendingAttentionSeen = 0; }
+            pendingAttentionSeen++;
+            if (pendingAttentionSeen < AttentionConfirmRefreshes || !notifiedAttention.Add(state.attention_id)) return;
+            string message = state.attention.Length > 250 ? state.attention.Substring(0, 247) + "..." : state.attention;
+            AttentionNotificationsShown++; LastAttentionNotification = message;
+            Tray.ShowBalloonTip(10000, "Research needs attention", message, ToolTipIcon.Warning);
         }
         private void ApplySpend(ResearchStatus state) {
             // One line per spend or allowance item, as the status command words it.
@@ -386,7 +432,7 @@ namespace NeuraFlow.Dropshipper {
         }
         private void ShowFailure(Exception error) {
             heading.Text = "Controls need attention";
-            detail.Text = error.Message;
+            SetDetailText(error.Message);
             checkedAt.Text = "Could not confirm the current state. This is not a successful Stop.";
             Tray.Text = "NeuraFlow Dropshipper — check controls";
             SetButtons(false, !changing);
@@ -434,9 +480,10 @@ namespace NeuraFlow.Dropshipper {
         [STAThread]
         private static int Main(string[] args) {
             Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
+            Settings settings = null;
             try {
                 if (args.Length == 2 && args[0] == "--self-test") return SelfTests.Run(args[1]);
-                Settings settings = Settings.Load();
+                settings = Settings.Load();
                 var controls = new LocalControls(settings);
                 if (args.Length == 1 && args[0] == "--worker") return controls.RunWorker();
                 if (args.Length != 0) return 2;
@@ -450,11 +497,28 @@ namespace NeuraFlow.Dropshipper {
                 }
                 return 0;
             } catch (Exception error) {
-                // Scheduled workers never display a dialog/console on failure.
-                if (args.Length == 1 && args[0] == "--worker") return 1;
+                // Scheduled workers never display a dialog/console on failure;
+                // they write the reason to the worker's own log instead.
+                if (args.Length == 1 && args[0] == "--worker") {
+                    LogWorkerFailure(settings != null ? Path.Combine(settings.WindowsRepository, "data", "operations", "desktop")
+                                                      : AppDomain.CurrentDomain.BaseDirectory, error);
+                    return 1;
+                }
                 MessageBox.Show(error.Message, "NeuraFlow Dropshipper", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return 1;
             }
+        }
+        internal static void LogWorkerFailure(string directory, Exception error) {
+            // The same windows-<date>.log the worker writes. Without readable
+            // settings, the log goes next to the app instead. Type and message
+            // only, on one line; never environment variables or settings files.
+            try {
+                Directory.CreateDirectory(directory);
+                string message = (error.Message ?? "").Replace("\r", " ").Replace("\n", " ");
+                if (message.Length > 500) message = message.Substring(0, 500);
+                File.AppendAllText(Path.Combine(directory, "windows-" + DateTime.UtcNow.ToString("yyyy-MM-dd") + ".log"),
+                    DateTime.UtcNow.ToString("o") + " launcher worker_failed " + error.GetType().Name + ": " + message + Environment.NewLine);
+            } catch (Exception) { /* Diagnostic storage failing must not show a dialog either. */ }
         }
     }
 
@@ -471,14 +535,17 @@ namespace NeuraFlow.Dropshipper {
             new SignInNeed { id = "indiamart:expired:2026-10-14T10:00:00+00:00", site = "indiamart", label = "IndiaMART", state = "expired" },
             new SignInNeed { id = "dropdash:sign_in_needed:never", site = "dropdash", label = "Dropdash", state = "sign_in_needed" } };
         internal List<string> PlatformLines = new List<string>();
-        internal string ScoreLine;
+        internal string ScoreLine, Attention, AttentionId;
         public Task<ResearchStatus> Call(string action) {
             if (Fail) throw new IOException("Controlled connection failure.");
             if (action == "start") { Enabled = true; Active = true; Starts++; }
             if (action == "stop") { Enabled = false; Active = false; Stops++; }
             if (action == "sign-in") { SignIns++; SignInWindowOpen = !Busy; }
             return Task.FromResult(new ResearchStatus { enabled = Enabled, active_processes = Active ? 1 : 0,
-                state = Enabled ? "running" : "stopped", message = Enabled ? "Research is running." : "Research is stopped. Your saved work is kept.",
+                state = Enabled ? "running" : "stopped",
+                message = (Enabled ? "Research is running." : "Research is stopped. Your saved work is kept.") +
+                    (Attention == null ? "" : "\nNeeds attention: " + Attention),
+                attention = Attention, attention_id = AttentionId,
                 spend = Spend, spend_alerts = SpendAlerts,
                 sign_in = new SignInStatus { window_open = SignInWindowOpen, needs = Needs,
                     notice = action == "sign-in" && Busy ? "A research read is using the browser. Try again in a minute." : null,
@@ -519,6 +586,34 @@ namespace NeuraFlow.Dropshipper {
                     await window.RefreshStatus();
                     checks["only_new_spend_alert_notified"] = window.SpendNotificationsShown == 2 &&
                         window.LastSpendNotification.StartsWith("AI waiting so it doesn't spend paid Codex credits");
+                    int buttonsTop = window.StartButton.Top, detailHeight = window.Controls["ResearchExplanation"].Height;
+                    window.AttentionConfirmRefreshes = 2;
+                    controls.Attention = "Research has not recorded any progress for 31 minutes. If nothing changes by 45 minutes, " +
+                        "it is stopped and the next scheduled run starts it again.";
+                    controls.AttentionId = "run-1";
+                    await window.RefreshStatus();
+                    Control explanation = window.Controls["ResearchExplanation"];
+                    checks["attention_line_shown_in_full_above_the_buttons"] = explanation.Text.Contains("\nNeeds attention: Research has not recorded") &&
+                        explanation.Height > detailHeight && explanation.Height >= TextRenderer.MeasureText(explanation.Text, explanation.Font,
+                            new Size(explanation.Width, 0), TextFormatFlags.WordBreak).Height &&
+                        window.StartButton.Top > explanation.Bottom && window.SignInButton.Top > window.StartButton.Bottom &&
+                        window.Controls["SignInNeeds"].Top > window.SignInButton.Bottom && window.AttentionNotificationsShown == 0;
+                    await window.RefreshStatus(); await window.RefreshStatus();
+                    checks["attention_notified_once_per_run_after_confirmation"] = window.AttentionNotificationsShown == 1 &&
+                        window.LastAttentionNotification.StartsWith("Research has not recorded any progress");
+                    controls.AttentionId = "run-2";
+                    await window.RefreshStatus(); await window.RefreshStatus();
+                    checks["new_run_attention_notified_again"] = window.AttentionNotificationsShown == 2;
+                    controls.Attention = null; controls.AttentionId = null;
+                    await window.RefreshStatus();
+                    checks["cleared_attention_restores_layout"] = !window.Controls["ResearchExplanation"].Text.Contains("Needs attention") &&
+                        window.StartButton.Top == buttonsTop && window.AttentionNotificationsShown == 2;
+                    string logFolder = Path.Combine(Path.GetTempPath(), "neuraflow-worker-log-" + Guid.NewGuid().ToString("N"));
+                    Program.LogWorkerFailure(logFolder, new IOException("Launcher settings need repair.\nSecond line."));
+                    string[] logs = Directory.GetFiles(logFolder, "windows-*.log");
+                    checks["worker_failure_is_logged"] = logs.Length == 1 && File.ReadAllText(logs[0]).TrimEnd().EndsWith(
+                        " launcher worker_failed IOException: Launcher settings need repair. Second line.");
+                    Directory.Delete(logFolder, true);
                     controls.Busy = true; window.SignInButton.PerformClick(); await window.RefreshStatus();
                     checks["busy_notice_survives_refresh"] = window.Controls["SignInNeeds"].Text.StartsWith("A research read is using the browser") &&
                         window.SignInButton.Enabled;
@@ -576,7 +671,7 @@ namespace NeuraFlow.Dropshipper {
                 finally { if (!window.IsDisposed) window.DisposeForTest(); }
             };
             Application.Run(window);
-            bool passed = failure == null && checks.Count == 24;
+            bool passed = failure == null && checks.Count == 29;
             foreach (bool check in checks.Values) passed &= check;
             File.WriteAllText(output, new JavaScriptSerializer().Serialize(new { passed = passed, checks = checks, failure = failure,
                 actual_research_started = false, provider_calls = 0, tested_at = DateTime.UtcNow.ToString("o") }));

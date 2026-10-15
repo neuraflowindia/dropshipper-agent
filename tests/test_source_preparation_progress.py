@@ -176,23 +176,24 @@ class SourcePreparationProgressTests(unittest.TestCase):
 
     def test_progress_does_not_reset_parent_deadline_or_hide_no_result_warning(self):
         at = [NOW]
-        later = (timestamp(NOW) + timedelta(seconds=360)).isoformat()
+        # Past the no-result warning (30 minutes) but inside the phase limit.
+        later = (timestamp(NOW) + timedelta(seconds=1860)).isoformat()
         with patch.object(operations, "utc_now", side_effect=lambda: at[0]), \
                 operations.operation_run(self.root) as recorder, operations.operation_writer():
             operations.record_event("prior_result", useful_result=True)
             operations.record_event("phase_started", stage="acquire", phase="source_preparation",
-                                    deadline_seconds=1000, useful_result=False)
+                                    deadline_seconds=4000, useful_result=False)
             original = operations.read_operation_status(self.root, as_of=NOW)
             at[0] = later
             self.prepare()
             current = operations.read_operation_status(self.root, as_of=later)
             self.assertEqual(current["phase"], "source_preparation")
             self.assertEqual(current["phase_started_at"], original["phase_started_at"])
-            self.assertEqual(current["phase_deadline_seconds"], 1000)
+            self.assertEqual(current["phase_deadline_seconds"], 4000)
             self.assertEqual(current["last_useful_result_at"], original["last_useful_result_at"])
             self.assertEqual(current["counts"]["completed_results"], 1)
-            self.assertEqual(current["seconds_in_current_phase"], 360)
-            self.assertEqual(current["seconds_since_useful_result"], 360)
+            self.assertEqual(current["seconds_in_current_phase"], 1860)
+            self.assertEqual(current["seconds_since_useful_result"], 1860)
             self.assertIn("No completed result", current["attention"])
             self.assertEqual(current["message"],
                              "Preparing website searches from the saved product information.")

@@ -121,14 +121,15 @@ class ResearchMemory:
 
     @local_source_work("local_apply")
     def _flush_lookup_projection(self):
-        from .operations import _ACTIVE, record_event
+        from .operations import _ACTIVE, LOCAL_PHASE_DEADLINES, record_event
         recorder = _ACTIVE.get()
         # Do not replace an enclosing handler/stage clock with an optional
         # nested phase. Normal admitted round exits have already ended it.
         logged = recorder is not None and recorder.phase is None
         started = time.monotonic()
         if logged:
-            record_event("phase_started", phase="research_lookup_save", deadline_seconds=None, useful_result=False)
+            record_event("phase_started", phase="research_lookup_save",
+                         deadline_seconds=LOCAL_PHASE_DEADLINES["research_lookup_save"], useful_result=False)
         try:
             state, head, _, _ = self._state(readonly=True, copy_state=False)
             self._projection_dirty = not self._write_index(state, head)

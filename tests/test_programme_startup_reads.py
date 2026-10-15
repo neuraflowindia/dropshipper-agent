@@ -13,7 +13,7 @@ from unittest.mock import patch
 import test_programme as fixtures
 import product_radar.programme as programme
 from product_radar.models import SafetyError, timestamp
-from product_radar.operations import operation_run, read_operation_status
+from product_radar.operations import LOCAL_PHASE_DEADLINES, operation_run, read_operation_status
 from product_radar.research_memory import key
 from product_radar.storage import atomic_json, load_json
 from product_radar.work_turns import (
@@ -54,7 +54,9 @@ class ProgrammeStartupReadTests(unittest.TestCase):
         selected = [row for row in rows if row.get("phase") == "programme_selection"]
         self.assertEqual([row["event"] for row in selected], ["phase_started", "phase_finished"])
         self.assertTrue(all(row["stage"] == "preparation" for row in selected))
-        self.assertTrue(all(row.get("deadline_seconds") is None for row in selected))
+        # A local time limit for the window's warning only; it never cancels selection.
+        self.assertEqual([row.get("deadline_seconds") for row in selected],
+                         [LOCAL_PHASE_DEADLINES["programme_selection"], None])
         self.assertTrue(all(row.get("useful_result") is False for row in selected))
         self.assertGreaterEqual(selected[1]["timings"]["programme_selection"], 0)
         return selected
@@ -235,7 +237,7 @@ class ProgrammeStartupReadTests(unittest.TestCase):
         self.assertEqual(loaded[0][0], "whole-programme")
         self.assertIs(loaded[0][1], warm[0])
 
-    def test_successful_selection_has_its_own_phase_without_a_deadline_or_result_credit(self):
+    def test_successful_selection_has_its_own_phase_with_a_local_time_limit_and_no_result_credit(self):
         self.open_original()
         with operation_run(self.root) as recorder:
             result = self.advance()
@@ -328,6 +330,13 @@ class ProgrammeStartupReadTests(unittest.TestCase):
         readiness = [row for row in rows if row.get("phase") == "readiness"]
         self.assertGreaterEqual(len(readiness), 4)
         self.assertEqual([row["event"] for row in readiness[:2]], ["phase_started", "phase_finished"])
+        self.assertTrue(all(row["deadline_seconds"] == LOCAL_PHASE_DEADLINES["readiness"]
+                            for row in readiness if row["event"] == "phase_started"))
+        # A throttled heartbeat shows a long readiness check is alive; it never
+        # changes the phase, its clock or the result counters.
+        beats = [row for row in rows if row["event"] == "readiness_progress"]
+        self.assertEqual([row["checkpoint"] for row in beats], ["sources_checked"])
+        self.assertTrue(all("phase" not in row and "stage" not in row for row in beats))
         self.assertLess(rows.index(selected[0]), rows.index(readiness[0]))
         self.assertLess(rows.index(readiness[0]), rows.index(readiness[1]))
         self.assertLess(rows.index(readiness[1]), rows.index(selected[1]))

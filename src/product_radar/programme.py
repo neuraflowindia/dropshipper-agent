@@ -19,7 +19,8 @@ from .models import SafetyError, canonical, digest, identifier, timestamp, utc_n
 from .research_memory import key
 from .runtime_storage import records_root, runtime_path, runtime_root
 from .storage import Journal, atomic_json, load_json, safe_path
-from .operations import operation_writer, record_progress, record_error, record_event
+from .operations import (LOCAL_PHASE_DEADLINES, operation_writer, record_progress, record_error, record_event,
+                         record_heartbeat)
 
 VERSION = "research-programme-v1"
 STAGES = ("profiles", "fit", "acquire", "match", "crowding", "suppliers", "photos", "reports", "private_staging")
@@ -4541,6 +4542,7 @@ def _programme_turn_readiness(memory, record, *, root, handlers=None, runner=Non
             or type(checkpoint.get("continue_ready")) is not bool or not isinstance(checkpoint.get("wake_hash"), str)):
         raise SafetyError("PROGRAMME_TURN_CHECKPOINT_INVALID")
     sources = _source_turn_readiness(memory, state, record, handlers, at)
+    record_heartbeat("readiness_progress", programme_id=record["programme_id"], checkpoint="sources_checked")
     from .inventory_intake import inventory_work_readiness
     inventory = inventory_work_readiness(state, record, as_of=at)
     ordinary = {cid for scope in _review_scopes(record) for cid in scope["concept_ids"]}
@@ -4592,7 +4594,13 @@ def _programme_turn_readiness(memory, record, *, root, handlers=None, runner=Non
         scope_hint = {"local_ready": False, "model_ready": False, "signal": ["scope_wait", str(error)], "waits": []}
     waits.extend(scope_hint["waits"])
     alias_hints, definition_hints, example_hints = [], [], []
-    for scope in _review_scopes(record):
+    review_scopes = _review_scopes(record)
+    for checked, scope in enumerate(review_scopes, 1):
+        # Throttled "still working" note per review scope: a real hang (no
+        # events at all) stays distinguishable from a slow, healthy check.
+        record_heartbeat("readiness_progress", programme_id=record["programme_id"], checkpoint="checking_review_scopes",
+                         review_scope_id=scope["programme_id"],
+                         counts={"review_scopes_checked": checked - 1, "review_scopes_total": len(review_scopes)})
         skipped_definitions = {row["target"]: row["binding"] for row in scope["deferrals"].values()
             if row["stage"] == "functional_definition" and isinstance(row["binding"], str)
             and len(row["binding"]) == 64 and all(c in "0123456789abcdef" for c in row["binding"])
@@ -4624,6 +4632,7 @@ def _programme_turn_readiness(memory, record, *, root, handlers=None, runner=Non
             deadlines.append([scope["programme_id"], ref, row["binding"], due])
             if not due:
                 waits.append(row["next_retry_at"])
+    record_heartbeat("readiness_progress", programme_id=record["programme_id"], checkpoint="checking_saved_jobs")
     jobs = _saved_job_signals(memory, state, record, as_of=at, retry_seconds=retry_seconds,
                               retry_not_before=(pause or {}).get("next_retry_at"))
     for signal in jobs.values():
@@ -4639,8 +4648,10 @@ def _programme_turn_readiness(memory, record, *, root, handlers=None, runner=Non
     update_questions = [row for scope in _review_scopes(record)
         for row in _material_update_work(memory, scope, as_of=at, state=state)]
     work_signature = digest([_cooperative_signature(state, record, membership_signal=memberships["signal"]), discovery["projection"]])
+    record_heartbeat("readiness_progress", programme_id=record["programme_id"], checkpoint="checking_reports")
     writing = _frozen_writing_ready(memory, state, record, root=root, at=at, detailed=True,
         runner=runner, allow_fresh_legacy_model=False)
+    record_heartbeat("readiness_progress", programme_id=record["programme_id"], checkpoint="checking_photos")
     report_ready = bool(writing["ready"] and runner is not None and not model_wait)
     photo_state = _photo_turn_ready(memory, state, record, at, media_root=media_root, detailed=True)
     photo_ready = photo_state["ready"]
@@ -4770,7 +4781,8 @@ def advance_ready_programme_turn(memory, *, root, programme_id=None, client_id="
         decisions = {}
         def decision(record):
             started = time.monotonic()
-            record_event("phase_started", stage="preparation", phase="readiness", programme_id=record["programme_id"])
+            record_event("phase_started", stage="preparation", phase="readiness", programme_id=record["programme_id"],
+                         deadline_seconds=LOCAL_PHASE_DEADLINES["readiness"])
             try:
                 value = programme_turn_readiness(memory, record, root=root, as_of=at,
                     retry_seconds=options.get("retry_seconds", 300),
@@ -4782,7 +4794,7 @@ def advance_ready_programme_turn(memory, *, root, programme_id=None, client_id="
             return value
         selection_started = time.monotonic()
         record_event("phase_started", stage="preparation", phase="programme_selection",
-                     deadline_seconds=None, useful_result=False)
+                     deadline_seconds=LOCAL_PHASE_DEADLINES["programme_selection"], useful_result=False)
         try:
             record = (load_programme(memory, programme_id, state=selection_state) if programme_id is not None else
                       _due_programme_locked(memory, as_of=at, client_id=client_id,

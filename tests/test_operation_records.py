@@ -314,12 +314,21 @@ class OperationRecordTests(unittest.TestCase):
             self.assertIsNone(current["attention"])
 
     def test_rising_preparation_events_do_not_reset_the_useful_progress_clock(self):
-        with operation_run(self.root), operation_writer():
-            for _ in range(3):
+        start = timestamp(utc_now())
+        clock = [start.isoformat()]
+        with patch("product_radar.operations.utc_now", side_effect=lambda: clock[0]), \
+                operation_run(self.root), operation_writer():
+            for seconds in (0, 900, 1790):
+                clock[0] = (start + timedelta(seconds=seconds)).isoformat()
                 record_progress({"stage": "profiles", "phase_state": "started"})
-            current = read_operation_status(self.root, as_of=(timestamp(utc_now()) + timedelta(seconds=400)).isoformat())
+            # A normal 10-12 minute local check is not flagged.
+            calm = read_operation_status(self.root, as_of=(start + timedelta(seconds=720)).isoformat())
+            self.assertIsNone(calm["attention"])
+            current = read_operation_status(self.root, as_of=(start + timedelta(seconds=1810)).isoformat())
             self.assertEqual(current["counts"]["completed_results"], 0)
-            self.assertIsNotNone(current["attention"])
+            self.assertEqual(current["seconds_since_activity"], 20)
+            self.assertEqual(current["attention_kind"], "no_result")
+            self.assertIn("No completed result has been recorded for at least 30 minutes", current["attention"])
 
     def test_phase_limit_warning_keeps_confirmed_activity_separate(self):
         with operation_run(self.root), operation_writer():
