@@ -75,6 +75,21 @@ _PHASE_MESSAGES = {"model_call": "Waiting for the AI to finish its answer.",
     "apply": "Adding the saved results to the research records."}
 
 
+def boot_id():
+    """This computer's current boot, so awake-time clocks are only compared
+    within one boot."""
+    try:
+        value = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        return value if _TOKEN.fullmatch(value) else None
+    except OSError:
+        return None
+
+
+# Notifications are for a stuck or over-time run only. "No completed result"
+# also happens in long healthy runs, so it stays as window text.
+NOTIFY_KINDS = frozenset(("no_activity", "phase_over_time"))
+
+
 def _identity():
     fields = Path("/proc/self/stat").read_text().rsplit(")", 1)[1].split()
     return {"pid": os.getpid(), "process_start_ticks": fields[19]}
@@ -239,6 +254,17 @@ def _minutes(seconds):
     return f"{minutes} minute" + ("" if minutes == 1 else "s")
 
 
+def no_activity_text(seconds, watch):
+    """The warning for a run that has recorded nothing, consistent with the
+    watchdog however long the quiet time already is."""
+    limit = watch["watchdog_no_activity_seconds"]
+    text = f"Research has not recorded any progress for {_minutes(seconds)}."
+    if seconds < limit:
+        return text + (f" If this reaches {_minutes(limit)}, the run is stopped and the next scheduled run "
+                       "starts research again.")
+    return text + " A run this quiet is stopped automatically and the next scheduled run starts research again."
+
+
 class _Formatter(logging.Formatter):
     def format(self, record):
         return json.dumps(record.msg, separators=(",", ":"), ensure_ascii=False)
@@ -255,6 +281,8 @@ class OperationRun:
         self.run_id = "run-" + uuid4().hex
         self.started_at = utc_now()
         self.started = time.monotonic()
+        self.boot_id = boot_id()
+        self.last_useful_awake = self.phase_started_awake = None
         try:
             self.identity = _identity()
         except (OSError, IndexError):
@@ -311,10 +339,10 @@ class OperationRun:
             values = _fields(values)
             if error_type_supplied:
                 values["error_reported"] = True
-            at = utc_now()
+            at, awake = utc_now(), time.monotonic()
             self.counts["events"] += 1
             if values.get("useful_result"):
-                self.last_useful = at
+                self.last_useful, self.last_useful_awake = at, awake
                 self.counts["completed_results"] += 1
             # No dispatch alone does not mean historical reuse: a new local
             # or prelaunch failure can also occur before a website request.
@@ -341,11 +369,12 @@ class OperationRun:
                 self.last_reason = values["reason"]
             if event in {"phase_started", "stage_started"}:
                 self.phase = values.get("phase", values.get("stage"))
-                self.phase_started = at
+                self.phase_started, self.phase_started_awake = at, awake
                 self.phase_deadline = values.get("deadline_seconds")
             elif event == "phase_finished":
                 self.phase = values.get("next_phase")
                 self.phase_started = at if self.phase else None
+                self.phase_started_awake = awake if self.phase else None
                 self.phase_deadline = values.get("deadline_seconds") if self.phase else None
             row = {"schema_version": 1, "run_id": self.run_id, **self.identity, "code_version": self.code_version,
                 "at": at, "elapsed_seconds": round(time.monotonic() - self.started, 6), "event": event, **values}
@@ -365,6 +394,11 @@ class OperationRun:
                         _DETAILS.get(self.detail, _STEPS.get(self.step, "Research is working through its saved tasks."))),
                     "last_useful_result_at": self.last_useful, "counts": dict(self.counts),
                     "recording_failed": self.recording_failed, "last_event": row,
+                    # The computer's awake-time clock (it stops while it sleeps)
+                    # at the same instants, so a reader can leave sleep out.
+                    "awake_clock": {"boot_id": self.boot_id, "observed": awake, "started": self.started,
+                                    "phase_started": self.phase_started_awake,
+                                    "last_useful": self.last_useful_awake},
                     "log_file": "data/operations/research-runs/" + self.run_id + ".jsonl"}
                 if values.get("route") and self.phase not in _PHASE_MESSAGES:
                     status["message"] = "Checking " + _SITES.get(values["route"], "a product website") + "."
@@ -554,8 +588,17 @@ def record_progress(row):
             recorder._failed()
 
 
-def read_operation_status(root, *, as_of=None):
-    """Read one small advisory file; stale records never authorize action."""
+def read_operation_status(root, *, as_of=None, awake_now=None):
+    """Read one small advisory file; stale records never authorize action.
+
+    Ages leave out time the computer slept: when the saved awake-time clock
+    is from this boot, each age is the smaller of the wall-clock and the
+    awake-time difference. ``awake_now`` defaults to this computer's awake
+    clock only when ``as_of`` is not given (an explicit instant is a test or
+    diagnostic and is used as is unless ``awake_now`` is also given).
+    """
+    if as_of is None and awake_now is None:
+        awake_now = time.monotonic()
     at = as_of or utc_now()
     timestamp(at)
     path = safe_path(runtime_path(root, "data/operations/research-runs/current.json"))
@@ -569,27 +612,33 @@ def read_operation_status(root, *, as_of=None):
             raise SafetyError("OPERATION_STATUS_INVALID")
         observed = timestamp(row["observed_at"])
         active = row["writer_active"] and _alive(row)
-        age = max(0, (timestamp(at) - observed).total_seconds())
+        clocks = row.get("awake_clock") if isinstance(row.get("awake_clock"), dict) else {}
+        same_boot = awake_now is not None and clocks.get("boot_id") is not None and clocks.get("boot_id") == boot_id()
+        def since(instant, clock):
+            wall = max(0, (timestamp(at) - timestamp(instant)).total_seconds())
+            mark = clocks.get(clock)
+            if same_boot and type(mark) in (int, float) and math.isfinite(mark):
+                return min(wall, max(0, awake_now - mark))
+            return wall
+        age = since(row["observed_at"], "observed")
         result = dict(row, checked_at=at, seconds_since_activity=round(age, 1), stale=not active,
             state="running" if active else "saved_previous_run")
         phase_started = row.get("phase_started_at")
-        result["seconds_in_current_phase"] = (round(max(0, (timestamp(at) - timestamp(phase_started)).total_seconds()), 1)
+        result["seconds_in_current_phase"] = (round(since(phase_started, "phase_started"), 1)
                                                if active and phase_started else None)
         if not active:
             result["message"] = "This is the last saved research activity, not a currently running step."
         useful = row.get("last_useful_result_at")
-        result["seconds_since_useful_result"] = (round(max(0, (timestamp(at) - timestamp(useful)).total_seconds()), 1)
-                                                 if useful else None)
+        result["seconds_since_useful_result"] = round(since(useful, "last_useful"), 1) if useful else None
         result["attention"] = result["attention_kind"] = None
         watch = progress_watch_or_defaults()[0]
         phase_age, deadline = result["seconds_in_current_phase"], row.get("phase_deadline_seconds")
         useful_age = result["seconds_since_useful_result"]
         if useful_age is None:
-            useful_age = max(0, (timestamp(at) - timestamp(row["started_at"])).total_seconds())
+            useful_age = since(row["started_at"], "started")
         if active and age >= watch["attention_no_activity_seconds"]:
             result["attention_kind"] = "no_activity"
-            result["attention"] = (f"Research has not recorded any progress for {_minutes(age)}. If nothing changes "
-                f"by {_minutes(watch['watchdog_no_activity_seconds'])}, it is stopped and the next scheduled run starts it again.")
+            result["attention"] = no_activity_text(age, watch)
         elif active and type(deadline) in (int, float) and phase_age is not None and phase_age > deadline:
             result["attention_kind"] = "phase_over_time"
             result["attention"] = "The current step has passed its time limit. Its saved attempt needs recovery; other ready work should continue."
@@ -598,6 +647,7 @@ def read_operation_status(root, *, as_of=None):
             result["attention_kind"] = "no_result"
             result["attention"] = (f"No completed result has been recorded for at least {_minutes(useful_age)}. "
                 "Research is still recording activity, but only preparation or local checks.")
+        result["attention_notify"] = result["attention_kind"] in NOTIFY_KINDS
         return result
     except (OSError, SafetyError, ValueError, TypeError, KeyError):
         return {"state": "unreadable", "checked_at": at, "message": "The saved activity could not be read."}
@@ -643,7 +693,7 @@ def run_outcome(root, pid, *, since, tail_bytes=262144):
         except (OSError, ValueError, SafetyError):
             continue
         result = {"run_id": first.get("run_id") if _TOKEN.fullmatch(str(first.get("run_id"))) else None,
-                  "last_reason": None, "failure_reason": None, "error_type": None}
+                  "last_reason": None, "failure_reason": None, "error_type": None, "interrupted": False}
         for line in lines:
             try:
                 row = json.loads(line)
@@ -654,6 +704,8 @@ def run_outcome(root, pid, *, since, tail_bytes=262144):
             reason = row.get("reason") if isinstance(row.get("reason"), str) and _CODE.fullmatch(row["reason"]) else None
             if reason:
                 result["last_reason"] = reason
+            if row.get("event") in {"invocation_started", "invocation_finished", "invocation_interrupted", "invocation_failed"}:
+                result["interrupted"] = row["event"] == "invocation_interrupted"
             if row.get("event") in {"programme_stopped_for_recovery", "invocation_failed"}:
                 error_type = row.get("error_type") if isinstance(row.get("error_type"), str) and _TOKEN.fullmatch(row["error_type"]) else None
                 result["error_type"] = error_type

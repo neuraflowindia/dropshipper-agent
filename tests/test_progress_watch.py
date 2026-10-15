@@ -222,8 +222,9 @@ class HeartbeatAndAttentionTests(Base):
             self.assertEqual(quiet["attention_kind"], "phase_over_time")
             current = read_operation_status(self.root, as_of=(start + timedelta(seconds=1860)).isoformat())
         self.assertEqual(current["attention_kind"], "no_activity")
-        self.assertEqual(current["attention"], "Research has not recorded any progress for 31 minutes. If nothing "
-                         "changes by 45 minutes, it is stopped and the next scheduled run starts it again.")
+        self.assertEqual(current["attention"], "Research has not recorded any progress for 31 minutes. If this "
+                         "reaches 45 minutes, the run is stopped and the next scheduled run starts research again.")
+        self.assertIs(current["attention_notify"], True)
 
     def test_readiness_past_its_local_limit_is_flagged_without_cancelling_it(self):
         start = timestamp(utc_now())
@@ -274,7 +275,7 @@ class RunOutcomeTests(Base):
             {"event": "invocation_finished", "exit_code": 1}, ["not", "a", "row"]])
         self.assertEqual(run_outcome(self.root, 77, since=since),
                          {"run_id": "run-mine", "last_reason": "RESEARCH_INDEX_SIZE_LIMIT",
-                          "failure_reason": "RESEARCH_INDEX_SIZE_LIMIT", "error_type": "SafetyError"})
+                          "failure_reason": "RESEARCH_INDEX_SIZE_LIMIT", "error_type": "SafetyError", "interrupted": False})
         self.assertIsNone(run_outcome(self.root, 79, since=since))
         self.assertIsNone(run_outcome(self.root, "77", since=since))
 
@@ -403,7 +404,8 @@ class OwnerStatusTests(Base):
         result = self.status(processes=[{"pid": os.getpid()}])
         self.assertEqual(result["state"], "running")
         self.assertIn("\nNeeds attention: Research has not recorded any progress for 31 minutes.", result["message"])
-        self.assertEqual(result["attention_id"], "run-" + "a" * 32)
+        self.assertEqual(result["attention_id"], "run-" + "a" * 32 + ":no_activity")  # run and kind of warning
+        self.assertEqual(result["attention_confirm_seconds"], 180)
         self.status_file(observed_at=(self.NOW - timedelta(minutes=3)).isoformat(),
                          **dict(recent, phase_started_at=(self.NOW - timedelta(minutes=12)).isoformat(),
                                 last_useful_result_at=(self.NOW - timedelta(minutes=20)).isoformat()))
@@ -518,8 +520,16 @@ class WatchdogUnitTests(Base):
         self.assertEqual((code, signals), (-9, ["SIGINT", "SIGTERM", "SIGKILL"]))
         self.assertEqual(child.timeouts, [300, 60])
 
-    def test_child_that_already_left_is_not_signalled(self):
+    def test_an_unconfirmed_kill_returns_so_the_worker_lock_is_released(self):
         child = FakeChild(pid=4242)
+        with patch.object(controls.os, "killpg"):
+            self.assertEqual(controls._interrupt_stuck_child(self.root, child, 2800, {}, WATCH),
+                             (None, ["SIGINT", "SIGTERM", "SIGKILL"]))
+        self.assertEqual(child.timeouts, [300, 60, 60, 60])
+        self.assertEqual(self.actions()[-1]["action"], "watchdog_stop_unconfirmed")
+
+    def test_child_that_already_left_is_not_signalled(self):
+        child = FakeChild(pid=4242, polls=0)
         with patch.object(controls.os, "killpg", side_effect=ProcessLookupError):
             child.code = 0
             self.assertEqual(controls._interrupt_stuck_child(self.root, child, 2800, {}, WATCH), (0, []))
@@ -530,6 +540,108 @@ class WatchdogUnitTests(Base):
         killed.assert_not_called()
         receipt = [row for row in self.actions() if row["action"] == "watchdog_restart"][-1]
         self.assertEqual((receipt["run_id"], receipt["phase"]), ("run-z", "readiness"))
+
+
+class SleepAndNotificationTests(Base):
+    NOW = datetime(2026, 10, 15, 12, 0, tzinfo=timezone.utc)
+
+    def test_time_asleep_is_not_counted_as_quiet_time(self):
+        awake = 5000.0
+        self.status_file(observed_at=(self.NOW - timedelta(hours=8)).isoformat(),
+                         started_at=(self.NOW - timedelta(hours=9)).isoformat(),
+                         phase_started_at=(self.NOW - timedelta(hours=8)).isoformat(),
+                         awake_clock={"boot_id": operations.boot_id(), "observed": awake - 60, "started": awake - 600,
+                                      "phase_started": awake - 120, "last_useful": None})
+        asleep = read_operation_status(self.root, as_of=self.NOW.isoformat(), awake_now=awake)
+        self.assertEqual((asleep["seconds_since_activity"], asleep["seconds_in_current_phase"]), (60, 120))
+        self.assertIsNone(asleep["attention"])
+        # Without the awake clock (or from another boot) the wall clock is used as before.
+        self.assertEqual(read_operation_status(self.root, as_of=self.NOW.isoformat())["attention_kind"], "no_activity")
+        self.status_file(observed_at=(self.NOW - timedelta(hours=8)).isoformat(),
+                         awake_clock={"boot_id": "another-boot", "observed": awake - 60})
+        self.assertEqual(read_operation_status(self.root, as_of=self.NOW.isoformat(), awake_now=awake)["attention_kind"],
+                         "no_activity")
+
+    def test_a_real_run_records_its_awake_clock(self):
+        with operation_run(self.root), operation_writer():
+            record_event("phase_started", phase="readiness", deadline_seconds=1800, useful_result=True)
+            row = load_json(self.runs / "current.json")
+            current = read_operation_status(self.root)
+        self.assertEqual(set(row["awake_clock"]), {"boot_id", "observed", "started", "phase_started", "last_useful"})
+        self.assertEqual(row["awake_clock"]["boot_id"], operations.boot_id())
+        self.assertLess(current["seconds_since_activity"], 5)
+
+    def test_quiet_past_the_watchdog_time_is_worded_consistently(self):
+        text = operations.no_activity_text(480 * 60, WATCH)
+        self.assertEqual(text, "Research has not recorded any progress for 480 minutes. A run this quiet is stopped "
+                               "automatically and the next scheduled run starts research again.")
+        self.assertNotIn("If this reaches", text)
+
+    def test_no_completed_result_is_window_text_only(self):
+        self.status_file(observed_at=(self.NOW - timedelta(minutes=1)).isoformat(),
+                         started_at=(self.NOW - timedelta(minutes=50)).isoformat(),
+                         phase_started_at=(self.NOW - timedelta(minutes=2)).isoformat(), phase="acquire",
+                         phase_deadline_seconds=None)
+        with patch.object(controls, "owned_programmes", return_value=[{"pid": os.getpid()}]):
+            result = controls.status(self.root, now=lambda: self.NOW)
+        self.assertEqual(result["activity"]["attention_kind"], "no_result")
+        self.assertIs(result["activity"]["attention_notify"], False)
+        self.assertIn("\nNeeds attention: No completed result has been recorded for at least 50 minutes", result["message"])
+        self.assertIsNone(result["attention"]); self.assertIsNone(result["attention_id"])
+        self.assertIsNone(result["attention_confirm_seconds"])
+
+    def test_phase_over_time_is_notified_with_its_own_identity(self):
+        self.status_file(observed_at=(self.NOW - timedelta(minutes=1)).isoformat(),
+                         started_at=(self.NOW - timedelta(minutes=40)).isoformat(),
+                         last_useful_result_at=(self.NOW - timedelta(minutes=2)).isoformat(),
+                         phase_started_at=(self.NOW - timedelta(minutes=35)).isoformat())
+        with patch.object(controls, "owned_programmes", return_value=[{"pid": os.getpid()}]):
+            result = controls.status(self.root, now=lambda: self.NOW)
+        self.assertEqual(result["attention_id"], "run-" + "a" * 32 + ":phase_over_time")
+
+    def test_a_late_schedule_does_not_count_sleep_and_needs_a_longer_confirmation(self):
+        awake = 9000.0
+        self.write_actions({"action": "worker_finished", "at": (self.NOW - timedelta(hours=8)).isoformat(), "pid": 1,
+                            "exit_code": 0, "outcome": "finished", "awake": awake - 300, "boot_id": operations.boot_id()})
+        quiet = controls.run_health(self.root, now=self.NOW, settings=WATCH, awake_now=awake)
+        self.assertEqual(quiet["attention"], [])  # 8 hours on the wall clock, 5 awake minutes
+        late = controls.run_health(self.root, now=self.NOW, settings=WATCH, awake_now=awake + 1500)
+        self.assertEqual([(item["confirm_seconds"], item["notify"]) for item in late["attention"]], [(1200, True)])
+        self.assertIn("for 30 minutes", late["attention"][0]["text"])
+        with patch.object(controls, "owned_programmes", return_value=[]):
+            status = controls.status(self.root, now=lambda: self.NOW)  # injected clock: wall time only
+        self.assertEqual(status["attention_confirm_seconds"], 1200)
+        self.assertTrue(status["attention_id"].startswith("schedule:"))
+
+    def test_an_unreadable_boot_id_turns_the_awake_clock_off(self):
+        with patch.object(operations.Path, "read_text", side_effect=OSError("no proc")):
+            self.assertIsNone(operations.boot_id())
+
+    def test_receipts_carry_the_awake_clock(self):
+        controls.record_action(self.root, "fixture")
+        receipt = self.actions()[0]
+        self.assertEqual(receipt["boot_id"], operations.boot_id())
+        self.assertIsInstance(receipt["awake"], float)
+
+    def test_an_owned_process_outside_the_main_step_with_stale_activity_needs_attention(self):
+        self.status_file(observed_at=(self.NOW - timedelta(minutes=40)).isoformat(), writer_active=False)
+        row = {"pid": os.getpid(), "start_ticks": _ticks()}
+        with patch.object(controls, "owned_programmes", return_value=[row]):
+            result = controls.status(self.root, now=lambda: self.NOW)
+        self.assertEqual(result["state"], "running")
+        self.assertIn("\nNeeds attention: Research has not recorded any progress for 40 minutes.", result["message"])
+        self.assertEqual(result["attention_id"], f"stale:{row['pid']}:{row['start_ticks']}:no_activity")
+        self.status_file(observed_at=(self.NOW - timedelta(minutes=2)).isoformat(), writer_active=False)
+        with patch.object(controls, "owned_programmes", return_value=[row]):
+            self.assertIsNone(controls.status(self.root, now=lambda: self.NOW)["attention"])
+
+    def test_process_age_reads_the_kernel_start_time(self):
+        proc = self.root / "proc"; proc.mkdir()
+        (proc / "uptime").write_text("1000.00 50.00\n")
+        ticks = os.sysconf("SC_CLK_TCK")
+        self.assertAlmostEqual(controls._process_age({"start_ticks": str(400 * ticks)}, proc=proc), 600)
+        self.assertIsNone(controls._process_age({"pid": 1}, proc=proc))
+        self.assertIsNone(controls._process_age({"start_ticks": "1"}, proc=self.root / "missing"))
 
 
 class AdoptedProcessTests(Base):
@@ -561,17 +673,42 @@ class AdoptedProcessTests(Base):
             self.assertIsNone(controls._watch_adopted(self.root, [row], now=now, watch=WATCH))  # signal refused
         self.assertEqual(self.actions()[-1]["signals"], [])
 
-    def test_recent_activity_or_another_process_is_left_alone(self):
+    def test_recent_activity_or_a_young_process_is_left_alone(self):
         row = {"pid": os.getpid(), "start_ticks": _ticks()}
         now = lambda: datetime.now(timezone.utc)
         self.status_file(observed_at=(datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(timespec="seconds"))
-        with patch.object(controls, "signal_identified") as signalled:
+        with patch.object(controls, "signal_identified") as signalled, \
+                patch.object(controls, "_process_age", return_value=600.0):
             self.assertIsNone(controls._watch_adopted(self.root, [row], now=now, watch=WATCH))
             self.status_file(observed_at=(datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(timespec="seconds"))
+            # Another process's saved activity never counts for this one; it is
+            # measured by its own age (10 minutes here).
             self.assertIsNone(controls._watch_adopted(self.root, [dict(row, start_ticks="other")], now=now, watch=WATCH))
-            self.assertIsNone(controls._watch_adopted(self.root, [{"pid": 1, "start_ticks": "1"}], now=now, watch=WATCH))
         signalled.assert_not_called()
         self.assertEqual(self.actions(), [])
+
+    def test_a_leftover_process_outside_the_main_step_is_still_watched(self):
+        # Writer released (or never admitted): matched by PID and start identity alone.
+        row = {"pid": os.getpid(), "start_ticks": _ticks()}
+        old = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(timespec="seconds")
+        self.status_file(observed_at=old, writer_active=False)
+        now = lambda: datetime.now(timezone.utc)
+        with patch.object(controls, "signal_identified", return_value=True) as signalled:
+            self.assertIsNone(controls._watch_adopted(self.root, [row], now=now, watch=WATCH))
+            self.assertEqual(controls._watch_adopted(self.root, [row], now=now, watch=WATCH), "SIGINT")
+        signalled.assert_called_once_with(row, signal.SIGINT)
+        self.assertEqual([r["observed_at"] for r in self.actions()], [old, old])
+
+    def test_a_leftover_process_that_never_saved_activity_is_measured_from_its_start(self):
+        row = {"pid": 4321, "start_ticks": "77"}
+        now = lambda: datetime.now(timezone.utc)
+        with patch.object(controls, "_process_age", return_value=3000.0), \
+                patch.object(controls, "signal_identified", return_value=True) as signalled:
+            self.assertIsNone(controls._watch_adopted(self.root, [row], now=now, watch=WATCH))
+            self.assertEqual(controls._watch_adopted(self.root, [row], now=now, watch=WATCH), "SIGINT")
+        signalled.assert_called_once_with(row, signal.SIGINT)
+        self.assertEqual(self.actions()[0]["observed_at"], "started:77")
+        self.assertIsNone(self.actions()[0]["run_id"])
 
     def test_worker_tick_reports_the_adopted_interrupt(self):
         row = {"pid": os.getpid(), "start_ticks": _ticks()}
@@ -635,6 +772,37 @@ class RealWorkerTests(Base):
             self.assertEqual(controls.run_worker(self.root, ["--tick", "--execute"], settings=self.FAST)["exit_code"], 2)
         receipt = self.actions()[-1]
         self.assertEqual((receipt["outcome"], receipt["run_id"], receipt["failure_reason"]), ("failed", None, None))
+
+    def test_an_interrupt_with_research_switched_on_again_is_not_a_failure(self):
+        # Stop, then Start before the old run had ended: exit 130, switch on.
+        self.script("import sys\nsys.exit(130)\n")
+        self.assertEqual(controls.run_worker(self.root, ["--tick", "--execute"], settings=self.FAST)["exit_code"], 130)
+        self.assertEqual(self.actions()[-1]["outcome"], "interrupted")
+        self.assertIsNone(controls._failure_key(self.actions()[-1]))
+        self.assertEqual(controls._last_run_line(self.actions()[-1]), "Last run was stopped (exit code 130).")
+
+    def test_a_run_log_ending_interrupted_is_not_a_failure(self):
+        self.script("""
+            import json, os, pathlib, sys
+            from datetime import datetime, timezone
+            folder = pathlib.Path("data/operations/research-runs"); folder.mkdir(parents=True, exist_ok=True)
+            rows = [{"run_id": "run-int", "pid": os.getpid(), "at": datetime.now(timezone.utc).isoformat(),
+                     "event": "invocation_started"}, {"event": "invocation_interrupted", "state": "interrupted"}]
+            (folder / "run-int.jsonl").write_text("".join(json.dumps(row) + "\\n" for row in rows))
+            sys.exit(3)
+        """)
+        controls.run_worker(self.root, ["--tick", "--execute"], settings=self.FAST)
+        self.assertEqual(self.actions()[-1]["outcome"], "interrupted")
+
+    def test_cleanup_never_waits_forever(self):
+        child = FakeChild(pid=4242)
+        with patch.object(controls.subprocess, "Popen", return_value=child), \
+                patch.object(controls, "_supervise", side_effect=RuntimeError("supervisor fault")), \
+                patch.object(controls.os, "killpg") as killed, self.assertRaisesRegex(RuntimeError, "supervisor fault"):
+            controls.run_worker(self.root, ["--tick", "--execute"], settings=self.FAST)
+        killed.assert_called_once_with(4242, signal.SIGINT)
+        self.assertEqual(child.timeouts, [1])
+        self.assertEqual(self.actions()[-1]["action"], "worker_cleanup_unconfirmed")
 
     def test_a_broken_settings_file_never_stops_research(self):
         self.script("import sys\nsys.exit(0)\n")

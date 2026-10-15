@@ -2011,7 +2011,7 @@ Every signed-in read shares 300 seconds of browser time a round and waits calmly
 |---|---|---|
 | Amazon search, Amazon bestseller lists and Flipkart search **as discovery** | W6 (`4707231`) | They run only as each type's crowding check; Meta, the platforms and wider discovery produce candidates. |
 | Amazon Movers & Shakers | W6 (`4707231`) | None (`CLOSED_ROUTES`); its pages were empty for our categories. |
-| Dropship India (`dropship-india`) | 15 October 2026 (owner) | None. Removed entirely (route, settings, sign-in tab, pacing, packet row): it showed nothing useful, signed in or not. It never ran live, so it left no saved history; a saved sign-in or pacing record still naming it is read without it. |
+| Dropship India (`dropship-india`) | 15 October 2026 (owner) | None. Removed entirely (route, settings, sign-in tab, pacing, packet row): it showed nothing useful, signed in or not. It never ran live, so it left no saved history; no saved sign-in or pacing record names it, and one that did would now be refused as invalid. |
 | Google Search supplier route | R09 (14 October) | IndiaMART, TradeIndia, Google Maps and company pages. |
 | Quick-commerce discovery and the free quick-commerce browser route | W5 (`6630cbc`) | The paid API route with admission; `scripts/collect_quickcommerce.py` deleted. |
 | The single-location quick-commerce options `--location-name`, `--latitude`, `--longitude` | W5 (`6630cbc`) | `config/research/quickcommerce_locations.json`; location left the programme's frozen settings, so the launcher passes no location flags. |

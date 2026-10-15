@@ -53,11 +53,14 @@ namespace NeuraFlow.Dropshipper {
         public SignInStatus sign_in { get; set; }
         public List<SpendLine> spend { get; set; }
         public List<SpendAlert> spend_alerts { get; set; }
-        // A plain warning when research is not making progress (or keeps
-        // failing, or the schedule stopped). attention_id names the incident:
-        // the run id for a stuck run, so one notification per run.
+        // A plain warning that deserves a notification: a stuck or over-time
+        // run, the same failure in several runs, or a late schedule. The id
+        // names the incident (for a run: its run id and the kind of warning),
+        // so each incident is notified once. Other warnings are message text only.
         public string attention { get; set; }
         public string attention_id { get; set; }
+        // Awake seconds the warning must stay before its notification.
+        public int? attention_confirm_seconds { get; set; }
     }
 
     internal sealed class SpendLine {
@@ -198,11 +201,14 @@ namespace NeuraFlow.Dropshipper {
         private readonly HashSet<string> notifiedAlerts = new HashSet<string>();
         private readonly HashSet<string> notifiedAttention = new HashSet<string>();
         private string pendingAttention;
-        private int pendingAttentionSeen;
-        // A warning must be seen on this many status checks in a row (4 seconds
-        // apart, only while the computer is awake) before a notification, so a
-        // computer just woken from sleep never raises a false alarm.
-        internal int AttentionConfirmRefreshes = 45;
+        private double pendingAttentionSeconds;
+        private DateTime lastAttentionCheck = DateTime.MinValue;
+        // A warning must stay on screen for its confirmation time before its one
+        // notification. Only time between status checks at most 30 seconds apart
+        // counts (they run every 4 seconds while the app and computer are
+        // awake); a longer gap, such as the computer sleeping, starts the
+        // confirmation again, so waking the computer never raises a false alarm.
+        internal Func<DateTime> Clock = () => DateTime.UtcNow;
         internal int AttentionNotificationsShown { get; private set; }
         internal string LastAttentionNotification { get; private set; }
         private string signInNotice;
@@ -369,12 +375,18 @@ namespace NeuraFlow.Dropshipper {
         private void ApplyAttention(ResearchStatus state) {
             // The warning itself is already in the explanation text. One Windows
             // notification per incident, after it is confirmed on repeated checks.
+            DateTime now = Clock();
+            double gap = lastAttentionCheck == DateTime.MinValue ? 0 : (now - lastAttentionCheck).TotalSeconds;
+            lastAttentionCheck = now;
             if (String.IsNullOrEmpty(state.attention) || String.IsNullOrEmpty(state.attention_id)) {
-                pendingAttention = null; pendingAttentionSeen = 0; return;
+                pendingAttention = null; pendingAttentionSeconds = 0; return;
             }
-            if (state.attention_id != pendingAttention) { pendingAttention = state.attention_id; pendingAttentionSeen = 0; }
-            pendingAttentionSeen++;
-            if (pendingAttentionSeen < AttentionConfirmRefreshes || !notifiedAttention.Add(state.attention_id)) return;
+            if (state.attention_id != pendingAttention || gap < 0 || gap > 30) {
+                pendingAttention = state.attention_id; pendingAttentionSeconds = 0;
+            } else pendingAttentionSeconds += gap;
+            int needed = state.attention_confirm_seconds.HasValue && state.attention_confirm_seconds.Value > 0
+                ? state.attention_confirm_seconds.Value : 180;
+            if (pendingAttentionSeconds < needed || !notifiedAttention.Add(state.attention_id)) return;
             string message = state.attention.Length > 250 ? state.attention.Substring(0, 247) + "..." : state.attention;
             AttentionNotificationsShown++; LastAttentionNotification = message;
             Tray.ShowBalloonTip(10000, "Research needs attention", message, ToolTipIcon.Warning);
@@ -536,6 +548,7 @@ namespace NeuraFlow.Dropshipper {
             new SignInNeed { id = "dropdash:sign_in_needed:never", site = "dropdash", label = "Dropdash", state = "sign_in_needed" } };
         internal List<string> PlatformLines = new List<string>();
         internal string ScoreLine, Attention, AttentionId;
+        internal int? AttentionConfirmSeconds;
         public Task<ResearchStatus> Call(string action) {
             if (Fail) throw new IOException("Controlled connection failure.");
             if (action == "start") { Enabled = true; Active = true; Starts++; }
@@ -545,7 +558,7 @@ namespace NeuraFlow.Dropshipper {
                 state = Enabled ? "running" : "stopped",
                 message = (Enabled ? "Research is running." : "Research is stopped. Your saved work is kept.") +
                     (Attention == null ? "" : "\nNeeds attention: " + Attention),
-                attention = Attention, attention_id = AttentionId,
+                attention = Attention, attention_id = AttentionId, attention_confirm_seconds = AttentionConfirmSeconds,
                 spend = Spend, spend_alerts = SpendAlerts,
                 sign_in = new SignInStatus { window_open = SignInWindowOpen, needs = Needs,
                     notice = action == "sign-in" && Busy ? "A research read is using the browser. Try again in a minute." : null,
@@ -587,10 +600,11 @@ namespace NeuraFlow.Dropshipper {
                     checks["only_new_spend_alert_notified"] = window.SpendNotificationsShown == 2 &&
                         window.LastSpendNotification.StartsWith("AI waiting so it doesn't spend paid Codex credits");
                     int buttonsTop = window.StartButton.Top, detailHeight = window.Controls["ResearchExplanation"].Height;
-                    window.AttentionConfirmRefreshes = 2;
-                    controls.Attention = "Research has not recorded any progress for 31 minutes. If nothing changes by 45 minutes, " +
-                        "it is stopped and the next scheduled run starts it again.";
-                    controls.AttentionId = "run-1";
+                    DateTime fakeNow = new DateTime(2026, 10, 15, 12, 0, 0, DateTimeKind.Utc);
+                    window.Clock = () => fakeNow;
+                    controls.Attention = "Research has not recorded any progress for 31 minutes. If this reaches 45 minutes, " +
+                        "the run is stopped and the next scheduled run starts research again.";
+                    controls.AttentionId = "run-1:no_activity"; controls.AttentionConfirmSeconds = 180;
                     await window.RefreshStatus();
                     Control explanation = window.Controls["ResearchExplanation"];
                     checks["attention_line_shown_in_full_above_the_buttons"] = explanation.Text.Contains("\nNeeds attention: Research has not recorded") &&
@@ -598,16 +612,29 @@ namespace NeuraFlow.Dropshipper {
                             new Size(explanation.Width, 0), TextFormatFlags.WordBreak).Height &&
                         window.StartButton.Top > explanation.Bottom && window.SignInButton.Top > window.StartButton.Bottom &&
                         window.Controls["SignInNeeds"].Top > window.SignInButton.Bottom && window.AttentionNotificationsShown == 0;
-                    await window.RefreshStatus(); await window.RefreshStatus();
-                    checks["attention_notified_once_per_run_after_confirmation"] = window.AttentionNotificationsShown == 1 &&
+                    for (int i = 0; i < 44; i++) { fakeNow = fakeNow.AddSeconds(4); await window.RefreshStatus(); }
+                    bool notYet = window.AttentionNotificationsShown == 0;
+                    fakeNow = fakeNow.AddSeconds(4); await window.RefreshStatus();
+                    fakeNow = fakeNow.AddSeconds(4); await window.RefreshStatus();
+                    checks["attention_notified_once_after_three_awake_minutes"] = notYet && window.AttentionNotificationsShown == 1 &&
                         window.LastAttentionNotification.StartsWith("Research has not recorded any progress");
-                    controls.AttentionId = "run-2";
-                    await window.RefreshStatus(); await window.RefreshStatus();
-                    checks["new_run_attention_notified_again"] = window.AttentionNotificationsShown == 2;
-                    controls.Attention = null; controls.AttentionId = null;
+                    controls.AttentionId = "run-1:phase_over_time";
+                    fakeNow = fakeNow.AddSeconds(4); await window.RefreshStatus();
+                    fakeNow = fakeNow.AddHours(8); await window.RefreshStatus();   // the computer slept
+                    for (int i = 0; i < 40; i++) { fakeNow = fakeNow.AddSeconds(4); await window.RefreshStatus(); }
+                    checks["sleep_restarts_the_confirmation"] = window.AttentionNotificationsShown == 1;
+                    for (int i = 0; i < 6; i++) { fakeNow = fakeNow.AddSeconds(4); await window.RefreshStatus(); }
+                    checks["another_warning_of_the_same_run_is_notified"] = window.AttentionNotificationsShown == 2;
+                    controls.AttentionId = "schedule:2026-10-15T11:00:00+00:00"; controls.AttentionConfirmSeconds = 1200;
+                    for (int i = 0; i < 100; i++) { fakeNow = fakeNow.AddSeconds(4); await window.RefreshStatus(); }
+                    bool scheduleWaits = window.AttentionNotificationsShown == 2;
+                    for (int i = 0; i < 205; i++) { fakeNow = fakeNow.AddSeconds(4); await window.RefreshStatus(); }
+                    checks["late_schedule_needs_twenty_awake_minutes"] = scheduleWaits && window.AttentionNotificationsShown == 3;
+                    controls.Attention = null; controls.AttentionId = null; controls.AttentionConfirmSeconds = null;
                     await window.RefreshStatus();
+                    window.Clock = () => DateTime.UtcNow;
                     checks["cleared_attention_restores_layout"] = !window.Controls["ResearchExplanation"].Text.Contains("Needs attention") &&
-                        window.StartButton.Top == buttonsTop && window.AttentionNotificationsShown == 2;
+                        window.StartButton.Top == buttonsTop && window.AttentionNotificationsShown == 3;
                     string logFolder = Path.Combine(Path.GetTempPath(), "neuraflow-worker-log-" + Guid.NewGuid().ToString("N"));
                     Program.LogWorkerFailure(logFolder, new IOException("Launcher settings need repair.\nSecond line."));
                     string[] logs = Directory.GetFiles(logFolder, "windows-*.log");
@@ -671,7 +698,7 @@ namespace NeuraFlow.Dropshipper {
                 finally { if (!window.IsDisposed) window.DisposeForTest(); }
             };
             Application.Run(window);
-            bool passed = failure == null && checks.Count == 29;
+            bool passed = failure == null && checks.Count == 31;
             foreach (bool check in checks.Values) passed &= check;
             File.WriteAllText(output, new JavaScriptSerializer().Serialize(new { passed = passed, checks = checks, failure = failure,
                 actual_research_started = false, provider_calls = 0, tested_at = DateTime.UtcNow.ToString("o") }));

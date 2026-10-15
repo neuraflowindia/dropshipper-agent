@@ -17,6 +17,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import time
 from types import SimpleNamespace
 
 from .models import SafetyError, canonical, timestamp, utc_now
@@ -88,6 +89,60 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+def _boot_id():
+    from .operations import boot_id
+    return boot_id()
+
+
+def _awake_now(now):
+    """This computer's awake-time clock, only with the real wall clock (an
+    injected test clock is used on its own)."""
+    return time.monotonic() if now is _now else None
+
+
+def _read_activity(root, at, now):
+    from .operations import read_operation_status
+    return read_operation_status(root, as_of=at.isoformat(timespec="seconds"), awake_now=_awake_now(now))
+
+
+# How long a warning must stay on screen, counting only time the computer is
+# awake, before the window shows its one notification. A late schedule waits
+# longer than one 15-minute task interval.
+CONFIRM_SECONDS = {"run": 180, "repeat": 180, "schedule": 1200}
+
+
+def _attention(text, identity, *, notify=True, confirm="run"):
+    return {"text": text, "id": identity, "notify": notify, "confirm_seconds": CONFIRM_SECONDS[confirm]}
+
+
+def _process_age(row, *, proc=Path("/proc")):
+    """Seconds since an identified process started, or None."""
+    try:
+        ticks = int(row["start_ticks"])
+        uptime = float((proc / "uptime").read_text().split()[0])
+        return max(0.0, uptime - ticks / os.sysconf("SC_CLK_TCK"))
+    except (KeyError, TypeError, ValueError, OSError):
+        return None
+
+
+def _owned_quiet(activity, rows):
+    """For each identified research process: its quiet time and the saved mark
+    it is measured from. The saved activity counts only when it belongs to that
+    exact process (PID and start identity), whatever its writer flag says;
+    otherwise the process has saved nothing, so its age is its quiet time."""
+    result = []
+    for row in rows:
+        if (activity.get("pid") == row.get("pid") and row.get("start_ticks") is not None
+                and activity.get("process_start_ticks") == row.get("start_ticks")
+                and type(activity.get("seconds_since_activity")) in (int, float)):
+            result.append((row, activity["seconds_since_activity"], activity.get("observed_at")))
+        else:
+            age = _process_age(row)
+            if age is not None:
+                result.append((row, age, "started:" + str(row.get("start_ticks"))))
+    return result
+
+
 def status(root, *, now=_now):
     control = programme_service_state(_memory(root))
     processes = owned_programmes(root)
@@ -97,32 +152,44 @@ def status(root, *, now=_now):
                "ready": "Research is on. Waiting for the next scheduled run.",
                "stopping": "Stopping the current research step. New work is switched off.",
                "stopped": "Research is stopped. Your saved work is kept."}[state]
-    from .operations import read_operation_status
+    from .operations import no_activity_text, progress_watch_or_defaults
     at = now()
-    activity = read_operation_status(root, as_of=at.isoformat(timespec="seconds"))
+    activity = _read_activity(root, at, now)
     attention = []
     if state == "running" and activity.get("state") == "running":
         message += " " + activity["message"]
         if activity.get("last_useful_result_at") is None:
             message += " No completed result has been recorded in this run yet."
         if activity.get("attention"):
-            # One notification per run: the run id is the notice's identity.
-            attention.append((activity["attention"], activity["run_id"]))
+            # One notification per run and kind of warning; "no completed
+            # result" is window text only (long healthy runs show it too).
+            attention.append(_attention(activity["attention"], activity["run_id"] + ":" + activity["attention_kind"],
+                                        notify=activity.get("attention_notify") is True))
+    elif active:
+        # A research process exists but its saved activity is not a running
+        # main step: it may hang before or after that step.
+        watch = progress_watch_or_defaults()[0]
+        for row, quiet, _ in _owned_quiet(activity, processes):
+            if quiet >= watch["attention_no_activity_seconds"]:
+                attention.append(_attention(no_activity_text(quiet, watch),
+                    f"stale:{row.get('pid')}:{row.get('start_ticks')}:no_activity"))
+                break
     if state in ("ready", "stopped"):
         try:
-            health = run_health(root, activity, now=at, check_schedule=state == "ready")
+            health = run_health(root, activity, now=at, check_schedule=state == "ready", awake_now=_awake_now(now))
         except (OSError, SafetyError):
             health = {"line": "The earlier research runs could not be read. See the project log.", "attention": []}
         if health["line"]:
             message += "\n" + health["line"]
         attention.extend(health["attention"])
-    if attention:
-        message += "".join("\nNeeds attention: " + text for text, _ in attention)
+    message += "".join("\nNeeds attention: " + item["text"] for item in attention)
+    notify = [item for item in attention if item["notify"]]
     spend = spend_summary(root)
     return {"schema_version": 2, "state": state, "enabled": enabled,
             "active_processes": len(processes), "message": message, "checked_at": utc_now(), "activity": activity,
-            "attention": " ".join(text for text, _ in attention) or None,
-            "attention_id": "|".join(key for _, key in attention) or None,
+            "attention": " ".join(item["text"] for item in notify) or None,
+            "attention_id": "|".join(item["id"] for item in notify) or None,
+            "attention_confirm_seconds": max((item["confirm_seconds"] for item in notify), default=None),
             "sign_in": sign_in_summary(root), "spend": spend["lines"], "spend_alerts": spend["alerts"]}
 
 
@@ -167,7 +234,7 @@ def _failure_key(row):
     outcome, code = row.get("outcome"), row.get("exit_code")
     if outcome == "watchdog_restarted":
         return "PROGRESS_WATCH_RESTART"
-    if outcome in ("finished", "owner_stopped") or code == 0 or outcome is None and code in (130, -2):
+    if outcome in ("finished", "owner_stopped", "interrupted") or code == 0 or outcome is None and code in (130, -2):
         return None
     return _code(row.get("failure_reason")) or "WORKER_EXIT_FAILED"
 
@@ -183,14 +250,14 @@ def _last_run_line(row):
         quiet = f" for {round(quiet / 60)} minutes" if type(quiet) in (int, float) and quiet >= 0 else ""
         return (f"Last run stopped making progress{quiet}, so it was stopped{exit_text}. "
                 "The next scheduled run starts research again.")
-    if row.get("outcome") == "owner_stopped" or failure is None and code != 0:
+    if row.get("outcome") in ("owner_stopped", "interrupted") or failure is None and code != 0:
         return f"Last run was stopped{exit_text}."
     if failure:
         return f"Last run stopped with a problem: {plain_reason(failure)}{exit_text}."
     return f"Last run finished normally{exit_text}." + (f" Its last note: {note}." if note else "")
 
 
-def run_health(root, activity=None, *, now=None, check_schedule=True, settings=None):
+def run_health(root, activity=None, *, now=None, check_schedule=True, settings=None, awake_now=None):
     """Plain lines about earlier runs while nothing is running.
 
     The previous run's ending (reason and exit code), the same failure in
@@ -215,19 +282,26 @@ def run_health(root, activity=None, *, now=None, check_schedule=True, settings=N
             streak.append((key, row))
         if len(streak) >= watch["repeated_failure_runs"]:
             key, first = streak[0][0], streak[-1][1]
-            attention.append((f"The last {len(streak)} research runs all stopped with the same problem: "
-                              f"{plain_reason(key)}. Research keeps retrying, but this probably needs a fix. "
-                              "Open the logs or ask for help.", "repeat:" + key + ":" + first["at"]))
+            attention.append(_attention(f"The last {len(streak)} research runs all stopped with the same problem: "
+                                        f"{plain_reason(key)}. Research keeps retrying, but this probably needs a fix. "
+                                        "Open the logs or ask for help.", "repeat:" + key + ":" + first["at"],
+                                        confirm="repeat"))
     elif isinstance(activity, dict) and activity.get("state") == "saved_previous_run" and _code(activity.get("last_reason")):
         line = f"Last research note: {plain_reason(activity['last_reason'])}."
     workers = [row for row in actions if row["action"] in ("worker_started", "worker_finished", "watchdog_restart")]
     if check_schedule and workers:
         last = workers[-1]
         waited = (at - timestamp(last["at"])).total_seconds()
+        awake = last.get("awake")
+        if (awake_now is not None and type(awake) in (int, float) and last.get("boot_id") is not None
+                and last.get("boot_id") == _boot_id()):
+            # Time the computer slept is not a missed schedule.
+            waited = min(waited, max(0.0, awake_now - awake))
         if waited > watch["scheduled_run_overdue_seconds"]:
-            attention.append((f"No scheduled research run has started for {round(waited / 60)} minutes, although research "
-                              "is on. The Windows scheduled task may not be running. Click Stop, then Start, to start "
-                              "research now.", "schedule:" + last["at"]))
+            attention.append(_attention(f"No scheduled research run has started for {round(waited / 60)} minutes, "
+                                        "although research is on. The Windows scheduled task may not be running. "
+                                        "Click Stop, then Start, to start research now.", "schedule:" + last["at"],
+                                        confirm="schedule"))
     return {"line": line, "attention": attention}
 
 
@@ -325,7 +399,8 @@ def record_action(root, action, **fields):
     """Small action receipts only; no raw commands, account data or status spam."""
     directory = safe_path(runtime_path(root, "data/operations"), "desktop")
     directory.mkdir(parents=True, exist_ok=True)
-    record = {"at": utc_now(), "action": action, **fields}
+    # The awake-time clock and boot let readers leave out time the computer slept.
+    record = {"at": utc_now(), "action": action, "awake": round(time.monotonic(), 3), "boot_id": _boot_id(), **fields}
     try:
         with (directory / (datetime.now(timezone.utc).strftime("%Y-%m-%d") + ".jsonl")).open("ab") as stream:
             stream.write(canonical(record) + b"\n")
@@ -412,10 +487,16 @@ def _interrupt_stuck_child(root, child, idle, activity, watch):
             break
         signals.append(sig.name)
         try:
-            return child.wait(timeout=grace), signals
+            return child.wait(timeout=grace if grace is not None else watch["watchdog_terminate_grace_seconds"]), signals
         except subprocess.TimeoutExpired:
             continue
-    return child.wait(), signals
+    try:
+        return child.wait(timeout=watch["watchdog_terminate_grace_seconds"]), signals
+    except subprocess.TimeoutExpired:
+        # Even SIGKILL was not confirmed (a process stuck in the kernel). Say
+        # so and return, so this worker ends and releases its lock.
+        record_action(root, "watchdog_stop_unconfirmed", pid=child.pid, signals=signals)
+        return None, signals
 
 
 def _supervise(root, child, launched_at, *, now, watch):
@@ -445,27 +526,28 @@ def _supervise(root, child, launched_at, *, now, watch):
 def _watch_adopted(root, rows, *, now, watch):
     """A research process this worker did not start (its supervisor ended).
 
-    Acts only when the saved activity belongs to one of these exact processes
-    (PID and kernel start identity) and shows nothing new for the watchdog
-    time. The first scheduled run that sees this only notes it, so a computer
-    that just woke from sleep is never mistaken for a stuck run. Each later
-    run that still sees the very same last activity sends a harder signal to
-    that identified process only: SIGINT (as Stop does), then SIGTERM, then
-    SIGKILL. The owner's switch stays on.
+    Its quiet time is measured from its own saved activity (matched by PID
+    and kernel start identity, whatever the writer flag says) or, when it has
+    saved nothing, from its start. The first scheduled run that sees one
+    quiet past the watchdog time only notes it, so a computer that just woke
+    from sleep is never mistaken for a stuck run. Each later run that still
+    sees the very same mark sends a harder signal to that identified process
+    only: SIGINT (as Stop does), then SIGTERM, then SIGKILL. The owner's
+    switch stays on.
     """
-    from .operations import read_operation_status
-    at = now()
-    activity = read_operation_status(root, as_of=at.isoformat(timespec="seconds"))
-    row = next((row for row in rows if activity.get("state") == "running" and activity.get("pid") == row["pid"]
-                and activity.get("process_start_ticks") == row["start_ticks"]), None)
-    if row is None or activity.get("seconds_since_activity", 0) < watch["watchdog_no_activity_seconds"]:
+    activity = _read_activity(root, now(), now)
+    found = next(((row, quiet, mark) for row, quiet, mark in _owned_quiet(activity, rows)
+                  if quiet >= watch["watchdog_no_activity_seconds"]), None)
+    if found is None:
         return None
+    row, quiet, mark = found
+    own = mark == activity.get("observed_at")
     seen = sum(1 for earlier in desktop_actions(root, days=2)
                if earlier["action"] in ("watchdog_observed", "watchdog_restart") and earlier.get("pid") == row["pid"]
-               and earlier.get("observed_at") == activity.get("observed_at"))
-    fields = {"pid": row["pid"], "reason": "PROGRESS_WATCH_RESTART", "adopted": True, "run_id": activity.get("run_id"),
-              "observed_at": activity.get("observed_at"), "phase": activity.get("phase"),
-              "seconds_since_activity": round(activity["seconds_since_activity"])}
+               and earlier.get("observed_at") == mark)
+    fields = {"pid": row["pid"], "reason": "PROGRESS_WATCH_RESTART", "adopted": True,
+              "run_id": activity.get("run_id") if own else None, "observed_at": mark,
+              "phase": activity.get("phase") if own else None, "seconds_since_activity": round(quiet)}
     if seen == 0:
         record_action(root, "watchdog_observed", **fields)
         return None
@@ -508,19 +590,28 @@ def run_worker(root, research_arguments, *, now=_now, settings=None):
             child = subprocess.Popen([sys.executable, "-u", str(root / "scripts/run_programme.py"),
                                       *research_arguments], cwd=root, start_new_session=True)
             record_action(root, "worker_started", pid=child.pid)
+        exit_code = None
         try:
             exit_code, restarted = _supervise(root, child, launched_at, now=now, watch=watch)
         finally:
             if child.poll() is None:
                 # Only this child's session, never a shared terminal or WSL.
                 os.killpg(child.pid, signal.SIGINT)
-                child.wait()
+                try:
+                    exit_code = child.wait(timeout=watch["watchdog_interrupt_grace_seconds"])
+                except subprocess.TimeoutExpired:
+                    # Never wait forever here: this worker must end and release its lock.
+                    record_action(root, "worker_cleanup_unconfirmed", pid=child.pid)
         try:
             ended = run_outcome(root, child.pid, since=(launched_at - timedelta(seconds=5)).isoformat()) or {}
         except (OSError, SafetyError):
             ended = {}
+        # An interrupt (Ctrl+C, exit 130) is the owner's Stop, or a Stop then
+        # Start before the old run had ended; neither is a failure.
+        interrupted = exit_code in (130, -2) or ended.get("interrupted") is True
         outcome = ("watchdog_restarted" if restarted else "finished" if exit_code == 0 else
-                   "owner_stopped" if not programme_service_state(_memory(root))["enabled"] else "failed")
+                   "owner_stopped" if interrupted and not programme_service_state(_memory(root))["enabled"] else
+                   "interrupted" if interrupted else "failed")
         record_action(root, "worker_finished", pid=child.pid, exit_code=exit_code, outcome=outcome,
                       run_id=ended.get("run_id"), last_reason=ended.get("last_reason"),
                       failure_reason=ended.get("failure_reason") if outcome == "failed" else None,

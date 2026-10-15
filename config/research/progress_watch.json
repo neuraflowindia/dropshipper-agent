@@ -9,5 +9,5 @@
   "watchdog_terminate_grace_seconds": 60,
   "scheduled_run_overdue_seconds": 1200,
   "repeated_failure_runs": 3,
-  "note": "Progress watch. The longest normal silent step seen so far is a readiness check of about 13 minutes, and research now records a small heartbeat at least every 30 seconds while it checks. The window warns after 30 minutes without any recorded activity or without a completed result; after 45 minutes without any activity the desktop worker stops the stuck run (Ctrl+C first, then harder after the grace periods) and leaves research switched on so the next scheduled run (every 15 minutes) starts it again. A scheduled run more than 20 minutes late, or the same failure 3 runs in a row, is also shown."
+  "note": "Progress watch. The longest normal silent step seen so far is a readiness check of about 13 minutes, and research now records a small heartbeat at its checkpoints during that check, at most one every 30 seconds. The window warns after 30 minutes without any recorded activity or without a completed result; after 45 minutes without any activity the desktop worker stops the stuck run (Ctrl+C first, then harder after the grace periods) and leaves research switched on so the next scheduled run (every 15 minutes) starts it again. A scheduled run more than 20 minutes late, or the same failure 3 runs in a row, is also shown."
 }

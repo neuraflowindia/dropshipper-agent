@@ -63,6 +63,31 @@ class ProgrammeReadinessReuseTests(unittest.TestCase):
             first["definition"].clear(); first["examples"].clear()
             self.assertEqual(functional_types.functional_role_context(state, self.cid, role="E"), fresh)
 
+    def test_an_alias_review_row_saved_in_the_state_is_validated_once_per_scope(self):
+        rid, row = "functional-alias-semantic-review-saved", {"kind": "functional-alias-semantic-review-v1"}
+        state = {"source_checks": {rid: row}}
+        calls = []
+        def validate(actual_state, actual_rid, actual_row):
+            calls.append(actual_rid)
+            return actual_row
+        with patch.object(functional_alias_review, "_review_record_uncached", side_effect=validate):
+            with read_memo.pure_read_scope():
+                first = functional_alias_review._review_record(state, rid, row)
+                second = functional_alias_review._review_record(state, rid, row)
+            self.assertIs(first, row); self.assertIs(second, row)  # the same answer, the saved row itself
+            self.assertEqual(calls, [rid])                         # computed once inside the scope
+            functional_alias_review._review_record(state, rid, row)
+            self.assertEqual(calls, [rid, rid])                    # outside a scope: validated afresh
+
+    def test_an_invalid_saved_alias_review_row_fails_the_same_way_every_time(self):
+        rid, row = "functional-alias-semantic-review-bad", {"kind": "not-a-review"}
+        state = {"source_checks": {rid: row}}
+        with read_memo.pure_read_scope():
+            for _ in range(2):
+                with self.assertRaisesRegex(Exception, "FUNCTIONAL_ALIAS_REVIEW_RECORD_INVALID"):
+                    functional_alias_review._review_record(state, rid, row)
+            self.assertTrue(any(name == "functional_alias_review_record" for name, *_ in read_memo._ACTIVE.get()))
+
     def test_alias_review_rows_not_saved_in_the_state_are_validated_afresh(self):
         state = self.memory.snapshot()
         rid, row = "functional-alias-semantic-review-unsaved", {"kind": "not-a-review"}
