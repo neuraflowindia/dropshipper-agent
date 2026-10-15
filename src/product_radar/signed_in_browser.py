@@ -37,10 +37,6 @@ SITES = {
     "baapstore": {"label": "BaapStore", "url": "https://baapstore.com/", "required": False},
     "dropdash": {"label": "Dropdash", "url": "https://app.dropdash.co/", "required": True},
 }
-# Sites the owner dropped (Dropship India, 15 October 2026: it showed nothing
-# useful, signed in or not). A record saved before then may still name one:
-# that entry is ignored when read and gone at the next save.
-RETIRED_SITES = frozenset(("dropship-india",))
 STATES = ("signed_in", "sign_in_needed", "expired", "not_checked", "not_signed_in")
 WAIT_CODES = ("OWNER_SIGN_IN_REQUIRED", "OWNER_SIGN_IN_WINDOW_OPEN", "OWNER_DESKTOP_UNAVAILABLE",
               "SIGNED_IN_BROWSER_BUSY")
@@ -195,15 +191,8 @@ def note_sign_in_window(root, is_open, *, opened=False, at=None):
     return value
 
 
-def without_retired_sites(value, field):
-    """A saved per-site record with ``value[field]`` cleared of retired sites."""
-    if isinstance(value, dict) and isinstance(value.get(field), dict):
-        value[field] = {site: row for site, row in value[field].items() if site not in RETIRED_SITES}
-    return value
-
-
 def _site_records(root):
-    value = without_retired_sites(_load(root, "site-states.json", {"schema_version": 1, "sites": {}}), "sites")
+    value = _load(root, "site-states.json", {"schema_version": 1, "sites": {}})
     sites = value.get("sites")
     if set(value) != {"schema_version", "sites"} or not isinstance(sites, dict) or not set(sites) <= set(SITES):
         raise SafetyError("SIGNED_IN_RECORD_INVALID")

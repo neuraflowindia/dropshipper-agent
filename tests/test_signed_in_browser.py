@@ -342,31 +342,6 @@ class SignedInBrowserTests(unittest.TestCase):
         signed.note_sign_in_window(self.root, False)
         self.assertFalse((self.root / "data").exists())
 
-    def test_saved_records_naming_a_retired_site_load_without_it(self):
-        from product_radar import signed_in_pacing as pacing
-        folder = self.root / "data/operations/signed-in-browser"; folder.mkdir(parents=True)
-        row = {"signed_in": True, "observed_at": "2026-10-14T10:00:00+00:00", "since": "2026-10-14T10:00:00+00:00",
-               "last_signed_in_at": "2026-10-14T10:00:00+00:00", "route": None}
-        (folder / "site-states.json").write_text(json.dumps({"schema_version": 1, "sites": {"dropship-india": row,
-                                                                                             "indiamart": row}}))
-        (folder / "read-pacing.json").write_text(json.dumps({"schema_version": 1, "reads": {
-            "dropship-india": ["2026-10-14T10:00:00+00:00"], "indiamart": ["2026-10-14T10:00:00+00:00"]}}))
-        states = signed.site_states(self.root)
-        self.assertNotIn("dropship-india", states)
-        self.assertEqual(states["indiamart"]["state"], "signed_in")
-        self.assertNotIn("Dropship India", signed.sign_in_line(self.root))
-        self.assertEqual(pacing.signed_in_pace(self.root, "indiamart", as_of="2026-10-14T10:00:10+00:00")["reason"],
-                         "SIGNED_IN_READ_SPACING")
-        # The next save of either record leaves the retired site out.
-        signed.record_site_observation(self.root, "dropdash", True, observed_at="2026-10-14T11:00:00+00:00")
-        self.assertEqual(set(json.loads((folder / "site-states.json").read_text())["sites"]), {"indiamart", "dropdash"})
-        pacing.reserve_signed_in_read(self.root, "indiamart", at="2026-10-14T11:00:00+00:00")
-        self.assertEqual(set(json.loads((folder / "read-pacing.json").read_text())["reads"]), {"indiamart"})
-        # Any other unknown site is still refused.
-        (folder / "site-states.json").write_text(json.dumps({"schema_version": 1, "sites": {"other": row}}))
-        with self.assertRaisesRegex(SafetyError, "SIGNED_IN_RECORD_INVALID"):
-            signed.site_states(self.root)
-
     def test_records_hold_no_page_content_passwords_or_cookies(self):
         signed.note_sign_in_window(self.root, True, opened=True)
         signed.record_site_observation(self.root, "google-trends", True, route="google-trends")
