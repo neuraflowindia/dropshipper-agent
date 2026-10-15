@@ -1,6 +1,6 @@
 # Windows desktop and tray controls
 
-Updated: 13 October 2026 (working records moved to the Linux disk). This is the installed owner control for the existing research program. It is not a second research system or proof that the unfinished research/report work is complete.
+Updated: 15 October 2026 (Plan R10 sign-in button, sign-in/Trends/platform lines and spend lines built on branch `r10`; they appear once the rebuilt app is installed at the W13 cutover). This is the installed owner control for the existing research program. It is not a second research system or proof that the unfinished research/report work is complete.
 
 ## Open and use it
 
@@ -15,6 +15,7 @@ Double-click **NeuraFlow Dropshipper** on the Windows desktop. A small graphical
 | Click the window's **X**. | It hides in the tray; it does not exit or stop research. The window explains this. |
 | Click **Exit**. | Research is stopped first, then the graphical application closes and its tray icon is removed. |
 | Open the shortcut again while the app is already open or hidden. | The existing window is restored. A second control window or duplicate research run is not started. |
+| Click **Sign in to research sites**. | A plain Chrome window opens on the program's own research profile with tabs for Google, Google Trends, IndiaMART, DeoDap, BaapStore, Dropship India and Dropdash. Sign in, then close that Chrome window. The button is disabled while it opens. If a research read is using the browser, the window says "A research read is using the browser. Try again in a minute." Start and Stop are not affected. Steps: [operator guide 8.1](local_execution_and_provider_setup.md#81-signing-in-to-the-research-sites-owner-once-and-whenever-a-sign-in-expires). |
 
 Windows decides whether a tray icon is directly beside the clock or inside the expandable hidden-icons area. Look in that area if the icon is not immediately visible. The app does not change Windows' global notification settings to force placement.
 
@@ -33,6 +34,24 @@ Start and Stop are both disabled during a change. The window remains responsive 
 Stop also applies while the research is waiting for an AI answer. This programme explicitly tells its AI runner to preserve an owner interruption instead of treating it as an ordinary failed item and moving on. The runner closes only the helper process group it created, saves the interruption record, and ends the programme. A complete answer that already arrived is saved for reuse on restart; a partial answer is not accepted. A failure to save a diagnostic record must not turn Stop into permission to continue. This behavior is checked with both manufactured failure cases and a real, cost-free local helper process.
 
 The on/off choice survives closing the window and restarting Windows. The existing task still checks every 15 minutes and at sign-in, but now launches the same native executable in its invisible worker mode. While stopped, that check returns without research or a console window. The desktop window itself opens when the owner opens the shortcut; installing it does not add an automatic GUI at sign-in.
+
+### Sign-in, Trends and platform lines
+
+Below the buttons, one text area grows with its lines (it never clips them):
+
+| Line | Meaning |
+|---|---|
+| **Sign-in needed: …** / **Sign-in expired: …** | Those sites' research waits until you click **Sign in to research sites** and sign in again. Other research continues. |
+| **The sign-in window is open.** | Signed-in reads wait until you close that Chrome window. |
+| **Sign-ins will be confirmed on the next research reads.** / **Research sites are signed in.** | Nothing to do. |
+| A platform line, such as "Dropdash needs you to sign in (Sign in to research sites)." or "Dropship India shows a paid plan or membership page instead of products." | One line per dropshipping platform that is waiting on something you can see. The program never pays or accepts a plan. |
+| **Google Trends check: N of 3 signed-in reads saved complete results.** | The proof gate after each new sign-in. The same line says when the check passed, or when Trends is waiting, paused or refused, with the reason and the next try; research continues without Trends meanwhile. |
+
+Windows shows one notification when new needs appear ("Sign-in needed for …" or "The … sign-in has expired."); a need already notified is not notified again.
+
+### Spending and allowance lines
+
+Under the sign-in area, one line per allowance with its percent used, for example "AI weekly allowance: 76% used, resets 20 Oct 2026, 05:04 UTC." or "Quick-commerce credits: 56 of 100 used, 44 left in 1 active pack(s)." Lines cover each Apify account month, quick-commerce credits, each AI usage window Codex reports, money this month in rupees and the Cloudflare free plan. New flags (50%, 75%, 90%, 100%), pauses, resumes and notices such as a detected quick-commerce pack produce **one** Windows notification titled "Spending and allowances" that combines everything new since the last refresh. These lines are read from saved records only; showing them makes no provider or AI call. Rules: [operator guide 8.5](local_execution_and_provider_setup.md#85-spend-watch-and-the-meter).
 
 ## Installed files and ownership
 
@@ -62,7 +81,7 @@ From PowerShell in this project's folder, run:
 & '.\scripts\windows\Install-Dropshipper.ps1' -Install
 ```
 
-The middle command validates and shows the change without installing it. The final command updates only the existing matching owner task and matching desktop shortcut. It refuses a different task/shortcut, preserves the original research options, checks the task with Windows before updating, saves its previous XML, then reads it back and checks that every non-action setting stayed unchanged. Installation does not start research or change its saved on/off choice.
+The middle command validates and shows the change without installing it. The final command updates only the existing matching owner task and matching desktop shortcut. It refuses a different task/shortcut, preserves the original research options, checks the task with Windows before updating, saves its previous XML, then reads it back and checks that every non-action setting stayed unchanged. Installation does not start research or change its saved on/off choice. The R10 cutover (W13) rebuilds and reinstalls the app this way, then runs the native self-test, so the sign-in button and the new lines appear.
 
 The older [direct-WSL setup script](../../scripts/setup_programme_task.ps1) is a legacy path and deliberately refuses to overwrite this installed native launcher. Use the desktop installer for this owner computer.
 
@@ -71,7 +90,7 @@ The older [direct-WSL setup script](../../scripts/setup_programme_task.ps1) is a
 | Check group on 11 October | Result | Evidence under `archive/2026-10-13-before-fresh-start/data/operations/desktop` |
 |---|---:|---|
 | Local project controls, interruption handling, scheduling, saved-answer reuse and existing related research rules. These use manufactured data, not live provider requests. | 296 / 296 passed, across groups of 188 and 108. | `python-controls-tests-20261011.log` and `python-model-reuse-tests-20261011.log`. |
-| Native window and tray handlers, with fake research. | 15 / 15 passed. | `gui-self-test.json` and `gui-self-test.png`. |
+| Native window and tray handlers, with fake research. | 15 / 15 passed (11 October; the R10 self-test adds sign-in, Trends, platform and spend checks, run at the W13 rebuild). | `gui-self-test.json` and `gui-self-test.png`. |
 | Actual installed shortcut, real Start/Stop, hide/restore, Exit, preserved schedule, manually invoked installed task while stopped and icon assignment. | 15 / 15 passed on the final executable. | `installed-test.json` and its dated copy. |
 
 These are focused launcher and affected-code checks, not a full project acceptance run or a new project-completion percentage.

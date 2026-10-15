@@ -14,7 +14,7 @@ from product_radar.report_workflow import freeze_review_input
 from product_radar.service import policy_for_fit
 from product_radar.work_turns import active_work_turn, bind_work_turn, close_work_turn, open_work_turn
 from test_functional_source_market import functional_pool_fixture, NOW
-from test_product_images import sample_bytes
+from test_photo_operation_progress import report_image_bytes
 
 
 class ProgrammeFunctionalPoolCallerTests(unittest.TestCase):
@@ -36,7 +36,8 @@ class ProgrammeFunctionalPoolCallerTests(unittest.TestCase):
     def test_photo_stage_fetches_actual_accepted_example_once_without_pool_mock(self):
         calls = []
         def fetch(url):
-            calls.append(url); raw = sample_bytes()
+            # The stage credits only a report-sized photograph (short edge >= 128).
+            calls.append(url); raw = report_image_bytes()
             return {"state": "usable", "reason": "Synthetic original photo.", "checked_at": NOW,
                 "requested_url": url, "final_url": url, "http_status": 200, "redirects": [],
                 "body_complete": True, "dispatch_started": True, "metadata": inspect_image(raw),

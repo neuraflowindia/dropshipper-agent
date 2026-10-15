@@ -204,6 +204,14 @@ class DispatchTests(RolesCase):
         self.assertEqual(self.task()["status"], "prepared")
         hint = matching.create_dropship_handlers(self.memory)["deodap"]["source_access_hint"]({})
         self.assertEqual((hint["ready"], hint["reason"]), (False, "DROPSHIP_CATALOGUE_PENDING"))
+        # The wait is judged at the caller's time, never the wall clock, so the
+        # same saved state and time always give the same readiness answer.
+        timed = matching.create_dropship_handlers(self.memory)["deodap"]["source_access_hint"]({"as_of": START})
+        self.assertEqual(timed["next_retry_at"], later(START, 600))
+        with self.assertRaises(SignedInWait) as waited:
+            matching.collect_type_matches(self.memory, "deodap", {"request": request, "acquisition_id": "aid-3",
+                                                                  "as_of": START})
+        self.assertEqual(waited.exception.next_retry_at, later(START, 600))
         # A finished refresh whose catalogue file is missing still waits rather than answering "none".
         refresh = platforms.load_refresh(self.memory.root, "deodap")
         refresh["completed"]["full"] = {"started_at": START, "completed_at": START, "items": 3}

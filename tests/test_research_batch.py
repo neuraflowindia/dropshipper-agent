@@ -88,6 +88,11 @@ class UnlockedModel(FakeRunner):
 
 class ResearchBatchTests(unittest.TestCase):
     def setUp(self):
+        # Capture freshness (seven days) is judged at execution time and the
+        # fixture captures are observed at NOW, so execution runs at NOW, not
+        # at today's date.
+        clock = patch("product_radar.research_batch.utc_now", return_value=NOW)
+        clock.start(); self.addCleanup(clock.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)

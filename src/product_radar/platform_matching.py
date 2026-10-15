@@ -177,12 +177,16 @@ def import_platform_capture(memory, route, acquisition_id, rows, *, observed_at,
     return capture_id, sorted(ids)
 
 
-def _wait_until(root, route, reason, signed_in_root):
-    """When a waiting per-type question is worth looking at again (a local check only)."""
+def _wait_until(root, route, reason, signed_in_root, as_of=None):
+    """When a waiting per-type question is worth looking at again (a local check only).
+
+    Judged at the caller's time, so a readiness hint is the same answer for the
+    same saved state and time rather than moving with the wall clock.
+    """
     if reason.startswith("OWNER_") or reason.startswith("SIGNED_IN_"):
         from .signed_in_browser import PROJECT_ROOT, signed_in_recheck_at
-        return signed_in_recheck_at(PROJECT_ROOT if signed_in_root is None else signed_in_root, reason)
-    return load_refresh(root, route)["blocked_until"] or (timestamp(utc_now()) + timedelta(minutes=10)).isoformat()
+        return signed_in_recheck_at(PROJECT_ROOT if signed_in_root is None else signed_in_root, reason, as_of=as_of)
+    return load_refresh(root, route)["blocked_until"] or (timestamp(as_of or utc_now()) + timedelta(minutes=10)).isoformat()
 
 
 def _validated_request(route, request):
@@ -206,11 +210,11 @@ def collect_type_matches(memory, route, context, *, signed_in_root=None):
         if receipt.get("route") != route or receipt.get("acquisition_id") != aid or receipt.get("request") != request:
             raise SafetyError("DROPSHIP_MATCH_RECEIPT_CONFLICT")
     else:
-        hold = platform_hold(memory.root, route, signed_in_root=signed_in_root)
+        hold = platform_hold(memory.root, route, signed_in_root=signed_in_root, as_of=context.get("as_of"))
         catalogue = load_catalogue(memory.root, route) if hold is None else None
         if hold is None and not (catalogue["full_completed_at"] and catalogue["items"]):
             hold = {"reason": "DROPSHIP_CATALOGUE_PENDING", "next_retry_at": _wait_until(
-                memory.root, route, "DROPSHIP_CATALOGUE_PENDING", signed_in_root)}
+                memory.root, route, "DROPSHIP_CATALOGUE_PENDING", signed_in_root, context.get("as_of"))}
         if hold is not None:
             raise SignedInWait(hold["reason"], next_retry_at=hold["next_retry_at"])
         config = settings()["matching"]
@@ -237,10 +241,10 @@ def collect_type_matches(memory, route, context, *, signed_in_root=None):
                        if receipt["rows"] else "No item in the saved platform catalogue matched this type's words.")}
 
 
-def platform_hold(root, route, *, signed_in_root=None):
+def platform_hold(root, route, *, signed_in_root=None, as_of=None):
     """None when the platform's catalogue can answer a question, else its calm wait."""
     wait = catalogue_wait(root, route)
-    return None if wait is None else {"reason": wait, "next_retry_at": _wait_until(root, route, wait, signed_in_root)}
+    return None if wait is None else {"reason": wait, "next_retry_at": _wait_until(root, route, wait, signed_in_root, as_of)}
 
 
 def create_dropship_handlers(memory, *, signed_in_root=None):
@@ -266,7 +270,7 @@ def create_dropship_handlers(memory, *, signed_in_root=None):
             return {"action": "saved", "acquisition_id": context["acquisition_id"], "receipt": receipt}
 
         def access_hint(context, route=route):
-            hold = platform_hold(memory.root, route, signed_in_root=signed_in_root)
+            hold = platform_hold(memory.root, route, signed_in_root=signed_in_root, as_of=context.get("as_of"))
             return {"ready": hold is None, "local_saved": False, "bypass_public_pause": False,
                     "reason": hold and hold["reason"], "next_retry_at": hold and hold["next_retry_at"], "signal": {}}
         handlers[route] = {"handler": collect, "reconcile": collect, "source_access_preflight": preflight,

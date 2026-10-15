@@ -1,8 +1,21 @@
-# Dropshipping platforms and search services — first look (14 October 2026)
+# Dropshipping platforms and search services (researched 14 October 2026, built 14 October)
 
-Status: **first look; nothing built yet.** The client asked (13 October) that four Indian dropshipping platforms be considered as sources. On 14 October the owner confirmed permission from all four platforms and will create accounts on Dropship India and Dropdash; the build is package W4 of [Plan R10](../../project/plan-2026-10-14-speed-sources-and-selection.md). For this first look only public pages were read: no login, no forms, a handful of fetches per site.
+Status (15 October 2026): **built** as package W4 of [Plan R10](../../project/plan-2026-10-14-speed-sources-and-selection.md) (commit `6089f42`, branch `r10`); live proof at the W13 cutover. The client asked (13 October) that four Indian dropshipping platforms be considered as sources; on 14 October the owner confirmed permission from all four platforms and creates the accounts on Dropship India and Dropdash. The findings below come from the 14 October first look, which read public pages only: no login, no forms, a handful of fetches per site.
 
-## The four platforms
+## What was built
+
+| Platform | Route | How it is read | Used for |
+|---|---|---|---|
+| DeoDap | `deodap` | Public Shopify feeds (`collections.json`, list collections, `products.json`); one request every 5 seconds, 1,500 a day; full catalogue weekly, lists daily (bestsellers, "just arrived", state-wise bestsellers) | Discovery from list items; per-type presence fact (listed items, list membership, wholesale price vs MRP, stock); supplier leads with DeoDap's stated terms |
+| BaapStore | `baapstore` | Same feeds and pacing ("Trending Products" list) | Same; its stated membership price is recorded as a supplier term |
+| Dropship India | `dropship-india` | Signed-in research browser, read-only allow-list of catalogue, trending, high-demand and product pages; one read every 30 seconds, 300 a day | Same, from a sample a few pages deep |
+| Dropdash | `dropdash` | Signed-in research browser; catalogue, winning-products and trending pages; same pacing | Same |
+
+Settings: `config/research/dropship_platforms.json` and `config/research/signed_in_reads.json`. Per-type checks are a local match against the saved catalogue, then the ordinary relevance review; a platform listing is **not** a market vote until the owner's ranking design is settled. A plan, membership or payment page stops that platform with `DROPSHIP_PLAN_REQUIRED`; nothing is ever paid or accepted. The signed-in pages of Dropship India and Dropdash have not yet been seen signed in; their page addresses and layouts are checked at W13, and an unrecognised layout stops that refresh rather than recording an empty platform. Details: [implementation record, R10](../../operations/implementation_2026-10-11.md#r10-plan-r10-sources-crowding-check-product-map-and-spend-watch-1415-october).
+
+## First look (14 October)
+
+### The four platforms
 
 | | DeoDap | BaapStore | Dropship India | Dropdash |
 |---|---|---|---|---|
@@ -18,7 +31,7 @@ Status: **first look; nothing built yet.** The client asked (13 October) that fo
 Observations:
 - **DeoDap** is the richest and easiest (official Shopify feeds). Its newly launched and bestseller items are mostly low-cost imported gadgets, and its founder states it supplies sellers on Amazon, Flipkart and Meesho, so many items are probably already on those marketplaces. It looks most useful as a **supplier price benchmark and lead**, and its "Newly Launched" list as an early-signal source.
 - **BaapStore** is fashion-heavy; moderate use for Home/Kitchen and Kids.
-- **Dropship India** and **Dropdash** need a login (and Dropdash blocks robots entirely). Only a partner feed/API or a logged-in browser session with written permission would work.
+- **Dropship India** and **Dropdash** need a login (and Dropdash blocks robots entirely). With the owner's confirmed permission they are read in the signed-in research browser; a partner feed or API would still be better if offered.
 
 Questions the owner can take to contacts at these platforms:
 1. Is there an official product feed (API, CSV or the Shopify feed) we may read daily, and at what rate?

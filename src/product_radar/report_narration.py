@@ -5,7 +5,10 @@ import re
 
 from .live_outputs import validate_dataset
 from .models import SafetyError, canonical, digest, timestamp
-from .research_ai import (Jobs, MAX_JOB_BYTES, MODEL, bind_model_retry_leader,
+# research_ai.MAX_JOB_BYTES is read at call time: this module is imported
+# lazily, so an import-time copy would keep whatever value was current then.
+from . import research_ai
+from .research_ai import (Jobs, MODEL, bind_model_retry_leader,
                           current_attempt, prompt_version, validate_results)
 from .model_recovery import run_current_model_job
 from .research_flow import problem
@@ -437,11 +440,11 @@ def validate_narration_result(item, value, *, declared_version=None):
 def _chunks(context, items, count):
     chunks, oversized, current = [], {}, []
     for item in items:
-        if len(canonical(dict(context, items=[item]))) > MAX_JOB_BYTES:
+        if len(canonical(dict(context, items=[item]))) > research_ai.MAX_JOB_BYTES:
             oversized[item["id"]] = "REPORT_NARRATION_ITEM_TOO_LARGE"
             continue
         trial = current + [item]
-        if current and (len(trial) > count or len(canonical(dict(context, items=trial))) > MAX_JOB_BYTES):
+        if current and (len(trial) > count or len(canonical(dict(context, items=trial))) > research_ai.MAX_JOB_BYTES):
             chunks.append(dict(context, items=current))
             current = []
         current.append(item)
@@ -488,8 +491,8 @@ def recovered_narration_problems(state, root, *, as_of):
             # reconciliation must save its dated result before this view uses it.
             if not (folder / "result.json").exists():
                 continue
-            intent = load_json(folder / "intent.json", MAX_JOB_BYTES)
-            saved = load_json(folder / "result.json", MAX_JOB_BYTES)
+            intent = load_json(folder / "intent.json", research_ai.MAX_JOB_BYTES)
+            saved = load_json(folder / "result.json", research_ai.MAX_JOB_BYTES)
             if digest(intent["request"]) != digest(request) or saved["request_hash"] != digest(request):
                 continue
             completed = timestamp(saved["completed_at"])
@@ -581,10 +584,10 @@ def _completed_items(memory, context, items, *, runner_identity=None, source_job
         result_path, completion_path = folder / "result.json", folder / "completion.json"
         if not result_path.exists() and not completion_path.exists():
             continue
-        intent = load_json(folder / "intent.json", MAX_JOB_BYTES)
+        intent = load_json(folder / "intent.json", research_ai.MAX_JOB_BYTES)
         if (key("job", request) != job_id or not isinstance(intent, dict) or intent.get("request") != request):
             raise SafetyError("REPORT_NARRATION_SOURCE_JOB_CONFLICT")
-        saved = load_json(result_path if result_path.exists() else completion_path, MAX_JOB_BYTES)
+        saved = load_json(result_path if result_path.exists() else completion_path, research_ai.MAX_JOB_BYTES)
         if not isinstance(saved, dict) or "response" not in saved:
             raise SafetyError("REPORT_NARRATION_SOURCE_JOB_CONFLICT")
         if result_path.exists() and saved.get("request_hash") != digest(request):
@@ -685,13 +688,13 @@ def _run_item_correction(memory, runner, context, item, original, *, contract,
             result, completion, intent = (folder / name for name in
                                           ("result.json", "completion.json", "intent.json"))
             if intent.exists():
-                saved_intent = load_json(intent, MAX_JOB_BYTES)
+                saved_intent = load_json(intent, research_ai.MAX_JOB_BYTES)
                 if not isinstance(saved_intent, dict) or saved_intent.get("request") != request:
                     raise SafetyError("REPORT_NARRATION_CORRECTION_JOB_CONFLICT")
             if result.exists() or completion.exists():
                 if not intent.exists():
                     raise SafetyError("REPORT_NARRATION_CORRECTION_JOB_CONFLICT")
-                saved = load_json(result if result.exists() else completion, MAX_JOB_BYTES)
+                saved = load_json(result if result.exists() else completion, research_ai.MAX_JOB_BYTES)
                 if not isinstance(saved, dict) or "response" not in saved:
                     raise SafetyError("REPORT_NARRATION_CORRECTION_JOB_CONFLICT")
                 if result.exists() and saved.get("request_hash") != digest(request):
@@ -703,7 +706,7 @@ def _run_item_correction(memory, runner, context, item, original, *, contract,
                 return job_id, None  # Original rejection remains exact; no correction has run.
             code = "AI_JOB_PENDING_RECONCILIATION"
             if (folder / "failure.json").exists():
-                failure = load_json(folder / "failure.json", MAX_JOB_BYTES)
+                failure = load_json(folder / "failure.json", research_ai.MAX_JOB_BYTES)
                 if not intent.exists() or not isinstance(failure, dict) or not isinstance(failure.get("code"), str):
                     raise SafetyError("REPORT_NARRATION_CORRECTION_JOB_CONFLICT")
                 code = failure["code"]
@@ -716,11 +719,11 @@ def _run_item_correction(memory, runner, context, item, original, *, contract,
             runner = _SavedRomanRepair(job["request"]["runner"])
         folder = current_attempt(safe_path(memory.root, "ai_jobs", job_id))
         if not (folder / "result.json").exists() and not (folder / "completion.json").exists():
-            if (folder / "intent.json").exists() and load_json(folder / "intent.json", MAX_JOB_BYTES).get("request") != job["request"]:
+            if (folder / "intent.json").exists() and load_json(folder / "intent.json", research_ai.MAX_JOB_BYTES).get("request") != job["request"]:
                 raise SafetyError("REPORT_NARRATION_CORRECTION_JOB_CONFLICT")
             code = "AI_JOB_PENDING_RECONCILIATION"
             if (folder / "failure.json").exists():
-                failure = load_json(folder / "failure.json", MAX_JOB_BYTES)
+                failure = load_json(folder / "failure.json", research_ai.MAX_JOB_BYTES)
                 if not (folder / "intent.json").exists() or not isinstance(failure.get("code"), str):
                     raise SafetyError("REPORT_NARRATION_CORRECTION_JOB_CONFLICT")
                 code = failure["code"]
@@ -790,7 +793,7 @@ def saved_legacy_narratives(memory, issue, dataset, runner=None, *, languages=LA
                 folder = current_attempt(safe_path(memory.root, "ai_jobs", job_id))
                 intent = folder / "intent.json"
                 if intent.exists():
-                    saved_intent = load_json(intent, MAX_JOB_BYTES)
+                    saved_intent = load_json(intent, research_ai.MAX_JOB_BYTES)
                     if not isinstance(saved_intent, dict) or saved_intent.get("request") != request:
                         raise SafetyError("REPORT_NARRATION_SOURCE_JOB_CONFLICT")
                 if intent.exists() or any((folder / name).exists() for name in

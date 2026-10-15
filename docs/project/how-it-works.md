@@ -12,40 +12,30 @@ A recommendation means "this looks worth trying". It doesn't promise sales or pr
 
 ## Where it looks
 
-The program was designed around **14 places**, which we call "routes". As of 14 October 2026, 13 are still in use and several don't give results yet (see "What actually works today" below):
+Status, 15 October 2026: the new set-up below (agreed on 14 October in [Plan R10](plan-2026-10-14-speed-sources-and-selection.md)) is **built but not switched on yet**. It goes live at the planned switch-over, after which each new site has to prove itself with real reads. Until then the research still runs on the older set-up.
 
-**To see if people want the product (market checks)**
-1. **Meta Ad Library**: the public list of ads running on Facebook and Instagram. It shows who is advertising a product and for how long.
-2. **Amazon India Best Sellers** list.
-3. **Amazon India Movers & Shakers**: products whose ranking is climbing fast.
-4. **Amazon India search**, to find similar listings.
-5. **Flipkart search**.
-6. **Google Trends**, which shows whether people in India are searching for something more or less over time. It shows ups and downs, not actual numbers of people.
-7. **Blinkit**, 8. **Zepto** and 9. **Swiggy Instamart**: the quick-delivery apps. They're meant to be checked for Mumbai, Delhi NCR and Bengaluru, but the automatic research hasn't been given those locations yet, so these checks haven't run. The owner gave the go-ahead on 14 October; switching them on is part of the agreed plan.
+**To find new product ideas**
+1. **Meta Ad Library**: the public list of ads running on Facebook and Instagram. It shows who is advertising a product and for how long. The program also looks at the other ads of advertisers it has already found useful.
+2. **Four dropshipping platforms**: **DeoDap**, **BaapStore**, **Dropship India** and **Dropdash**. Their new arrivals, bestseller and trending lists suggest products. All four gave permission.
+3. **Google Trends** "rising" searches, and new listings on **IndiaMART** and **TradeIndia** in our categories.
+
+**To check each product**
+4. **Meta Ad Library** again, for that exact product. When the free look leaves gaps (who is advertising, since when), a deeper look uses the free monthly Apify allowance.
+5. **Google Trends**: whether people in India are searching for it more or less over time. It shows ups and downs, not actual numbers of people.
+6. **Amazon India and Flipkart**, turned around: they no longer suggest new products, and their main job now is to show **how crowded** a product already is (Low, Medium or High), from how many similar listings there are, how many ratings they have and whether they're on a bestseller list. A product isn't ready for a report until this check is done. (Until the owner settles the new way of ranking products, they still also count as a supporting site in the old ranking described below.)
+7. **Blinkit**, **Zepto** and **Swiggy Instamart** (the quick-delivery apps), in Mumbai first, then Delhi NCR and Bengaluru only if Mumbai shows something relevant. Each check costs a prepaid credit, so only products that already pass the checklist and aren't too crowded get checked, and the same city isn't asked again for 30 days.
+8. **The four dropshipping platforms** again: whether the product is listed, at what price, and whether it's on their bestseller or trending lists.
 
 **To find possible suppliers**
+9. **IndiaMART** (read while signed in), 10. **TradeIndia**, 11. **Google Maps** (read straight in the program's own browser), 12. **supplier and company websites**, and 13. the **dropshipping platforms**, whose listings count as supplier leads.
 
-10. **Google search** for suppliers: **switched off on 14 October 2026.** Google refuses automated searches, and we don't get around blocks or pay for a search service.
-11. **Google Maps**, for manufacturers and wholesalers. It's read in the program's own browser window, which the owner has given permission for.
-12. **IndiaMART**.
-13. **TradeIndia**.
-14. **Supplier and company websites** themselves.
+Google search for suppliers was switched off on 14 October (Google refuses automated searches), and Amazon's "Movers & Shakers" list was dropped (it was always empty for our categories).
 
 Separately, it saves real product photos where it can find suitable ones.
 
-**What actually works today (14 October 2026)**
-- Working: Meta Ad Library, Amazon Best Sellers, Amazon search, Flipkart search, TradeIndia, Google Maps (just switched back on), company websites and photos.
-- Empty: Amazon Movers & Shakers. Amazon itself says it has no such list for our categories, so it's checked at most once a week.
-- Blocked: Google Trends (Google turns away the program's hidden browser every time) and IndiaMART (it needs a login). When a site keeps refusing, the program waits longer each time (5 minutes, then 1 hour, then 6 hours, then a day) instead of knocking again and again.
-- Not yet switched on: Blinkit, Zepto and Instamart (no locations set).
+**Signing in once.** Google Trends, IndiaMART, Dropship India and Dropdash are read while signed in with a separate research Gmail, in the program's own Chrome window (never the owner's everyday Chrome). The owner clicks **Sign in to research sites** in the NeuraFlow Dropshipper window, signs in on each tab and closes it. If a sign-in runs out, the window says so and only that site waits. The program never stores passwords, never pays and never clicks "contact" or "get price" buttons.
 
-**Agreed on 14 October, not built yet** ([Plan R10](plan-2026-10-14-speed-sources-and-selection.md)):
-- A separate, signed-in browser for the program, so it can read Google Trends, IndiaMART, Dropship India and Dropdash (the owner signs in once).
-- Four dropshipping platforms (DeoDap, BaapStore, Dropship India, Dropdash) as new places to find products, check demand and find suppliers.
-- Amazon and Flipkart turned around: instead of counting as proof of demand, they show **how crowded** a product already is. Less crowded products come first.
-- Blinkit, Zepto and Instamart switched on for Mumbai, Delhi NCR and Bengaluru, using prepaid credits.
-- A much bigger map of product areas (about 1,200 headings), with the AI suggesting new ones as it goes.
-- A spending and allowance watch that warns at 50%, 75% and 90% of every allowance (Apify, quick-commerce credits, the AI subscription).
+**When a site says no.** It writes that down and waits longer each time (5 minutes, then 1 hour, then 6 hours, then a day) instead of knocking again and again. Google Trends must first prove it works: after signing in, its first three reads must save complete results. If Google still refuses, research carries on without Trends.
 
 **What it deliberately does *not* do**
 - It doesn't buy paid upgrades, extra credits, paid add-on packs or supplier memberships on its own.
@@ -58,9 +48,9 @@ Separately, it saves real product photos where it can find suitable ones.
 
 ## How it comes up with product ideas
 
-**A starting map.** Before regular research began, the program read public Amazon India category pages and built a catalogue: a map of product areas under each category, such as "baby feeding" or "camping and sleeping". Each area has a few useful search phrases. The first big batch covered 28 areas and 145 real example products.
+**A map of product areas.** The program keeps a map of product areas under each category, such as "baby feeding" or "camping and sleeping", with headings and search phrases under each. There are 48 areas (12 per category) and 224 headings so far; the aim is about 1,200 headings. The map grows by itself, a little each round: the AI looks at new things the program has seen (platform categories and lists, rising Trends searches, new ads, supplier listings), and adds a new heading only when it's really a different kind of product. The old way of building it from Amazon pages has been switched off.
 
-**Discovery rounds.** The program works in short rounds. In each round it takes up roughly one area of the map and searches the sources above using that area's wording. It mixes two kinds of work so neither gets forgotten: finishing jobs that are already waiting, and exploring something new. If a similar free search looks useful, it's allowed. If a search would just repeat one it has already done, it reuses the saved result.
+**Discovery rounds.** The program works in short rounds. Each round it searches Meta for a few headings: headings never searched first, then ones with fresh signs of interest, and very crowded ones last, taking the four categories in turn. In the same round it also looks at the platforms' lists and the other new-idea sources above. It mixes two kinds of work so neither gets forgotten: finishing products that are nearly ready for a report, and exploring something new. If a search would just repeat one it has already done, it reuses the saved result.
 
 **The AI's role.** The AI (the owner's existing signed-in AI subscription) does the reading and judging that needs common sense. It reads messy product listings and says what the product actually is. It decides whether two listings are really the same thing. It suggests new areas worth exploring, and it fills in the checklist below. The regular code handles everything that needs to be exact: keeping history, counting, doing the maths, picking which searches to run and staying within limits.
 
@@ -75,17 +65,19 @@ Separately, it saves real product photos where it can find suitable ones.
 
 ## How it judges products
 
-**The ten-point checklist.** Each product is checked against ten questions. Is it small? Is it easy to ship? Does it boost confidence? Is it convenient? Does it save time? Does it solve a problem? Does it save the buyer money? Does it improve everyday life? Does it look valuable for the price? Is it aimed mainly at women? For each question the answer is *Meets*, *Does not meet*, *Unclear* or *Not checked*, with a short reason. Sensible, labelled guesses are fine. For example, the program can guess "small and light" from what the product is, without needing exact measurements.
+**The ten-point checklist.** Each product is checked against ten questions. Is it small? Is it easy to ship? Does it boost confidence? Is it convenient? Does it save time? Does it solve a problem? Does it save the buyer money? Does it improve everyday life? Does it look valuable for the price? Is it aimed mainly at women? For each question the answer is *Meets*, *Does not meet*, *Unclear* or *Not checked*, with a short reason. Sensible, labelled guesses are fine. For example, the program can guess "small and light" from what the product is, without needing exact measurements. When it knows what a product is and how it's used, it gives a labelled estimate instead of answering "Unclear".
 
 - **6–10 "Meets" = Good fit.**
 - **5 "Meets" = Decent fit.** It can still go in a report.
 - **Unknown isn't failure.** "Unclear" simply doesn't earn a point. If enough questions are still open, the product is marked "more information needed", not rejected.
 
-**Market checks across sites.** These are kept separate from the checklist. The program counts how many of **seven sites** show relevant interest: Meta, Amazon (all three Amazon routes count as one site), Flipkart, Google Trends, Blinkit, Zepto and Instamart. Supplier sites never count as a vote. Stock on a quick-delivery app is only background information, not proof of sales. Products are ranked in this order:
+**Market checks across sites.** These are kept separate from the checklist. Today the program counts how many of **seven sites** show relevant interest: Meta, Amazon (all Amazon routes count as one site), Flipkart, Google Trends, Blinkit, Zepto and Instamart. Supplier sites never count as a vote. Stock on a quick-delivery app is only background information, not proof of sales. Products are ranked in this order:
 1. 6+ Meets and 2+ supporting sites
 2. 5 Meets and 2+ sites
 3. 6+ Meets and 1 genuinely positive site
 4. 5 Meets and 1 genuinely positive site
+
+**A new ranking is being designed with the owner.** Instead of these four groups, products will get a weighted score that combines how many places show interest, whether they're on bestseller or trending lists, and how crowded they are on Amazon and Flipkart. Until that's agreed, the four groups above stay, and the crowding level is recorded but doesn't change the order yet.
 
 ## Suppliers and photos
 
@@ -107,23 +99,23 @@ Photos: the report uses at least one real product photo, with its source noted, 
 ## How it runs day to day
 
 - **Weekly batch.** Research normally happens once a week, usually Monday, and prepares all three of that week's reports. So Saturday's report may contain Monday's research. The report shows both dates.
-- **Rounds with fair shares.** The work is split into small rounds. Each round allows up to about **12 source checks and 10 AI uses**. When report writing is due, one AI use is saved for it. When product-definition and market-relevance reviews are due, two more are saved for those. Busy work can't crowd out the jobs that actually produce reports.
+- **Rounds with fair shares.** The work is split into small rounds. Each round allows up to about **16 source checks and 10 AI uses** (16 may go up to 20 once the switch-over shows rounds stay quick). Reads in the signed-in browser share about 5 minutes a round. When report writing is due, one AI use is saved for it. When product-definition and market-relevance reviews are due, two more are saved for those. While the next reports are short of ready products, products that already pass the checklist are finished first, but two AI uses a round stay kept for finding new ideas. Busy work can't crowd out the jobs that actually produce reports.
 - **The Start/Stop app.** The owner uses the **NeuraFlow Dropshipper** desktop shortcut. Start turns research on and Stop turns it off. Closing the window hides it next to the clock; Exit stops research first and then closes. The on/off choice is remembered after a restart.
 - **Automatic check every 15 minutes.** A Windows task checks every 15 minutes, and again at sign-in. If research is switched on, it carries on from where it left off. If it's switched off, it does nothing.
 - **Where the work is kept.** Since the 13 October 2026 fresh start, the program's working records live on the fast Linux side of the computer (`/home/anan/neuraflow-dropshipper-data/`). Everything from before that date is kept untouched in the project's `archive/` folder.
 - **Backups.** One automatic copy per day goes into the project's `data/backups` folder on the D: drive. It includes research, reports and important files, but not passwords or sign-in files. It sits on the same drive, so it won't help if the drive itself fails. A failed backup never stops research.
-- **Cost limits and free allowances.** The aim is to keep running costs at or below ₹750 a month. Paid data collection uses free Apify credits: about US$4.50 of usable credit on each of up to three approved accounts. The AI runs on the owner's existing subscription. Nothing is upgraded or bought automatically, and AI answers that are already saved are reused instead of being paid for again.
+- **Cost limits and free allowances.** The aim is to keep running costs at or below ₹750 a month (the estimate is about ₹500: one quick-commerce credit pack, which the owner buys when the app says credits are low). The deeper Meta look uses only the free US$5 a month on one Apify account, keeping US$0.50 back. The AI runs on the owner's existing ChatGPT subscription and never spends paid extra credits. A **spending watch** shows each allowance in the desktop window and warns at 50%, 75%, 90% and 100%; at 100% a paid route waits while free work carries on. Nothing is upgraded or bought automatically, and AI answers that are already saved are reused.
 - **When something fails.** One failure doesn't stop everything. The program keeps everything that already worked, notes exactly what failed and when to try again, and moves on to other ready work. If a site is blocked, it moves on to other work. If nothing is ready, it waits quietly and picks up later. It doesn't pretend the work is finished.
 
 ## One product, start to finish
 
 This is a made-up example to show the steps. It isn't a real result.
 
-1. During Monday's research, a discovery round finds a Meta ad for a pull-up bar that fits in a doorway.
-2. The AI reads the ad and defines the product as **"Adjustable doorway pull-up bar"**. It checks that this isn't a copy of something already found and that it isn't a big-brand product, and puts it in its main category.
+1. During Monday's research, a discovery round finds a pull-up bar that fits in a doorway on a dropshipping platform's new-arrivals list.
+2. The AI reads the listing and defines the product as **"Adjustable doorway pull-up bar"**. It checks that this isn't a copy of something already found and that it isn't a big-brand product, and puts it in its main category.
 3. The checklist gives, say, 6 "Meets" (small, easy to ship, convenient, solves a problem, saves money on gym fees, good value) = **Good fit**.
-4. Market checks find several advertisers on Meta and similar listings on Amazon and Flipkart: **three supporting sites**, so it lands in the top priority group.
-5. A supplier search on TradeIndia and Google Maps finds two wholesale leads. One says it ships single pieces to customers and has no subscription. A real photo is saved.
+4. Market checks find several advertisers on Meta and rising searches on Google Trends: **two supporting sites**, so it lands in the top priority group. Amazon and Flipkart show only a few similar listings with few ratings: crowding **Low**. A quick-delivery check in Mumbai finds it in stock (background only).
+5. A supplier search on IndiaMART, TradeIndia and Google Maps finds two wholesale leads, and DeoDap lists a similar item at a wholesale price. One says it ships single pieces to customers and has no subscription. A real photo is saved.
 6. The product has never been sent to this client, so it's marked **New** and placed in Thursday's report.
 7. The facts are frozen. The PDF(s) and Excel file are made, the owner checks and approves them, and on Thursday at 9:00 am the client sees it on the private website.
 
@@ -131,3 +123,5 @@ This is a made-up example to show the steps. It isn't a real result.
 
 - [Project brief](pj-brief.md): purpose, stage and where everything lives.
 - [Project tracker](pj-tracker.md): what's finished and what's still being worked on.
+- [Plan R10](plan-2026-10-14-speed-sources-and-selection.md): the 14 October plan (new sites, crowding check, bigger map, spending watch) and what's built.
+- [Operator guide, section 8](../operations/local_execution_and_provider_setup.md#8-signed-in-research-sites-allowances-and-the-r10-cutover): signing in, credits and the spending watch.

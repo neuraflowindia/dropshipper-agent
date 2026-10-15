@@ -117,17 +117,38 @@ class CompanyReconciliationReadinessTests(unittest.TestCase):
                   if row.get("kind") == "supplier_route_search" and row.get("concept_id") == "paper-two"]
         request = {"candidate_urls": {"paper-two": [fixtures.OTHER]},
                    "candidate_check_ids": {"paper-two": checks}}
-        prepare_source_tasks(self.memory, [{"route": "company-pages", "request": request,
+        prepared = prepare_source_tasks(self.memory, [{"route": "company-pages", "request": request,
             "concept_ids": ["paper-two"]}], run_id=self.run, as_of=fixtures.NOW)
+        healthy = [tid for tid in prepared["task_ids"] if tid != task_id]
         reader = fixtures.OwnedReader(at=fixtures.LATER)
         turn = self.turn()
         with bind_work_turn(self.memory, turn["id"]):
             result = self.execute(self.handlers(reader), action_limit=1)
+        # The healthy page joined the run as an appended cohort. That pass
+        # serves only the new suffix; the already-inspected original is not
+        # revisited there, so it can neither take nor block the one callback.
         self.assertEqual(result["handler_calls"], 1)
-        self.assertEqual(result["counts"], {"waiting": 1, "acquired": 1})
+        self.assertEqual(result["counts"], {"acquired": 1})
+        self.assertEqual([row["task_id"] for row in result["results"]], healthy)
         self.assertEqual([item["url"] for item in reader.calls], [fixtures.OTHER])
         self.assertEqual(self.memory.snapshot()["query_tasks"][task_id], original)
         self.assertEqual(self.memory.snapshot()["batch_runs"][turn["id"]]["counters"]["source_callbacks"], 1)
+        close_work_turn(self.memory, turn["id"], at=fixtures.LATER, reason="Healthy page served; original waits.")
+        # The next real turn's full sweep reaches the unchanged original: it is
+        # reported as waiting, with no handler, reconciler or callback spent.
+        handlers = self.handlers(reader)
+        next_turn = self.turn()
+        with bind_work_turn(self.memory, next_turn["id"]), patch.dict(handlers["company-pages"],
+                reconcile=fixtures.forbidden):
+            later = self.execute(handlers, action_limit=1)
+        self.assertEqual(later["handler_calls"], 0)
+        self.assertEqual(later["counts"], {"waiting": 1, "reused": 1})
+        waiting = next(row for row in later["results"] if row["state"] == "waiting")
+        self.assertEqual((waiting["task_id"], waiting["reason"], waiting["actual_attempt"]),
+                         (task_id, "SUPPLIER_COMPANY_ORIGINAL_PENDING", False))
+        self.assertEqual(len(reader.calls), 1)
+        self.assertEqual(self.memory.snapshot()["query_tasks"][task_id], original)
+        self.assertEqual(self.memory.snapshot()["batch_runs"][next_turn["id"]]["counters"]["source_callbacks"], 0)
 
     def test_late_exact_outer_files_wake_and_recover_without_new_transport(self):
         task_id, original, folder, reader, _saved = self.pending_saved()

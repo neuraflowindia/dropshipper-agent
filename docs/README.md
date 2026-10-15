@@ -11,18 +11,18 @@ Each topic has one main home. Other documents link to it rather than repeat its 
 | Client service, categories, ten-point checklist, selection priorities, supplier requirements, report content and languages | [Product and service contract](product/india_dropshipping_product_opportunity_radar_product_brief.md) |
 | Project stage, purpose, reading order and code map | [Project brief](project/pj-brief.md) |
 | Current completion score, dated research counts, remaining work and unresolved choices | [Project tracker](project/pj-tracker.md) |
-| Implementation requirements, dependencies, record contracts, migrations and acceptance criteria | [Execution specification](operations/benchmarks/2026-10-03/execution_specification.md) |
-| Implemented operating repairs, technical constraints, loading and verification evidence | [Implementation record](operations/implementation_2026-10-11.md) |
-| Commercial limits, account funding, cost attribution and low-yield forecasts | [Cost and capacity plan](operations/build_activation_and_costs_2026-10-03.md) |
-| Catalogue structure, search counts, discovery and coverage accounting | [Catalogue and search accounting](operations/catalogue_discovery_and_coverage.md) |
+| Implementation requirements, dependencies, record contracts, migrations and acceptance criteria; current source routes and retired routes (section 30) | [Execution specification](operations/benchmarks/2026-10-03/execution_specification.md) |
+| Implemented operating repairs, technical constraints, loading and verification evidence; what Plan R10 built, its wait codes and settings files (R10) | [Implementation record](operations/implementation_2026-10-11.md) |
+| Commercial limits, account funding, monthly cost plan (Apify free allowance, quick-commerce credits, AI money guard), cost attribution and low-yield forecasts | [Cost and capacity plan](operations/build_activation_and_costs_2026-10-03.md) |
+| Product map (catalogue), heading order, wider and platform discovery, search counts and coverage accounting | [Catalogue and search accounting](operations/catalogue_discovery_and_coverage.md) |
 | Historical source trials, measured charges and older report/download checkpoints | [Benchmark evidence](operations/benchmarks/2026-10-03/benchmark_record.md) |
-| Owner setup and operating journey | [Operator guide](operations/local_execution_and_provider_setup.md) |
+| Owner setup and operating journey; signing in to research sites, Apify month renewal, quick-commerce packs, the R10 cutover and the spend watch | [Operator guide](operations/local_execution_and_provider_setup.md) |
 | Exact existing commands, collection and recovery options | [Command reference](operations/benchmarks/2026-10-03/offline_runner_guide.md) |
-| Desktop shortcut, Start/Stop, notification tray, installation and recovery | [Windows launcher](operations/windows_desktop_launcher.md) |
+| Desktop shortcut, Start/Stop, sign-in button, sign-in/Trends/platform and spend lines, notification tray, installation and recovery | [Windows launcher](operations/windows_desktop_launcher.md) |
 | Provider-specific credentials and setup | [Apify connection](operations/providers/apify_connection.md), [account handover](operations/providers/apify_environment_handover.md), [Luna connection](operations/providers/codex_luna_connection.md), [quick commerce](operations/providers/quickcommerce_connection.md) |
 | Local versus hosted architecture and deferred alternatives | [Hosting decision](research/hosting/2026-10-03_local_vs_hosted.md) |
-| Agreed programme after the owner's 14 October decisions (sources, crowding check, product map, spend watch) and its open questions | [Plan R10](project/plan-2026-10-14-speed-sources-and-selection.md) |
-| Indian dropshipping platforms (DeoDap, BaapStore, Dropship India, Dropdash) and paid search services, first look | [Platform research](research/sources/2026-10-14_dropshipping_platforms_and_search_services.md) |
+| Agreed programme after the owner's 14 October decisions (sources, crowding check, product map, spend watch): build state per package, the lead's build decisions and what waits for the ranking design | [Plan R10](project/plan-2026-10-14-speed-sources-and-selection.md) |
+| Indian dropshipping platforms (DeoDap, BaapStore, Dropship India, Dropdash): research behind the built platform routes; paid search services set aside | [Platform research](research/sources/2026-10-14_dropshipping_platforms_and_search_services.md) |
 | Plain-language explanation of how the program works | [How it works](project/how-it-works.md) |
 
 ## Scope and precedence

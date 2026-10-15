@@ -9,10 +9,14 @@ import product_radar.programme as programme
 from product_radar.models import timestamp
 from product_radar.work_turns import bind_work_turn, open_work_turn, close_work_turn
 import test_renewable_product_images as fixtures
+from test_photo_operation_progress import report_image_bytes
 
 
 class ProgrammeRenewablePhotoTests(unittest.TestCase):
     def setUp(self):
+        # The programme stage only credits report-sized photographs. Keep the
+        # raw decoder's intentionally tiny transport fixture unchanged.
+        self.enterContext(patch("test_product_images.sample_bytes", side_effect=report_image_bytes))
         self.fixture = fixtures.RenewableImageTests()
         self.fixture.setUp(); self.addCleanup(self.fixture.doCleanups)
         self.memory, self.cid, self.candidate = self.fixture.memory, self.fixture.cid, self.fixture.candidate

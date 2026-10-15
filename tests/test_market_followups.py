@@ -31,6 +31,10 @@ class MarketFollowupTests(unittest.TestCase):
         policy = policy_for_fit("fit-13-v1")
         historical_policy = patch("product_radar.service.load_policy", return_value=policy)
         historical_policy.start(); self.addCleanup(historical_policy.stop)
+        # Execution re-reads the pool at its own clock. Fix it to the fixture
+        # time so the saved review's freshness never depends on today's date.
+        fixed_clock = patch("product_radar.report_selection.utc_now", return_value=NOW)
+        fixed_clock.start(); self.addCleanup(fixed_clock.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

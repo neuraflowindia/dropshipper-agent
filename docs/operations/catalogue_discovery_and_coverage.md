@@ -1,9 +1,8 @@
 # Product research breadth, fresh discovery and exact search accounting
 
-Updated: 9 October2026. This is the operating contract for existing N19/P1a research and its planned strengthening. The
-[execution specification](benchmarks/2026-10-03/execution_specification.md)
-owns the complete programme; this document describes its source-grounded
-catalogue preparation, current finite discovery and coverage measurements. [Section26](benchmarks/2026-10-03/execution_specification.md#26-narrow-type-recommendations-and-sustainable-research-for-2000-reports) specifies the not-yet-implemented narrow-type/renewable-free-research design. This document does not
+Updated: 15 October 2026 (Plan R10 product map, heading order, wider discovery and platform discovery, built on branch `r10` and loaded at the W13 cutover). This is the operating contract for the product map (the catalogue of product areas and headings), fresh discovery and coverage measurements. The
+[execution specification](benchmarks/2026-10-03/execution_specification.md#30-current-source-routes-after-plan-r10-15-october)
+owns the current source routes; the [implementation record](implementation_2026-10-11.md#r10-plan-r10-sources-crowding-check-product-map-and-spend-watch-1415-october) owns implemented details and wait codes. This document does not
 approve a different provider, paid collection or visual redesign.
 
 ## 1. What the numbers mean
@@ -15,201 +14,66 @@ irrelevant services and known products; downloaded cards are not fresh products.
 |---|---|---|
 | Public reads | Actual bounded page visits with saved navigation and source receipts. | Every result was a useful product. |
 | Raw cards | Rows extracted from those pages within the saved limit. | Distinct types, qualifying products or fresh report inventory. |
-| Grounded research examples | Exact original product/category excerpts staged for C planning. | Accepted new families, confirmed demand or suppliers. |
+| Staged map material | Exact source lines (platform categories and items, rising Trends queries, advertisers' ads, supplier listings) staged for the seed C call. | Accepted new headings, confirmed demand or suppliers. |
 | Accepted family/phrase choices | Admitted functional directions and source-specific wording. | Each wording produces a different product, or has never been visited. |
 | New admitted products | Existing A description and B identity work resolved a genuinely new concept. | Checklist/market/supplier/photo work is complete or a report is ready. |
 
-## 2. Actual independent upfront research on 8 October 2026
+## 2. Where the product map comes from
 
-The new side study completed **22/22 usable public Amazon India reads**, with
-HTTP 200 and 30 cards per page: **660 raw cards**. It launched no Apify Actor,
-made no model call, imported no canonical acquisition and changed no product
-assessment. The original free page, owned-browser execution proof, parser
-result and request are retained under `data/research/catalogue-public/`.
+`config/research/catalogue.json` (revision `2026-10-15-r10-w10`) holds four categories, **48 sub-areas** (12 per category) and the **224 headings** found so far. The target is 25 headings per sub-area, about **1,200 headings** (`config/research/product_map.json`). Headings are research directions with search phrases; they are not client recommendations.
 
-The pages cover kitchen tools, specialist preparation tools, baking, food
-storage, home decoration, storage, furnishing, cleaning, savings boxes, indoor
-fountains, baby care/feeding/toileting/safety/nursery, luggage, travel
-accessories, outdoor recreation, camping and sleeping equipment. General
-Sports navigation was inspected as exploratory outdoor context; this does not
-silently change the installed Travel and Outdoor discovery department to
-Sports. The production mapping remains `luggage` until a new scope is
-explicitly connected and proved. A separate 23rd mapping check found that the
-old guessed Home and Decor path, `home`, returned an undefined category and no
-cards despite HTTP 200. Future discovery now uses the actually observed
-`kitchen/1380374031` Home & Décor node; old frozen requests/receipts retain their
-original meaning. This failed-scope check is separate from the 22 useful page
-reads and is not treated as weak decor demand. Across all 23 reads the usable
-page ratio is therefore **22/23 = 95.7%**, not 100%; all 23 returned HTTP 200.
+The 224 headings were built from Amazon-led research before Plan R10; a seed lane then fed 145 further examples from 8 October Amazon India category and bestseller pages (28 branches). **That Amazon-page seed lane is retired** (owner decision D4, Plan R10 W10): Amazon and Flipkart now only answer "how crowded is this product already?", and 113 of its 145 examples were old bestseller card titles a new capture could not reproduce. Its inventory file, staging script and seed-cycle turns were deleted; the headings it produced stay.
 
-Actual child-category links were read only from source navigation containers,
-not inferred from arbitrary header/footer links. Examples include the kitchen
-page's 20 children, kitchen-tools page's 37, home-decoration page's 26,
-baby-products page's 15, camping/hiking page's 22 and travel-accessories page's
-15. These are page-local directions with possible overlap, not an added family
-total.
+The map now grows only from material the programme already saves (`map_materials.py`; nothing here reads a website):
 
-The exact staging plan is
-`config/research/catalogue_branch_inventory_2026-10-08.json`. Its completed
-first preparation has **28/28 branches, 145 examples and zero failures**:
+| Material | Where it comes from |
+|---|---|
+| `platform-collection` | A dropshipping platform's own categories (DeoDap's and BaapStore's collection trees, the signed-in platforms' category links) and its product types with at least three items. |
+| `platform-item` | A platform catalogue item, list items first (bestsellers, trending, new arrivals). |
+| `trends-rising` | A rising related query saved with a signed-in Google Trends read. |
+| `meta-advertiser` | Another active ad of an advertiser behind a relevant reviewed ad (wider discovery). |
+| `supplier-listing` | An IndiaMART or TradeIndia listing found under a mapped category term (wider discovery). |
 
-| Category | Existing branches covered | Staged examples | Nature of examples |
-|---|---:|---:|---|
-| Home and Decor | 7 | 37 | Display/reminders, damage-free mounting, drafts, fragrance, water features, household organisation and lighting. |
-| Baby Products | 7 | 36 | Hands-free nursing, first feeding, cleaning, toileting, nursery protection and childproofing tasks. |
-| Home and Kitchen | 7 | 35 | Distinct preparation mechanisms, overflow/drying, dispensing, draining, carrying, storage and maintenance. |
-| Travel and Outdoor | 7 | 37 | Packing, power/security, comfort, weather, sleeping, campsite food/water and equipment care. |
-| Total | 28 | 145 | Source-grounded planning inputs, not 145 fresh product types. |
+Each candidate is looked at once. It must pass the client-category gate (jewellery, cosmetics, clothing, phone accessories, pets and similar kinds never pass) and fit one of the four categories. One-word wording ("Lights", "Toys") is too broad. Wording that already covers a known heading, alias, phrase or type (two words at least) is known, not new. Variants of material still waiting for its AI decision are looked at again once that decision is saved. A candidate is routed to one sub-area by the sub-area's routing words (`product_map.json`) and heading words with a clear margin; otherwise it waits until the map has grown by 25 headings. A routed candidate is saved once as seed material (a small page holding the exact source line). A full sub-area takes no more.
 
-Some examples are actual category labels rather than individual product cards.
-Some are already covered by existing families. C must label the former as
-research directions and merge the latter without resetting history. It may
-return no useful addition. New families require a practical difference in
-function, mechanism or intended use, not another seller, colour, pack, price or
-marketing adjective.
+## 3. How the map grows (one round at a time)
 
-Source quality matters even when access succeeds. The actual retained Amazon
-HTML included an LPG-booking service on home/nursery lists and a credit-card
-service on luggage. These were genuine source rows, not a parser-generated
-join. They remain in raw captures, but are omitted from staged product
-examples. A/B product/relevance work must still precede use of a rank as a
-product signal.
+The product-map lane (`product_map.map_step`) runs inside the programme's discovery step and its ordinary AI allowance; there is no separate bulk run.
 
-## 3. Preparation, interpretation and admission
-
-`catalogue_seed.py` adds one isolated C mode, `catalogue_branch_seed`, with
-prompt version `research-c-catalogue-seed-v1`. It does not reinterpret original
-C-v1 or product-query-profile jobs.
-
-| Layer | Exact work | Cost and continuation |
+| Step | Exact work | Cost and continuation |
 |---|---|---|
-| Stage original material | `stage_marketplace_materials` replays the original request, receipt, snapshot, parser and hashes; requires actual navigation, HTTP 200 and complete retained text. `stage_page_materials` requires exact source excerpts and saves immutable page/material files. | Local work only. Altered/unreadable material is deferred, not supplied as invented evidence. |
-| Prepare a branch | `prepare_catalogue_branch_inputs` supplies at most ten examples with branch/category, actual excerpts, optional surrounding source line and at most eight nearby accepted families. One actual canonical snapshot serves the whole inventory. | No Jobs, canonical admission, browser or model call. Content-named preparation files cannot overwrite original payloads. |
-| Interpret a branch | Existing chosen C runner chooses `same_family`, `new_family`, `unclear` or `no_useful_addition`, with supplied IDs, functional reasoning and at most three short source/purpose phrases. | One bounded existing model request for needed examples; no second checker, provider choice or automatic paid fallback. |
-| Admit the decision | `build_catalogue_branch` validates category/parent/IDs/phrases. Exact accepted labels and aliases merge locally. A distinct accepted family enters existing `catalogue_additions`; source-free adjacent ideas remain labelled plausible. | An original saved answer is reapplied after local commit failure. Completed unclear/no-addition decisions are cached, not infinite idea loops. |
-| Measure again | `effective_catalogue` and `catalogue_matrix` calculate the actual admitted view and source choices. | Prepared examples are not added to the accepted-family total. |
+| Stage | New material is looked at and the useful part staged; the fresh-signal list the heading order reads is refreshed. | Local only; at most 400 candidates examined and 30 staged a round. |
+| Build | One seed C call (`catalogue_seed.build_catalogue_branch`, prompt `research-c-catalogue-seed-v2`) for the sub-area with the fewest headings that has waiting material and is not full; sub-areas with at least five waiting examples first, categories in turn on ties; at most ten examples a call. | One ordinary work-turn AI call a round, only while the round still has an AI allowance. |
+| Renew | When new types have arrived that the map has not considered (from new arrivals, rising queries, new advertisers and the other discovery lanes), one `catalogue_expansion.run_expansion` call with at most five of them. | At most one more AI call a round. |
+| Admit | C chooses same heading, new heading, unclear or no useful addition, with at most three short phrases. **Every new heading must carry a Meta discovery phrase**, so it can be searched; phrase sources may include `dropship` wording for the platforms' catalogues (`research-c-v2`). Exact known labels and aliases merge locally. | An admitted heading joins the effective catalogue at once and is served by the next discovery wave. A saved answer is reapplied after a local failure, never bought twice. |
 
-Materials live at `catalogue_materials/pages/<page-id>/receipt.json` and
-`catalogue_materials/items/<material-id>/material.json` inside the owned
-research root. Original marketplace paths/hashes stay linked. The richer
-surrounding line is context for interpretation, not a whole-title search term.
-Saved older seed jobs without this optional context are replayed under their
-original inputs rather than sent to the model again.
+A failed call waits 30 minutes and reuses its saved original job; material that cannot be read is set aside for a day so its sub-area moves on. The lane's small state is one `batch_runs` record per programme; local speed aids live under `product_map/` in the store and are rebuilt when malformed.
 
-The independent script can run while the programme owns the writer. Actual C
-admission now runs automatically through that programme's finite discovery
-callback, using its normal ownership and original Jobs lifecycle. It does not
-require a separate admission script or another simultaneous writer. The
-original 156-product review run is not enlarged by changing its frozen IDs.
+## 4. How fresh discovery proceeds
 
-```python
-from product_radar.catalogue_discovery import create_catalogue_discovery_step
-from product_radar.catalogue_seed import load_seed_inventory
+The discovery step (`create_catalogue_discovery_step`, renewable waves `discovery-wave-v2`) runs every round under the programme's writer. The first use of the two AI calls a round held for discovery rotates among four lanes: heading searches, the dropshipping platforms, wider discovery and the product map.
 
-discovery_step = create_catalogue_discovery_step(
-    catalogue,
-    seed_inventory=load_seed_inventory(),  # config/research/catalogue_branch_inventory_2026-10-08.json
-    seed_source_root=project_root,         # its source pages live in this project's store
-    seed_branches_per_round=1,
-)
-# The existing programme invokes this callback under its normal writer.
-# Construction makes no browser or model call and changes no research state.
-```
+1. **Heading searches.** Each wave serves headings through Meta, the one search discovery route. Amazon and Flipkart searches and Amazon lists no longer produce candidates (D4); quick commerce is never a discovery source (its credits go only to admitted per-type checks). Exact unchanged searches within seven days reuse the saved capture.
+2. **Heading order** (`heading_order.py`, replacing alphabetical order): headings whose types all came out High crowding go last; never-served headings first; then headings with fresh signals since last served (new platform list items, rising Trends queries, relevant advertisers' new ads whose words include the heading's), more signals first; then the heading served longest ago. Within each step the categories take turns, so a wave reaches every category after a few headings.
+3. **Dropshipping platforms** (their own lane every round): in-stock, in-category list items (bestseller / high-demand / winning first, then trending, then new arrivals; newest first; platforms in turn), at most 5 a round and 30 a day, nominated through the existing candidate admission.
+4. **Wider discovery** (after the heading searches): relevant advertisers' other active India ads; rising Trends queries, each used once as a Meta search; IndiaMART and TradeIndia results for mapped category terms (`config/research/wider_discovery.json`), where a listing not seen before is a candidate. IndiaMART reads yield to type supplier searches.
 
-The default driver (`scripts/run_programme.py`) supplies the repository
-inventory, not a saved manifest. The first time the seed lane runs in a store
-without its own seed cycle, it stages that inventory through the same route as
-`catalogue_research.py --stage-inventory` (`prepare_seed_inventory_manifest`:
-replay the declared public pages, stage materials and branch payloads; no page
-fetch, model, Actor or canonical write) and saves
-`catalogue_materials/preparations/seed-manifest-<inventory id>-<plan hash>.json`.
-The seed cycle then starts from that manifest as below. A missing declared
-source page is a named wait (`CATALOGUE_SEED_SOURCES_UNAVAILABLE`) whose wake
-hint stays not-ready until those exact files change; an unusable preparation
-waits for changed inputs and a local read failure retries after five minutes,
-so neither repeats every turn. Since the 13 October fresh start the store holds
-byte-identical copies of the 21 declared 8 October pages: 113 of the 145
-excerpts are bestseller card titles that a new capture would not reproduce.
-
-Each seed cycle freezes its original branch IDs, preparation-file references,
-payload hashes and concept baseline in an additive
-`catalogue-discovery-seed-cycle-v1` record. Its branch files remain the exact
-source of each C input. New neighbours are not substituted into an old
-prepared request. The loader checks the original preparation hash, branch and
-material partition; admission checks each material's actual retained source,
-surrounding context and supplied family references. A broken material can be
-deferred while healthy material in the same branch is considered.
-
-| Branch result | What is saved | What happens next |
-|---|---|---|
-| An exact accepted label or alias is already known. | A local merge and its original identity, with no new C call. | The next prepared branch receives a turn. |
-| C identifies a useful new function or alias. | The validated addition and original C job/reference. | Only admitted choices enter the actual family/phrase matrix. |
-| C finds no useful addition or cannot resolve the example. | The complete `no_useful_addition` or `unclear` decision. | The same unchanged example is not sent repeatedly to invent more breadth. |
-| A material, preparation or result cannot be used. | Its exact failure, eligible/pending IDs and original request bindings. | Healthy branches and all original product-review lanes continue. |
-| The answer was saved, but local admission failed. | The original saved job still owns the material. | After the bounded retry interval, reapply that answer; do not buy a second interpretation. |
-
-One branch, containing at most ten originally prepared items, is considered
-per programme round by default. Pending work waits five minutes between local
-continuation attempts, and unvisited branches get their first turn before a
-failed sibling is retried. This is a continuation delay, not a new provider
-request or a reason to stop the original product lanes. Missing or malformed
-whole manifests are reported explicitly while connected discovery continues
-from the actual accepted catalogue.
-
-A genuinely new discovery cycle freezes its search choices after one finite
-initial pass through the supplied branches. It does not require every branch
-to succeed. An already frozen discovery cycle keeps all its original requests
-and baseline; newly admitted breadth is available to later fresh cycles,
-without silently rewriting earlier acquisitions. The programme's progress
-signature includes productive branch/admission changes, so an exact local
-merge or failed first branch does not incorrectly end work before a healthy
-later branch. Changes to diagnostic times alone do not keep the loop running.
-
-The callback returns separate counts for prepared, eligible, completed,
-actually judged, exact local merges, cache reuse, accepted, merged,
-no-useful-addition, unclear, contract-rejected and pending examples. They are
-not interchangeable. Its content-named accepted-matrix file contains the
-actual category/family/phrase/source/purpose rows and counts after admission;
-prepared examples do not increase those totals. Actual live admission counts
-must be read from these saved records, not inferred from the 145-item manifest.
-
-## 4. How actual fresh discovery proceeds
-
-The **current installed behavior** of `create_catalogue_discovery_step` is the N22 callback
-`(memory, frozen_programme_record, context) -> result`. A cycle freezes accepted
-compact family choices and real inspected department list requests once. The
-default is four total selected actions in one cycle per programme, not four newly renewed actions every round. It advances at most two external handler calls per round. The planned numbered waves remove that lifetime discovery cap without resetting original requests or paid/model authority.
-
-New Amazon/Flipkart questions use the complete installed
-`build_marketplace_request` result, including actual route, URL, department,
-term, country and scope fields. The verified future category mapping is Home and
-Decor `kitchen/1380374031`, Baby Products `baby`, Home and Kitchen `kitchen`, Travel and
-Outdoor `luggage`. Already frozen sparse requests retain their original
-meaning on replay.
-
-The current family scheduler uses alias groups and prior results; its seven-day recent-wording suppression is family-scoped and its sibling sources are fallback-only. That is a limitation, not the desired long-term rule. Under section26, recent reuse keys include the actual source/request scope, pending interpretation parks only dependent work, and independent healthy sources can still run. Useful free synonyms retain the same identity/history but remain eligible for exploration. Exact unchanged fresh requests normally reuse saved captures. A paid cooldown cannot prohibit a free sibling; provider access waits still apply. Alias-label grouping is a scheduling aid, not proof of semantic equivalence across categories/functions.
+Every lane checks the client categories before any read or AI call, skips anything already captured or covering a known type, stops nominating while earlier captures are still being admitted, and respects daily read limits. Admission is the existing A description and B identity flow; a newly admitted type gets its own follow-on source review scope.
 
 | Situation | Actual continuation | Honest result |
 |---|---|---|
-| Meta route fails | Retrieve the same compact type through connected free Amazon/Flipkart alternatives. | A source fallback, not a newly invented family or bestseller ranking. |
-| Cards are captured | Apply existing A/B description and identity work to those acquisition IDs. | Raw, described, known, new and deferred counts remain separate. |
-| Navigation may already have started | Reconcile the original saved acquisition/receipt only. | No replacement browser launch disguised as a retry. |
-| Local browser startup is positively known to have failed | Retain the no-navigation error and permit the same bounded local retry. | No fabricated site attempt or negative demand. |
-| One route is blocked or one product remains ambiguous | Preserve its exact receipt/pending reason and give healthy sibling actions their turn. | No global claim that every product was checked on that route. |
-| New identity is admitted | Return immutable new concept IDs to the programme's separate follow-on full-source review scope. | The original 156 review remains frozen; discovery is not report readiness. |
+| Meta is refused or fails for a heading | The question waits under Meta's shared access wait; platforms, wider discovery and the map continue. No Amazon/Flipkart fallback. | No invented family or demand. |
+| Cards or items are captured | A/B description and identity work on those captures. | Raw, described, known, new and deferred counts stay separate. |
+| Navigation may already have started | Reconcile the original saved acquisition/receipt only. | No replacement read disguised as a retry. |
+| A site refuses one lane | The refusal holds the same site's reads in every lane (shared access wait); its probe is shared. | No silent workaround. |
+| A lane fails locally | That lane records its own wait; the other lanes still run that round. | No global claim that discovery stopped. |
+| New identity is admitted | Immutable new concept IDs go to a separate follow-on review scope. | Discovery is not report readiness. |
 
-The existing finite cycle, automatic prepared-branch C phase and real
-collector/import/A/B seam are implemented and fixture-tested. Live admission
-of the 145 staged examples and subsequent fresh cycle execution are distinct
-acceptance steps; side captures or fixture results alone do not prove the
-recurring programme has performed them.
-
-The current fallback table describes installed behavior, not full independent-source discovery. Planned source obligations must continue useful Amazon/Flipkart/Trends/supplier research even after Facebook succeeds or returns empty. Generic type/direction capture must precede actual-concept projection for adapters that currently require a found product; do not pass invented IDs. The source-by-source implementation, model admission, fair renewed waves and recovery are specified once in section26, not duplicated as another driver here.
+Live discovery under these rules starts at the W13 cutover; fixture tests are local proof only.
 
 ## 5. Exact search pool and six-month workload
 
-The retained snapshot at **09:49:46 UTC on 8 October 2026**, before admission of
-the new side-study examples, has the following actual sums. This is not
+The retained snapshot at **09:49:46 UTC on 8 October 2026** (the last full count; the map has since grown to 48 sub-areas, and fresh counts come from `catalogue_coverage.catalogue_matrix` on the live store) has the following actual sums. This is not
 category count multiplied by an invented universal phrase count.
 
 | Category | Accepted families | Family/phrase pairs | Source/purpose options | Meta discovery choices | Meta actually tried | Meta not dispatched |
@@ -250,27 +114,20 @@ owns failed/duplicate collection, AI effort, exact charges, pooled-account
 funding and lower-yield cost scenarios. Zero Apify charges for these page reads
 does not mean zero computer time or zero later model cost.
 
-## 6. Independent commands and verification
+## 6. Settings and verification
+
+| File | Holds |
+|---|---|
+| `config/research/catalogue.json` | Categories, sub-areas, headings, phrases. |
+| `config/research/product_map.json` | Target per sub-area, build and renewal sizes, order windows, routing words. |
+| `config/research/wider_discovery.json` | Wider lanes: reads per round, recheck days, supplier category terms. |
+| `config/research/dropship_platforms.json` | Platform list pages, discovery limits, category words and excluded kinds. |
 
 ```text
-.venv/bin/python scripts/catalogue_research.py --list-links <original-capture-folder> --output <side-file>
-.venv/bin/python scripts/catalogue_research.py --stage-inventory config/research/catalogue_branch_inventory_2026-10-08.json --output <side-manifest>
-.venv/bin/python scripts/catalogue_research.py --prepare-branch <branch-id> --material-id <material-id>
-.venv/bin/python scripts/catalogue_research.py --matrix --new-candidates-per-query 5 --output <side-matrix>
-.venv/bin/python -m unittest discover -s tests -p 'test_catalogue_*.py' -v
+.venv/bin/python -m unittest tests.test_product_map tests.test_heading_order tests.test_wider_discovery tests.test_catalogue_seed tests.test_catalogue_expansion tests.test_discovery_waves -v
 ```
 
-Only explicit `--capture-list` opens a public page. All other actions above
-reuse verified files/read canonical state; they create no model job or paid
-request. The current focused catalogue suite passes **96/96** checks, covering
-exact-choice arithmetic, lower-yield scenarios, source integrity, navigation
-scope, side preparation, alias/history retention, unhealthy sibling
-continuation, original saved-job recovery, real installed marketplace
-capture/import/A/B admission, exact prepared-file C inputs, automatic branch
-turns, whole-programme continuation after local merges or input failures,
-accepted-only matrix counts and zero-request replay. They are local proofs,
-not a claim that live recurring discovery, six-month capacity or client release
-has already been accepted.
+These are local fixture proofs, not a claim that live recurring discovery, six-month capacity or client release has been accepted.
 
 ## 7. Long-lived research and one joined counting system
 

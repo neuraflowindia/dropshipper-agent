@@ -11,11 +11,23 @@ from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 GUIDES = ROOT / "docs/client-preview/guides"
+# The owner's agent instruction files live at the project root and are never
+# edited by agents. Every other narrative document belongs under docs/.
+OWNER_ROOT_DOCUMENTS = {"AGENTS.md", "CLAUDE.md"}
+# Dated archives of earlier output are git-ignored, so a fresh checkout has no
+# archive/ folder. Links into it are checked wherever the folder exists.
+ARCHIVE = ROOT / "archive"
+
+
+def archive_is_git_ignored():
+    lines = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    return "/archive/" in {line.strip() for line in lines}
 
 
 class DocumentationLayoutTests(unittest.TestCase):
     def test_narrative_documents_are_categorized(self):
-        self.assertEqual(list(ROOT.glob("*.md")), [])
+        self.assertEqual([path.name for path in ROOT.glob("*.md")
+                          if path.name not in OWNER_ROOT_DOCUMENTS], [])
         for folder in ("media", "outputs", "preview", "scripts", "tests"):
             with self.subTest(folder=folder):
                 self.assertEqual(list((ROOT / folder).rglob("*.md")), [])
@@ -23,14 +35,24 @@ class DocumentationLayoutTests(unittest.TestCase):
     def test_document_relative_links_exist(self):
         # Project links use ordinary inline Markdown. External URLs are not
         # fetched: this check must remain offline and consume no provider credit.
+        absent_archive = []
         for document in (ROOT / "docs").rglob("*.md"):
             for destination in re.findall(r"\]\(([^)\n]+)\)", document.read_text(encoding="utf-8")):
                 parsed = urlsplit(destination.strip("<>"))
                 if parsed.scheme or parsed.netloc or not parsed.path:
                     continue
                 target = document.parent / unquote(parsed.path)
+                if not ARCHIVE.exists() and target.resolve().is_relative_to(ARCHIVE):
+                    absent_archive.append(target)
+                    continue
                 with self.subTest(document=document.relative_to(ROOT), link=destination):
                     self.assertTrue(target.exists(), f"Missing link target: {target}")
+        if absent_archive:
+            with self.subTest(archive_links=len(absent_archive)):
+                # Only a folder that git never tracks may be absent here.
+                self.assertTrue(archive_is_git_ignored(), "archive/ must stay git-ignored")
+                self.skipTest(f"{len(absent_archive)} links point into the git-ignored archive/ "
+                              "folder, which is absent from this checkout")
 
     def test_support_document_regeneration_preserves_approved_content(self):
         with tempfile.TemporaryDirectory(prefix="neuraflow-doc-layout-") as temporary:

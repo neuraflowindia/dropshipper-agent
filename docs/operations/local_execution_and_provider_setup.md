@@ -91,6 +91,8 @@ This table is the operating response contract. Decision/binding checks, supplier
 | A few cents of variation | Absorb within approved actual funded limits and finite scope; do not interrupt for penny-level approvals. |
 | Canonical record cannot be saved/trusted | Do not launch dependent charged/model work without durable intent. Retain outputs/last committed position; hosted reports remain intact. If the authoritative event saved and only the optional index failed, retain the successful application and rebuild the index; do not repeat external work. |
 | All remaining work waits, limits ended or computer was off | Save queue/consumption/trigger. Resume same-period remaining work or carry useful backlog into one new due-period envelope. No unchanged loop, accumulated missed allowances, cancellation bypass or promise of local work while off. |
+| Research site sign-in needed or expired | Only that site's routes wait (`OWNER_SIGN_IN_REQUIRED`); the window and one notification say which site. Owner signs in again (section 8.1). |
+| Quick-commerce credits or Apify month used up | That money route waits; free work continues. Owner buys the ₹500 quick-commerce pack when asked (section 8.3); Apify resumes with the next free month (section 8.2). |
 
 A problem record includes expected/actual, affected action/product/issue, confirmed versus suspected cause, safe evidence, possible remote charge/running state and next trigger. Group repeated route failures; do not ask the same unanswered setup question repeatedly.
 
@@ -103,3 +105,48 @@ Native Cloudflare Budget Alerts is the lightweight monitor. The enabled `NeuraFl
 This warning does not isolate Dropshipper from other Cloudflare projects, cover fixed subscription fees or stop charges. Keep Free plans and investigate an alert before assigning it to this project. No custom poller/GraphQL meter is needed.
 
 Apify accounting remains the application journal plus actual provider evidence. Approved keys stay private. The implemented local router assigns new work by real funded period/commitments and retains old work on its original account; genuine additional profiles remain to be activated and accepted. Renewed-period billed reads require their own current funding while original costs/holds remain. No arbitrary token replacement, global history reset, daily balance screenshot or expansion of generic Storages permissions is needed for independent work. See [Apify handover](providers/apify_environment_handover.md), [access diagnostics](providers/apify_connection.md), [commerce setup](providers/quickcommerce_connection.md) and [AI isolation](providers/codex_luna_connection.md) for actual current commands. Those connection guides do not mean every product/source outcome is complete.
+
+## 8. Signed-in research sites, allowances and the R10 cutover
+
+Built on branch `r10` (Plan R10, waves 1–4) and loaded at the W13 cutover; until then the running research uses the older code. Technical detail and wait codes: [implementation record, R10](implementation_2026-10-11.md#r10-plan-r10-sources-crowding-check-product-map-and-spend-watch-1415-october).
+
+### 8.1 Signing in to the research sites (owner, once and whenever a sign-in expires)
+
+Google Trends, IndiaMART, Dropship India and Dropdash are read in the program's own Chrome profile while signed in with the separate research Gmail. That profile lives in the owner's Windows account (`%LOCALAPPDATA%\NeuraFlowDropshipper\research-browser-profile`), never in the everyday Chrome profile, Git or the daily backups. The program never reads, stores or prints passwords or cookies.
+
+1. Open the **NeuraFlow Dropshipper** window and click **Sign in to research sites**. (Command alternative: `.venv/bin/python scripts/research_sign_in.py open`.)
+2. A plain Chrome window opens with seven tabs: Google, Google Trends, IndiaMART, DeoDap, BaapStore, Dropship India and Dropdash. Sign in on each; DeoDap and BaapStore are optional because their public feeds are read without signing in.
+3. Close the Chrome window. While it is open, signed-in reads wait (`OWNER_SIGN_IN_WINDOW_OPEN`) and never close it.
+4. The sign-in line in the window clears after the next reads see the sites signed in. `.venv/bin/python scripts/research_sign_in.py status` reports each site as signed in / sign-in needed / expired / not checked from what the latest reads saw; it visits no site.
+
+If a read meets a site's sign-in wall, that site's sign-in is recorded as expired: its routes wait with `OWNER_SIGN_IN_REQUIRED`, the window shows "Sign-in expired: …" and Windows shows one notification. Everything else keeps running. Signed-in reads use a real window that starts minimised without taking focus; while Windows is locked or signed out they wait (`OWNER_DESKTOP_UNAVAILABLE`). If the button says a research read is using the browser, try again in a minute.
+
+On the signed-in sites the program only reads: it never pays, accepts a plan or membership prompt, or clicks contact, "View number", "Get best price" or "Send enquiry". A plan or membership page on Dropship India or Dropdash makes that platform wait (`DROPSHIP_PLAN_REQUIRED`) and shows a line in the window.
+
+After each new sign-in, Google Trends must pass its proof gate: three complete signed-in reads including at least one verified chart export. The window's Trends line shows the count; if Google still refuses, the route stays blocked with the exact reason and research continues without Trends.
+
+### 8.2 Apify: account list and automatic monthly renewal
+
+The deeper Meta read (`meta-ads-depth`) uses only the free monthly Apify allowance of the one funded account. Each month US$4.45 is earmarked for it and US$0.55 is kept back (the US$0.50 buffer plus the ledger's five-cent tolerance; `config/research/apify_allocation.json`). At the buffer the route waits for the next month.
+
+The account list must be switched on once at cutover so that each new Apify month is recorded automatically: `.venv/bin/python scripts/enable_apify_account_list.py` (also done by `scripts/r10_cutover.py apply`). It writes ignored `config/local/apify_accounts.json` naming the existing private files of the one funded account; it reads no key, calls no provider and adds no unfunded account. With it on, the program reads Apify's free monthly limits endpoint, records a new month for the same account and key, and earmarks it. If the saved key cannot read the monthly usage (`APIFY_LIMITS_READ_DENIED`) or the account shows a paid plan (`APIFY_PAID_PLAN_REFUSED`), deeper reads pause and the spend watch shows a plain notice after six hours. No paid Apify plan is ever used.
+
+### 8.3 Quick-commerce credits and packs
+
+Blinkit, Zepto and Instamart are checked only through the provider's paid API (one credit per successful search), only for types that pass the checklist with Low or Medium crowding: Mumbai first on all three apps, Delhi NCR and Bengaluru only after a relevant Mumbai result, and the same city not again within 30 days (types in an upcoming issue are refreshed after seven days). Estimate: 3–9 credits per type and about 300–900 credits a month at present research speed.
+
+The free balance check runs before each batch. A zero or unknown balance makes the route wait (`QUICKCOMMERCE_CREDITS_EXHAUSTED`) while all other work continues. When the window's quick-commerce line says the credits are low or used up, the owner buys the **₹500 pack (2,500 credits, valid 30 days)** at quickcommerceapi.com (Pricing → Starter). The program finds the new pack in the provider's pack list with its expiry, records its price from the published table, clears the wait and resumes. Pack expiry is flagged three days ahead. The program never buys anything.
+
+### 8.4 The R10 cutover (lead, W13)
+
+1. Stop research cleanly (desktop **Stop**, or `scripts/desktop_research_control.py stop`).
+2. Copy the working-records folder to a dated backup folder; older code cannot read records written by the new code.
+3. `.venv/bin/python scripts/r10_cutover.py check` (read only): reports stock frozen under the old Meta rule, Trends waits set against the old hidden browser, open questions of retired routes and any missing settings file.
+4. `.venv/bin/python scripts/r10_cutover.py apply`: switches on the Apify account list, releases the old Trends waits and expires, with a recorded reason, report stock frozen under the old Meta rule so it is judged again. Repeating it changes nothing new. No provider, website or model is called.
+5. Load the new code and start research; then run the W13 live checks listed in the implementation record.
+
+### 8.5 Spend watch and the meter
+
+Every allowance has one saved record: Apify per account month, quick-commerce credits (used against credits held in active packs), each AI usage window Codex reports, money this month in rupees (₹750 target, review above ₹1,000, US$1 = ₹100 planning rate) and the Cloudflare free plan (not polled). Each is flagged once at 50%, 75%, 90% and 100% per period; at 100% a money route (Apify, quick-commerce credits) waits while free work continues. AI is never paused for allowance use; it waits only to protect money (`AI_PLAN_LIMIT_CREDITS_PROTECTED` when a plan limit is reached, `AI_PAID_CREDITS_USED` if paid Codex credits fall during a research call), resuming after the window resets.
+
+Where to see it: one line per item in the desktop window plus one Windows notification per new flag; `scripts/run_programme.py --meter` sections `allowances`, `trends_check`, `crowding_check` and `platforms` (read from saved records, no provider call); the dated alert log under `data/research/captured/spend_watch/alerts/` in the working-records folder, included in daily backups.

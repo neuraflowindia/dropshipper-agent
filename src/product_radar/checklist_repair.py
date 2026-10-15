@@ -8,7 +8,7 @@ from copy import deepcopy
 
 from .brand_reviews import brand_binding, current_brand
 from .models import SafetyError, digest, identifier
-from .research_ai import Jobs, MAX_JOB_BYTES, current_attempt, validate_results
+from .research_ai import Jobs, current_attempt, validate_results
 from .model_recovery import run_current_model_job
 from .research_flow import CHECKLIST_RULES, CHECKLIST_SCOPE, QUALITY_FAILURES, evidence_indexes, problem
 from .research_memory import change, key
@@ -117,6 +117,9 @@ def _original(memory, state, concept_id, failure_id, job_id, item):
     if job["binding_keys"].get(concept_id) != binding:
         raise SafetyError("CHECKLIST_REPAIR_FAILURE_BINDING_INVALID")
     # Read the completed response, never invoke/retry the original model job.
+    # The shared job-size limit is read at call time: this module is imported
+    # lazily, so an import-time copy would keep whatever value was current then.
+    from .research_ai import MAX_JOB_BYTES
     folder = current_attempt(safe_path(memory.root, "ai_jobs", job_id))
     saved = load_json(folder / "result.json", MAX_JOB_BYTES)
     if saved.get("request_hash") != digest(request):

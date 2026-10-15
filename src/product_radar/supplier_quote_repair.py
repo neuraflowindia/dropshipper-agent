@@ -8,7 +8,7 @@ from copy import deepcopy
 import stat
 
 from .models import SafetyError, digest, timestamp
-from .research_ai import Jobs, MAX_JOB_BYTES, MODEL, _item_bindings, current_attempt, validate_results
+from .research_ai import Jobs, MODEL, _item_bindings, current_attempt, validate_results
 from .research_memory import key
 from .storage import Journal, atomic_json, load_json, safe_path
 
@@ -55,6 +55,9 @@ def _checked_request(job_id, job):
 
 
 def _load_original(path):
+    # Read the one shared job-size limit at call time. This module is imported
+    # lazily, so an import-time copy would keep whatever value was current then.
+    from .research_ai import MAX_JOB_BYTES
     before = path.lstat()
     if not stat.S_ISREG(before.st_mode):
         raise SafetyError("SUPPLIER_QUOTE_REPAIR_JOB_CONFLICT")
