@@ -80,9 +80,16 @@ def functional_source_questions(state, *, run_id=None, as_of, concept_ids=None, 
              if row.get("kind") == TASK_KIND and row.get("source") != "supplier"
              and (selected_tasks is None or tid in selected_tasks)
              and (run_id is None or row.get("run_id") == run_id)]
+    # A run or task scope nominates bytes only through its own tasks' targets.
+    # Another type has no candidate here, so its cohort list is empty: do not
+    # re-validate its whole saved review history (the cost of every match pass).
+    targeted = (None if run_id is None and selected_tasks is None else
+                {cid for _, task in tasks for cid in task.get("targets", {})})
     result = []
     for cid in chosen:
         if state["concepts"][cid].get("status") in {"excluded", "merged", "retired"}:
+            continue
+        if targeted is not None and cid not in targeted:
             continue
         context = _functional_context(state, cid)
         if context is None:
@@ -112,6 +119,8 @@ def functional_source_questions(state, *, run_id=None, as_of, concept_ids=None, 
                                  if row.get("semantic_id") in semantics)
             candidate_ids.update(eid for eid, row in state["trends_evidence"].items()
                                  if row.get("concept_id") == cid)
+        if not candidate_ids:
+            continue  # Nothing captured yet, so no cohort: skip the saved-review read.
         identities = {_source_identity(state["observations"][oid]) for oid in candidate_ids
                       if oid in state["observations"]}
         actual_ids = {oid for oid, row in latest.items() if _source_identity(row) in identities}

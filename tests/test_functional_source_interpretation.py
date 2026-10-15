@@ -266,3 +266,49 @@ class FunctionalSourceInterpretationTests(unittest.TestCase):
         self.assertTrue(functional_source_questions(self.memory.snapshot(), run_id="full-list", as_of=NOW,
                                                    task_ids=[self.task_id], concept_ids=["second"])[0]["unknown_ids"])
 
+    def accept_second_by_association(self):
+        state = self.memory.snapshot()
+        self.memory.put("associations", "second-child", {"concept_id": "second", "status": "resolved",
+            "semantic_id": state["observations"][self.refs[0]]["semantic_id"]})
+        accept_functional_definition(self.memory, "second", DEFINITION, basis_refs=[self.refs[0]],
+            reviewer="synthetic", reviewed_at=NOW,
+            expected_meaning_hash=effective_functional_definition(self.memory.snapshot(), "second")["meaning_hash"])
+
+    def scoped_reads(self, **scope):
+        """Questions plus the types whose saved reviews and meaning were read."""
+        import product_radar.research_scope as research_scope
+        import product_radar.source_interpretation as source_interpretation
+        with patch.object(research_scope, "validated_scoped_evidence",
+                          wraps=research_scope.validated_scoped_evidence) as reviews, \
+                patch.object(source_interpretation, "_functional_context",
+                             wraps=source_interpretation._functional_context) as meanings:
+            rows = functional_source_questions(self.memory.snapshot(), as_of=NOW, **scope)
+        return rows, {call.args[1] for call in reviews.call_args_list}, {call.args[1] for call in meanings.call_args_list}
+
+    def test_run_scope_does_not_read_types_without_a_task_in_that_run(self):
+        # 15 Oct live run: every per-scope match pass re-validated all ~30
+        # accepted types six times (about 4 minutes) to find 1-5 types' cohorts.
+        self.accept_second_by_association()
+        expected = functional_source_questions(self.memory.snapshot(), run_id="full-list", as_of=NOW,
+                                               concept_ids=["first"])
+        rows, reviewed, meanings = self.scoped_reads(run_id="full-list")
+        self.assertEqual(rows, expected)
+        self.assertEqual({row["concept_id"] for row in rows}, {"first"})
+        self.assertEqual((reviewed, meanings), ({"first"}, {"first"}))
+        rows, reviewed, _ = self.scoped_reads(task_ids=[self.task_id])
+        self.assertEqual(rows, expected)
+        self.assertEqual(reviewed, {"first"})
+        # Without a run or task scope, the saved association still nominates it.
+        rows, reviewed, _ = self.scoped_reads()
+        self.assertEqual({row["concept_id"] for row in rows}, {"first", "second"})
+        self.assertEqual(reviewed, {"first", "second"})
+
+    def test_type_with_only_uncaptured_tasks_has_no_cohort_and_no_saved_review_read(self):
+        self.accept_second_by_association()
+        prepare_source_tasks(self.memory, [{"route": "amazon-search", "request": {"query": "draining caddy", "country": "IN"},
+            "concept_ids": ["second"]}], run_id="full-list", as_of=NOW)
+        rows, reviewed, meanings = self.scoped_reads(run_id="full-list")
+        self.assertEqual({row["concept_id"] for row in rows}, {"first"})
+        self.assertIn("second", meanings)  # Targeted: its meaning is still checked.
+        self.assertEqual(reviewed, {"first"})
+
