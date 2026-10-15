@@ -415,7 +415,9 @@ namespace NeuraFlow.Dropshipper {
             if (e.Button == MouseButtons.Left) RestoreWindow();
         }
         internal void RestoreWindow() {
-            ShowInTaskbar = true; WindowState = FormWindowState.Normal; Show();
+            // Restore the size before showing the taskbar button again: recreating the
+            // handle while minimized (smaller than MinimumSize) overflows WinForms' stack.
+            WindowState = FormWindowState.Normal; ShowInTaskbar = true; Show();
             NativeMethods.ShowWindow(Handle, 9); NativeMethods.SetForegroundWindow(Handle); Activate();
         }
         internal void DisposeForTest() { allowClose = true; Close(); }
@@ -574,7 +576,7 @@ namespace NeuraFlow.Dropshipper {
                 finally { if (!window.IsDisposed) window.DisposeForTest(); }
             };
             Application.Run(window);
-            bool passed = failure == null && checks.Count == 21;
+            bool passed = failure == null && checks.Count == 24;
             foreach (bool check in checks.Values) passed &= check;
             File.WriteAllText(output, new JavaScriptSerializer().Serialize(new { passed = passed, checks = checks, failure = failure,
                 actual_research_started = false, provider_calls = 0, tested_at = DateTime.UtcNow.ToString("o") }));
