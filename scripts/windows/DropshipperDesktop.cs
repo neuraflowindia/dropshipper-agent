@@ -215,6 +215,10 @@ namespace NeuraFlow.Dropshipper {
         internal int NotificationsShown { get; private set; }
         internal int SpendNotificationsShown { get; private set; }
         internal string LastSpendNotification { get; private set; }
+        // The self-test uses made-up research, so it counts its notifications
+        // but never shows them: a fake warning must never reach the owner.
+        internal bool QuietNotifications;
+        internal int RealNotificationsShown { get; private set; }
         private readonly System.Windows.Forms.Timer timer;
         private readonly EventWaitHandle restoreEvent;
         private bool refreshing, changing, exitRequested, allowClose, signingIn;
@@ -339,7 +343,7 @@ namespace NeuraFlow.Dropshipper {
             NotificationsShown++;
             string text = fresh.Count == 1 && fresh[0].state == "expired" ? "The " + fresh[0].label + " sign-in has expired."
                 : "Sign-in needed for " + String.Join(", ", fresh.ConvertAll(need => need.label).ToArray()) + ".";
-            Tray.ShowBalloonTip(10000, "Sign-in needed", text + " Open NeuraFlow Dropshipper and click Sign in to research sites.", ToolTipIcon.Info);
+            Notify("Sign-in needed", text + " Open NeuraFlow Dropshipper and click Sign in to research sites.", ToolTipIcon.Info);
         }
         private void SetSignInText(string text) {
             if (signInLine.Text == text) return;
@@ -389,7 +393,7 @@ namespace NeuraFlow.Dropshipper {
             if (pendingAttentionSeconds < needed || !notifiedAttention.Add(state.attention_id)) return;
             string message = state.attention.Length > 250 ? state.attention.Substring(0, 247) + "..." : state.attention;
             AttentionNotificationsShown++; LastAttentionNotification = message;
-            Tray.ShowBalloonTip(10000, "Research needs attention", message, ToolTipIcon.Warning);
+            Notify("Research needs attention", message, ToolTipIcon.Warning);
         }
         private void ApplySpend(ResearchStatus state) {
             // One line per spend or allowance item, as the status command words it.
@@ -416,7 +420,12 @@ namespace NeuraFlow.Dropshipper {
                 String.Join(" ", fresh.ConvertAll(alert => alert.message).ToArray());
             if (message.Length > 250) message = message.Substring(0, 247) + "...";
             SpendNotificationsShown++; LastSpendNotification = message;
-            Tray.ShowBalloonTip(10000, "Spending and allowances", message, ToolTipIcon.Info);
+            Notify("Spending and allowances", message, ToolTipIcon.Info);
+        }
+        private void Notify(string title, string text, ToolTipIcon icon) {
+            if (QuietNotifications) return;
+            RealNotificationsShown++;
+            Tray.ShowBalloonTip(10000, title, text, icon);
         }
         internal async Task SignIn() {
             if (signingIn || changing) return;
@@ -575,7 +584,7 @@ namespace NeuraFlow.Dropshipper {
             var checks = new Dictionary<string, bool>();
             string failure = null;
             var controls = new FakeControls();
-            var window = new ControlWindow(controls, null);
+            var window = new ControlWindow(controls, null) { QuietNotifications = true };
             window.Shown += async delegate {
                 try {
                     await window.RefreshStatus();
@@ -633,6 +642,8 @@ namespace NeuraFlow.Dropshipper {
                     controls.Attention = null; controls.AttentionId = null; controls.AttentionConfirmSeconds = null;
                     await window.RefreshStatus();
                     window.Clock = () => DateTime.UtcNow;
+                    checks["self_test_shows_no_real_notifications"] = window.RealNotificationsShown == 0 &&
+                        window.NotificationsShown + window.SpendNotificationsShown + window.AttentionNotificationsShown > 0;
                     checks["cleared_attention_restores_layout"] = !window.Controls["ResearchExplanation"].Text.Contains("Needs attention") &&
                         window.StartButton.Top == buttonsTop && window.AttentionNotificationsShown == 3;
                     string logFolder = Path.Combine(Path.GetTempPath(), "neuraflow-worker-log-" + Guid.NewGuid().ToString("N"));
@@ -698,7 +709,7 @@ namespace NeuraFlow.Dropshipper {
                 finally { if (!window.IsDisposed) window.DisposeForTest(); }
             };
             Application.Run(window);
-            bool passed = failure == null && checks.Count == 31;
+            bool passed = failure == null && checks.Count == 32;
             foreach (bool check in checks.Values) passed &= check;
             File.WriteAllText(output, new JavaScriptSerializer().Serialize(new { passed = passed, checks = checks, failure = failure,
                 actual_research_started = false, provider_calls = 0, tested_at = DateTime.UtcNow.ToString("o") }));
