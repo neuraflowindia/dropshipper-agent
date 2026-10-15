@@ -119,7 +119,7 @@ Built on branch `r10` (Plan R10, waves 1–4) and loaded at the W13 cutover; unt
 Google Trends, IndiaMART and Dropdash are read in the program's own Chrome profile while signed in with the separate research Gmail. That profile lives in the owner's Windows account (`%LOCALAPPDATA%\NeuraFlowDropshipper\research-browser-profile`), never in the everyday Chrome profile, Git or the daily backups. The program never reads, stores or prints passwords or cookies.
 
 1. Open the **NeuraFlow Dropshipper** window and click **Sign in to research sites**. (Command alternative: `.venv/bin/python scripts/research_sign_in.py open`.)
-2. A plain Chrome window opens with six tabs: Google, Google Trends, IndiaMART, DeoDap, BaapStore and Dropdash. Sign in on each; DeoDap and BaapStore are optional because their public feeds are read without signing in.
+2. A plain Chrome window opens with six tabs: Google, Google Trends, IndiaMART, DeoDap, BaapStore and Dropdash. Sign in on each; DeoDap and BaapStore need no sign-in because their whole public catalogues are read without it (the owner checked on 15 October; their paid plans are never bought). Dropdash's form asks for the account's **10-digit mobile number** and password; an e-mail address is refused ("Please enter valid 10 digit mobile number").
 3. Close the Chrome window. While it is open, signed-in reads wait (`OWNER_SIGN_IN_WINDOW_OPEN`) and never close it.
 4. The sign-in line in the window clears after the next reads see the sites signed in. `.venv/bin/python scripts/research_sign_in.py status` reports each site as signed in / sign-in needed / expired / not checked from what the latest reads saw; it visits no site.
 

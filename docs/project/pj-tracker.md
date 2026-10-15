@@ -1,29 +1,31 @@
 # Project tracker
 
-Latest state: **15 October 2026, 13:00 UTC** — live research (older code on `main`) is **stopped**: a Stop was recorded at 11:33 UTC, after no useful result since 10:17 UTC while the store's 16 MB summary file limit was hit (`RESEARCH_INDEX_SIZE_LIMIT`, 10,662 saved events). A full store backup was taken at about 12:20 UTC. Plan R10 is fully built on branch `r10` (a separate build copy of the code) and waits for the W13 switch-over. Fresh start was 13 October 2026 at 18:38:54 UTC (owner decision). This is the sole current progress summary. Requirements belong to the [product contract](../product/india_dropshipping_product_opportunity_radar_product_brief.md); technical changes and receipts belong to the [implementation record](../operations/implementation_2026-10-11.md) (fresh start: R08; Plan R10: R10).
+Latest state: **15 October 2026, about 15:00 UTC** — **Plan R10 is live.** The switch-over (W13) was done on 15 October with the owner's explicit approval: `r10` merged into `main` and pushed, the research store converted to bounded checkpoints (`research-segments-v1`), the old-rule stock expired for re-judging (`scripts/r10_cutover.py apply`: 132 old intake items), the Windows app rebuilt and reinstalled (native self-test passes), and research restarted at 12:42 UTC. Fresh start was 13 October 2026 at 18:38:54 UTC (owner decision). This is the sole current progress summary. Requirements belong to the [product contract](../product/india_dropshipping_product_opportunity_radar_product_brief.md); technical changes and receipts belong to the [implementation record](../operations/implementation_2026-10-11.md) (fresh start: R08; Plan R10: R10).
 
 ## Current position — 15 October 2026
 
-| Measure (owner meter, 15 October 10:16 UTC; live research on the old code) | Count |
+| Measure (owner meter, 15 October 14:20 UTC; first hours on the R10 code) | Count |
 |---|---:|
 | Candidates | 33 |
 | Accepted narrow product types | 30 |
-| Checklist-assessed types | 27 |
-| Passing the checklist (≥5 Meets) | 22 |
-| **Report-eligible types** under the old rules (need 20 across the two sets) | **11** |
+| Checklist-assessed types (re-judging under checklist v5) | 9 |
+| Passing the checklist (≥5 Meets) | 8 |
+| **Report-eligible types** (need 20 across the two sets) | **0** (expected at switch-over; rebuilds as the new sources come online) |
 | Report sets produced | 0 / 2 |
-| AI jobs | 348 |
+| AI jobs | 356 |
 | Provider (Apify) money since the fresh start | USD 0 |
 
-Counts move both ways: new evidence correctly sends a type back for re-checking.
+Counts move both ways: new evidence correctly sends a type back for re-checking. The drop from 11 eligible (old rules) to 0 was accepted in advance (A2): every type is re-judged under checklist v5 and every saved listing under relevance review v5, and the crowding check and opportunity score need Amazon/Flipkart crowding answers first.
 
-**Plan R10** ([plan](plan-2026-10-14-speed-sources-and-selection.md), approved 14 October): W1–W12 built, reviewed and saved on branch `r10` — signed-in research browser (Google Trends, IndiaMART, Dropship India, Dropdash), the four dropshipping platforms, quick commerce through the paid API, Amazon/Flipkart as a crowding check, the **opportunity score out of 100** with the owner's weights (want 20, early 30, room 25, product 25; `opportunity-score-v3`), wider discovery, the product map with AI expansion, Apify depth reads, and the spend watch. The GitHub history now carries only the GitHub no-reply author address (owner-approved rewrite, 15 October).
+**Plan R10** ([plan](plan-2026-10-14-speed-sources-and-selection.md), approved 14 October) is live: signed-in research browser (Google Trends, IndiaMART, Dropdash), three dropshipping platforms (DeoDap and BaapStore read from their public catalogues without signing in; Dropdash signed in; Dropship India was dropped by the owner on 15 October because it showed nothing useful), quick commerce through the paid API, Amazon/Flipkart as a crowding check, the **opportunity score out of 100** with the owner's weights (want 20, early 30, room 25, product 25), wider discovery, the product map with AI expansion, Apify depth reads and the spend watch.
 
-**Expected at switch-over:** report-eligible types drop to 0 at first. Every type is re-judged under the new checklist (v5) and every saved listing under the new relevance review (v5); the store copy shows 29 types and 145 review batches waiting, about 10 rounds. Eligibility then rebuilds as Trends, the platforms and quick commerce come online (accepted in advance, A2).
+**Why research went quiet on 15 October (corrected diagnosis):** the 16 MB summary file (`index.json`) was never read by anything, so hitting its limit did not stop work. The real cause was the slow local "readiness" step between rounds: it re-checked every saved review from scratch and had grown from seconds (13 October) to 11–13 minutes per pass (two passes per round), so most wall-clock time went to preparation, plus a round tail with no reads left. Fixed on 15 October (readiness reuses its own reads within one decision: about 690 s → 21 s on a copy of the live store, byte-identical results). Also added on 15 October: the **progress watch** — heartbeats inside long local steps, time limits on them, a worker watchdog that restarts research after 45 minutes with no recorded activity (the owner's on/off switch stays on), plain-language "needs attention" lines and Windows notifications in the app, last-run reason and repeated-failure warnings, and a warning when scheduled runs stop starting.
 
-**Known gaps:** the saved Apify key is a restricted key and cannot read Apify's monthly usage (checked 15 October, HTTP 403), so the automatic monthly renewal of the deeper Meta read needs the owner to lift the key's limit before 2 November. Brand names show on only about 12% of Amazon result cards and none on Flipkart, so the "many brands" crowding rule rarely decides; bestseller lists and ratings decide most High levels.
+**Owner sign-in still needed** (one time, through the app's **Sign in to research sites** button): Google account / Google Trends, IndiaMART and Dropdash. Until then those sources wait; everything else runs. Dropdash's sign-in form takes a **10-digit mobile number** and password, not an e-mail address.
 
-Next actions, in order: (1) W13 switch-over and live proof, including switching the store to the bounded checkpoint format (`scripts/adopt_local_storage.py`, preview then `--execute`) so the summary-file limit no longer slows research, and the owner's one-time sign-in; (2) W14 remaining documents, the single-process test leak and both whole test suites; (3) research to 20 eligible types, the two bilingual report sets, the portal deploy and private-delivery checks.
+**Known gaps:** Brand names show on only about 12% of Amazon result cards and none on Flipkart, so the "many brands" crowding rule rarely decides. The live W13 checks that need the owner's sign-in or real data (platform page layouts incl. Dropdash's real product pages, Trends proof gate 3/3, Apify field names, crowding calibration after 50 types, round-time measurement) are still open. The Apify key's limit was lifted by the owner on 15 October (usage reads now return HTTP 200).
+
+Next actions, in order: (1) owner's one-time sign-in; (2) remaining W13 live checks; (3) W14 remaining documents and the single-process test leak; (4) research to 20 eligible types, the two bilingual report sets, the portal deploy and private-delivery checks.
 
 ## Fresh start — 13 October 2026
 
