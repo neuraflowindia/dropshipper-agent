@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { handleAdminRequest, applyReleaseMutation, canonical, projectOrdinal, validateFitPacket } from './release-admin.mjs';
 import { handleRequest, validateIndex } from './worker.mjs';
+import { POLICY_ID as SCORE_POLICY, SETTINGS, assembleScore, issueCrowdingValid, marketEvidence, utcAt } from './opportunity-score.mjs';
 
 const BEFORE = '2026-10-12T10:00:00.000Z', AFTER = '2026-10-13T03:00:00.000Z', SCHEDULE = '2026-10-13T02:30:00+00:00';
 const CLIENT = 'client-one', INDEX = `clients/${CLIENT}/release-index.json`;
@@ -125,7 +126,7 @@ test('description-grounded estimates remain separate from market sources and kee
   const p = descriptionPacket();
   assert.equal(validateFitPacket(p.facts, p.manifest), p.facts);
   assert.equal(p.facts.products[0].kpi_matches, 6);
-  assert.deepEqual(p.facts.products[0].opportunity_basis.source_ids, ['amazon', 'flipkart']);
+  assert.deepEqual(Object.keys(marketEvidence(p.facts.products[0])), ['meta']);  // the score's market evidence stays separate
   assert.equal(p.facts.products[0].criteria[0].references.length, 0);
   const old = currentPacket(); assert.equal(validateFitPacket(old.facts, old.manifest), old.facts);
 });
@@ -182,44 +183,130 @@ test('new estimate attribution cannot silently change a historical thirteen-crit
   assert.throws(() => validateFitPacket(p.facts, p.manifest), /ADMIN_FACT_REQUIREMENTS_NOT_MET/);
 });
 
-test('marked priorities preserve the four-tier order and historical packets remain readable', () => {
-  for (const [matches, sources, positive, priority] of [[6, 2, 0, 1], [5, 2, 0, 2], [6, 1, 1, 3], [5, 1, 1, 4]]) {
-    const p = currentPacket(matches);
-    p.facts.opportunity_policy_id = p.manifest.opportunity_policy_id = 'opportunity-priority-v1';
-    for (const product of p.facts.products) Object.assign(product, { opportunity_policy_id: 'opportunity-priority-v1',
-      opportunity_priority: priority, opportunity_basis: { available_families: sources, positive_families: positive } });
-    assert.equal(validateFitPacket(p.facts, p.manifest), p.facts);
-    const changed = structuredClone(p.facts); changed.products[0].opportunity_priority = priority === 4 ? 1 : 4;
-    assert.throws(() => validateFitPacket(changed, p.manifest), /ADMIN_OPPORTUNITY_PRIORITY_INVALID/);
-  }
-  const legacy = currentPacket(); assert.equal(validateFitPacket(legacy.facts, legacy.manifest), legacy.facts);
-});
-
-test('priority markers cannot turn absent, partial or one-nonpositive support into confirmation', () => {
-  for (const mutate of [p => { delete p.facts.products[0].opportunity_basis; },
-    p => { p.facts.products[0].opportunity_basis.available_families = true; },
-    p => { p.facts.products[0].opportunity_basis = { available_families: 1, positive_families: 0 }; },
-    p => { delete p.manifest.opportunity_policy_id; }]) {
-    const p = currentPacket(); p.facts.opportunity_policy_id = p.manifest.opportunity_policy_id = 'opportunity-priority-v1';
-    for (const product of p.facts.products) Object.assign(product, { opportunity_policy_id: 'opportunity-priority-v1',
-      opportunity_priority: 2, opportunity_basis: { available_families: 2, positive_families: 0 } });
-    mutate(p); assert.throws(() => validateFitPacket(p.facts, p.manifest), /ADMIN_OPPORTUNITY_/);
-  }
-});
-
-function platformPacket(matches = 6, sources = ['amazon', 'flipkart'], positive = []) {
-  const p = currentPacket(matches), ids = [...sources].sort(), positiveIds = [...positive].sort();
-  p.facts.opportunity_policy_id = p.manifest.opportunity_policy_id = 'opportunity-priority-v2';
-  for (const product of p.facts.products) {
-    const evidence = Object.fromEntries(ids.map(source => [source, [`source-${source}`]]));
-    Object.assign(product, { opportunity_policy_id: 'opportunity-priority-v2',
-      opportunity_priority: ids.length >= 2 ? (matches >= 6 ? 1 : 2) : (matches >= 6 ? 3 : 4),
-      opportunity_basis: { available_sources: ids.length, positive_sources: positiveIds.length,
-        source_ids: ids, positive_source_ids: positiveIds, evidence_by_source: evidence },
-      source_refs: [...product.source_refs, ...ids.map(source => ({ id: `source-${source}` }))] });
+// A scored product's facts as Python's opportunity_score builds them: three
+// relevant Meta advertisers (6 want points) and the given crowding level.
+function scoreInputs(matches, { level = 'low', ads = 3, positive = true, cities = {} } = {}) {
+  const meta = Array.from({ length: ads }, (_, i) => `source-meta-${i}`);
+  return { facebook_ads: [{ relevant_ads: ads, positive, advertisers: ads }, meta],
+    new_advertisers: [{ recent_start_advertisers: 0 }, meta],
+    google_searches: [{ usable: false, nonzero_points: null }, []],
+    rising_searches: [{ rising: false, previous_mean_upper: null, recent_mean_lower: null, breakout_queries: 0 }, []],
+    quick_commerce: [{ stock_cities: cities }, Object.values(cities).flat().sort()],
+    platform_lists: [{ presence_at: null, on_list: {}, listed: {} }, []],
+    new_arrivals: [{ presence_at: null, new_arrival: {} }, []],
+    crowding: [{ level, rule: level === 'not_checked' ? null : 'few_listings', thresholds_version: 'crowding-thresholds-v1',
+      counts: level === 'not_checked' ? null : { relevant_listings: { amazon: 1, flipkart: 0 }, brands_or_sellers: 1, listings_with_brand: 1, brand_not_shown: 0, max_ratings: 40, bestseller_hits: 0 } }, []],
+    checklist: [{ meets: matches }, []] };
+}
+function platformPacket(matches = 6, options = {}) {
+  const p = currentPacket(matches);
+  p.facts.opportunity_policy_id = p.manifest.opportunity_policy_id = SCORE_POLICY;
+  for (const [index, product] of p.facts.products.entries()) {
+    const level = (options.levels ?? [])[index] ?? options.level ?? 'low';
+    const record = assembleScore(scoreInputs(matches, { ...options, level }));
+    const cited = Object.values(marketEvidence(record)).flat();
+    Object.assign(product, record, { source_refs: [...product.source_refs, ...cited.map(id => ({ id }))] });
   }
   refreshFacts(p); return p;
 }
+
+test('marked scores are re-run from their facts and the retired tier packets are refused', () => {
+  for (const [matches, level, score, label] of [[6, 'low', 44, 'sweet_spot'], [5, 'medium', 28, 'sweet_spot'], [10, 'high', 31, 'proven_but_crowded']]) {
+    const p = platformPacket(matches, { level });
+    assert.equal(p.facts.products[0].opportunity_score, score);
+    assert.equal(p.facts.products[0].opportunity_label, label);
+    assert.equal(validateFitPacket(p.facts, p.manifest), p.facts);
+  }
+  const legacy = currentPacket(); assert.equal(validateFitPacket(legacy.facts, legacy.manifest), legacy.facts);
+  for (const [policy, basis] of [['opportunity-priority-v1', { available_families: 2, positive_families: 1 }],
+    ['opportunity-priority-v2', { available_sources: 1, positive_sources: 1, source_ids: ['meta'], positive_source_ids: ['meta'], evidence_by_source: { meta: ['source-one'] } }]]) {
+    const p = currentPacket(); p.facts.opportunity_policy_id = p.manifest.opportunity_policy_id = policy;
+    for (const product of p.facts.products) Object.assign(product, { opportunity_policy_id: policy, opportunity_priority: 1, opportunity_basis: basis });
+    assert.throws(() => validateFitPacket(p.facts, p.manifest), /ADMIN_OPPORTUNITY_POLICY_MISMATCH/);
+  }
+});
+
+test('score markers cannot be absent, partial, recomputed differently or ineligible', () => {
+  for (const [mutate, code] of [[p => { delete p.facts.products[0].opportunity_basis; }, /ADMIN_OPPORTUNITY_POLICY_MISMATCH/],
+    [p => { delete p.facts.products[0].opportunity_label; }, /ADMIN_OPPORTUNITY_POLICY_MISMATCH/],
+    [p => { delete p.manifest.opportunity_policy_id; }, /ADMIN_OPPORTUNITY_POLICY_MISMATCH/],
+    [p => { p.facts.products[0].opportunity_score += 1; }, /ADMIN_OPPORTUNITY_SCORE_INVALID/],
+    [p => { p.facts.products[0].opportunity_label = 'early_bet'; }, /ADMIN_OPPORTUNITY_LABEL_INVALID/],
+    [p => { p.facts.products[0].opportunity_score = true; }, /ADMIN_OPPORTUNITY_SCORE_INVALID/],
+    [p => { p.facts.products[0].opportunity_score += 0.5; }, /ADMIN_OPPORTUNITY_SCORE_INVALID/],
+    [p => { p.facts.products[0].opportunity_score = String(p.facts.products[0].opportunity_score); }, /ADMIN_OPPORTUNITY_SCORE_INVALID/],
+    [p => { const part = p.facts.products[0].opportunity_basis.parts.product; part.points = String(part.points); }, /ADMIN_OPPORTUNITY_BASIS_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.parts.room.max = true; }, /ADMIN_OPPORTUNITY_BASIS_INVALID/],
+    [p => { const item = p.facts.products[0].opportunity_basis.parts.product.items.checklist; item.points += 0.25; }, /ADMIN_OPPORTUNITY_BASIS_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.parts.early.items.new_advertisers.points = false; }, /ADMIN_OPPORTUNITY_BASIS_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.parts.want.points = 20; }, /ADMIN_OPPORTUNITY_SCORE_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.parts.want.max = 21; }, /ADMIN_OPPORTUNITY_SCORE_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.parts.want.items.facebook_ads.facts.advertisers = 9; }, /ADMIN_OPPORTUNITY_SCORE_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.parts.want.items.facebook_ads.facts.positive = 1; }, /ADMIN_OPPORTUNITY_BASIS_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.parts.want.items.facebook_ads.evidence_ids = ['source-meta-0']; }, /ADMIN_OPPORTUNITY_SOURCE_REFERENCE_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.parts.early.items.new_advertisers.evidence_ids = ['invented']; }, /ADMIN_OPPORTUNITY_SOURCE_REFERENCE_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.parts.early.items.rising_searches.facts.previous_mean_upper = '10.1'; }, /ADMIN_OPPORTUNITY_BASIS_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.parts.room.items.crowding.facts.level = 'medium'; }, /ADMIN_OPPORTUNITY_SCORE_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.parts.room.items.crowding.facts.level = 'none'; }, /ADMIN_OPPORTUNITY_BASIS_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.parts.room.items.crowding.facts.rule = null; }, /ADMIN_OPPORTUNITY_BASIS_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.parts.product.items.checklist.facts.meets = 7; }, /ADMIN_OPPORTUNITY_FIT_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.parts.want.items.quick_commerce.facts.stock_cities = { Mumbai: [] }; }, /ADMIN_OPPORTUNITY_BASIS_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.parts.want.items.platform_lists.facts.on_list = { deodap: ['x'] }; }, /ADMIN_OPPORTUNITY_BASIS_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.eligible = false; }, /ADMIN_OPPORTUNITY_SCORE_INVALID/],
+    [p => { for (const [part, name] of [['want', 'platform_lists'], ['early', 'new_arrivals']]) p.facts.products[0].opportunity_basis.parts[part].items[name].facts.presence_at = '2026-10-14T15:30:00+05:30'; }, /ADMIN_OPPORTUNITY_BASIS_INVALID/],
+    [p => { for (const [part, name] of [['want', 'platform_lists'], ['early', 'new_arrivals']]) p.facts.products[0].opportunity_basis.parts[part].items[name].facts.presence_at = '2026-02-30T10:00:00Z'; }, /ADMIN_OPPORTUNITY_BASIS_INVALID/],
+    [p => { p.facts.products[0].opportunity_basis.settings_version = 'opportunity-score-settings-v0'; }, /ADMIN_OPPORTUNITY_SETTINGS_VERSION_MISMATCH/],
+    [p => { p.facts.products[0].opportunity_basis.extra = true; }, /ADMIN_OPPORTUNITY_BASIS_INVALID/],
+    [p => { delete p.facts.products[0].opportunity_basis.parts.room; }, /ADMIN_OPPORTUNITY_BASIS_INVALID/],
+    [p => { p.facts.products[0].source_refs = p.facts.products[0].source_refs.filter(r => r.id !== 'source-meta-1'); }, /ADMIN_OPPORTUNITY_SOURCE_REFERENCE_INVALID/],
+    [p => { p.facts.products[0].source_refs = {}; }, /ADMIN_/]]) {
+    const p = platformPacket(); mutate(p);
+    assert.throws(() => validateFitPacket(p.facts, p.manifest), code);
+  }
+  const quiet = platformPacket(6, { ads: 1, positive: false });  // 2 want points: Too quiet, never a report row
+  assert.equal(quiet.facts.products[0].opportunity_label, 'too_quiet');
+  assert.throws(() => validateFitPacket(quiet.facts, quiet.manifest), /ADMIN_OPPORTUNITY_NOT_ELIGIBLE/);
+  const pending = platformPacket(6, { level: 'not_checked' });
+  assert.throws(() => validateFitPacket(pending.facts, pending.manifest), /ADMIN_OPPORTUNITY_NOT_ELIGIBLE/);
+});
+
+test('presence times accept exactly the UTC forms Python accepts', () => {
+  // Mirrors tests/test_opportunity_score.py ValidatorTests.test_presence_time_must_be_written_in_utc.
+  for (const at of ['2026-10-14T15:30:00+05:30', '2026-10-14T10:00:00', '2026-10-14 10:00:00+00:00', '２０２６-10-14T10:00:00Z',
+    '2026-02-30T10:00:00Z', '2026-10-14T24:00:00+00:00', '2026-10-14T23:59:60Z', '2026-10-14T10:00:00.1234567Z', null, 20261014])
+    assert.equal(utcAt(at), false, String(at));
+  for (const at of ['2026-10-14T10:00:00Z', '2026-10-14T10:00:00.123456+00:00', '2026-10-14T10:00:00.1Z', '2024-02-29T10:00:00+00:00'])
+    assert.equal(utcAt(at), true, at);
+});
+
+test('quick-commerce stock cities earn points from cited evidence only', () => {
+  const p = platformPacket(6, { cities: { Mumbai: ['source-qc-1'], 'Delhi NCR': ['source-qc-2'] } });
+  assert.equal(p.facts.products[0].opportunity_basis.parts.want.items.quick_commerce.points, 2);
+  assert.equal(validateFitPacket(p.facts, p.manifest), p.facts);
+  p.facts.products[0].source_refs = p.facts.products[0].source_refs.filter(r => r.id !== 'source-qc-2');
+  assert.throws(() => validateFitPacket(p.facts, p.manifest), /ADMIN_OPPORTUNITY_SOURCE_REFERENCE_INVALID/);
+});
+
+test('High crowding only fills an issue that had fewer than ten Low or Medium types', () => {
+  const ten = platformPacket(6, { levels: ['high', ...Array(9).fill('low')] });
+  assert.equal(validateFitPacket(ten.facts, ten.manifest), ten.facts);  // nine Low/Medium: High may fill
+  const p = platformPacket(6);
+  const crowded = structuredClone(p.facts.products[0]); crowded.concept_id = 'crowded-extra';
+  Object.assign(crowded, assembleScore(scoreInputs(6, { level: 'high' })));
+  p.facts.products.push(crowded); refreshFacts(p);
+  assert.throws(() => validateFitPacket(p.facts, p.manifest), /ADMIN_ISSUE_HIGH_CROWDING_RULE/);
+  assert.equal(issueCrowdingValid(p.facts.products), false);
+  assert.equal(issueCrowdingValid(ten.facts.products), true);
+  // The rule is about order: a High that filled the issue may be followed by Low/Medium extras.
+  assert.equal(issueCrowdingValid([crowded, ...ten.facts.products]), true);
+});
+
+test('portal score settings mirror the saved settings file exactly', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const saved = JSON.parse(await readFile(new URL('../config/research/opportunity_score.json', import.meta.url), 'utf8'));
+  for (const field of ['version', 'parts', 'want', 'early', 'room', 'product', 'eligibility', 'labels', 'selection'])
+    assert.deepEqual(SETTINGS[field], saved[field], field);
+});
 
 const SOURCE_ROUTE_FIXTURE = [
   ['meta-ads', 'Facebook Ads Library', 'meta'],
@@ -383,46 +470,6 @@ test('marked source facts pass actual in-memory private upload and activation wi
   const p = sourcePacket(), env = environment(); await upload(env, p);
   const response = await activate(env, p); assert.equal(response.status, 200, await response.text());
   assert.equal(JSON.parse(new TextDecoder().decode(env.REPORTS.objects.get(INDEX).bytes)).issues[0].product_count, 10);
-});
-
-test('distinct-platform v2 counts separate marketplaces and keeps all four priorities', () => {
-  for (const [matches, sources, positive, priority] of [
-    [6, ['amazon', 'flipkart'], [], 1], [5, ['blinkit', 'zepto'], [], 2],
-    [6, ['amazon'], ['amazon'], 3], [5, ['google-trends'], ['google-trends'], 4],
-    [6, ['meta', 'amazon', 'flipkart', 'google-trends', 'blinkit', 'zepto', 'instamart'], [], 1],
-  ]) {
-    const p = platformPacket(matches, sources, positive);
-    assert.equal(p.facts.products[0].opportunity_priority, priority);
-    assert.equal(validateFitPacket(p.facts, p.manifest), p.facts);
-  }
-});
-
-test('platform counts cannot duplicate one site, suppliers or uncited evidence', () => {
-  for (const mutate of [
-    p => { p.facts.products[0].opportunity_basis.available_sources = true; },
-    p => { p.facts.products[0].opportunity_basis.available_sources = 3; },
-    p => { p.facts.products[0].opportunity_basis.source_ids = ['amazon', 'amazon']; },
-    p => { p.facts.products[0].opportunity_basis.source_ids = ['amazon', 'supplier']; },
-    p => { p.facts.products[0].opportunity_basis.positive_source_ids = ['meta']; },
-    p => { p.facts.products[0].opportunity_basis.evidence_by_source.flipkart = []; },
-    p => { p.facts.products[0].opportunity_basis.evidence_by_source.flipkart = ['source-amazon']; },
-    p => { p.facts.products[0].opportunity_basis.evidence_by_source.flipkart = ['invented']; },
-    p => { p.facts.products[0].source_refs = {}; },
-    p => { p.facts.products[0].opportunity_policy_id = 'opportunity-priority-v1'; },
-    p => { p.manifest.opportunity_policy_id = 'opportunity-priority-v1'; },
-  ]) {
-    const p = platformPacket(); mutate(p);
-    assert.throws(() => validateFitPacket(p.facts, p.manifest), /ADMIN_OPPORTUNITY_/);
-  }
-  const unsupported = platformPacket(6, ['flipkart']);
-  assert.throws(() => validateFitPacket(unsupported.facts, unsupported.manifest), /ADMIN_OPPORTUNITY_PRIORITY_INVALID/);
-  const originalThreeGroup = currentPacket();
-  originalThreeGroup.facts.opportunity_policy_id = originalThreeGroup.manifest.opportunity_policy_id = 'opportunity-priority-v1';
-  for (const product of originalThreeGroup.facts.products) Object.assign(product, {
-    opportunity_policy_id: 'opportunity-priority-v1', opportunity_priority: 1,
-    opportunity_basis: { available_families: 4, positive_families: 0 },
-  });
-  assert.throws(() => validateFitPacket(originalThreeGroup.facts, originalThreeGroup.manifest), /ADMIN_OPPORTUNITY_BASIS_INVALID/);
 });
 
 test('current ten-point packets accept both five and six supported points without treating unknowns as failures', () => {

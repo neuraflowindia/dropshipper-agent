@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "kind": "opportunity-score-settings",
+  "version": "opportunity-score-settings-v1",
+  "note": "Owner's four part weights (15 October 2026) sum to 100 and are never changed by the agent. The lead set the inner points. Ladders are [minimum count, points], highest first; a count below every minimum earns 0. The one-time calibration may change inner thresholds only, with a new version.",
+  "parts": {"want": 20, "early": 30, "room": 25, "product": 25},
+  "want": {
+    "facebook_ads": {"positive_with_advertisers": {"min_advertisers": 5, "points": 8}, "positive": 6, "relevant_ads": 2},
+    "google_searches": {"nonzero_points": [[4, 5], [1, 2]]},
+    "platform_lists": {"on_list_platforms": [[2, 5], [1, 4]], "listed_platforms": [[2, 2], [1, 1]]},
+    "quick_commerce": {"stock_cities": [[2, 2], [1, 1]]}
+  },
+  "early": {
+    "rising_searches": {"rising": 8, "strong": 12, "strong_rise_percent": 50},
+    "new_advertisers": {"recent_start_advertisers": [[3, 9], [2, 6], [1, 3]]},
+    "new_arrivals": {"new_arrival_platforms": [[2, 9], [1, 6]]}
+  },
+  "room": {"low": 25, "medium": 12, "high": 0},
+  "product": {"base_meets": 5, "base_points": 10, "per_extra_meet": 3},
+  "eligibility": {"min_meets": 5, "min_want": 5},
+  "labels": {"early_bet_min_early": 15, "early_bet_want_below": 10},
+  "selection": {"high_crowding_only_below": 10},
+  "calibration": {"after_scored_types": 50, "too_quiet_share_above": "0.70", "too_quiet_share_below": "0.10"}
+}

@@ -11,8 +11,10 @@ from product_radar import live_outputs as live
 from product_radar.models import SafetyError, digest
 from product_radar.storage import atomic_bytes, atomic_json, load_json
 from test_live_outputs import fixture
+from test_fit_pipeline import older_format_scores
 
 
+@older_format_scores
 class InternalReportStageTests(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()

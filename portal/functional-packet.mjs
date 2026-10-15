@@ -1,6 +1,7 @@
 import { scopedSuppliers } from './supplier-scoped.mjs';
 import { validateDefinitionAcceptance } from './definition-proof.mjs';
 import { validateExampleBinding } from './example-proof.mjs';
+import { POLICY_ID as SCORE_POLICY, QUICK_COMMERCE, assembleScore, crowdingFactValid, crowdingFacts, crowdingText, marketEvidence, meanText, metaRecentStarts, presenceChangeBasis, presenceFacts, presenceInput, presenceShapeValid, scoreText, validateScoreRecord } from './opportunity-score.mjs';
 
 // Saved-only schema-3 reader. No network, mutable research store, model or release
 // authority is consulted here. Original decimals stay inside hashed JSON text.
@@ -400,27 +401,48 @@ export async function validateFunctionalPacket(facts, manifest, { canonical, fai
     check(same(provenance,expected)&&product.image_path===image.path&&same(Object.keys(records).sort(),expectedIds.sort()),'ADMIN_FUNCTIONAL_PHOTO_PROOF_INVALID');
   }
 
+  // Python market_validation.score_fact_inputs: the saved presence and crowding
+  // facts the score read, each checked against its kind, type, meaning, id and hashes.
+  async function scoreFacts(proof,cid,meaning) {
+    const facts=proof.score_facts,invalid='ADMIN_FUNCTIONAL_SCORE_FACTS_INVALID';
+    check(keys(facts,['presence','crowding'])&&facts.crowding!==null&&Object.values(facts).every(row=>row===null||keys(row,['id','record'])),invalid);
+    let presence=null;
+    if(facts.presence!==null){
+      const record=(await original(facts.presence.record)).value;
+      check(presenceShapeValid(record,cid,meaning)&&record.change_hash===await digest(presenceChangeBasis(Object.fromEntries(Object.entries(record).filter(([k])=>!['change_hash','at'].includes(k)))))
+        &&facts.presence.id===await key('dropship-presence',[cid,meaning,record.change_hash,record.at])&&utc(record.at,fail)<=utc(proof.as_of,fail),invalid);
+      try { presence=presenceInput(record,proof.as_of); } catch { check(false,invalid); }  // Python: a malformed item is invalid
+    }
+    const crowding=(await original(facts.crowding.record)).value;
+    check(crowdingFactValid(crowding,cid,meaning)&&facts.crowding.id===await key('crowding-fact',cid),invalid);
+    return {presence,crowding};
+  }
+
   async function market(product,supplier) {
     const proof=product.functional_market_proof, meaning=product.functional_definition.meaning_hash;
-    check(keys(proof,['contract','concept_id','meaning_hash','as_of','scope_hash','scoped_records','records','matches','source_signals','source_support']) && product.functional_market_contract==='functional-market-scope-v1' && proof.contract===product.functional_market_contract && proof.concept_id===product.concept_id && proof.meaning_hash===meaning && HASH.test(proof.scope_hash) && proof.as_of===product.example_as_of);
+    check(keys(proof,['contract','concept_id','meaning_hash','as_of','scope_hash','scoped_records','records','matches','source_signals','score_facts']) && product.functional_market_contract==='functional-market-scope-v1' && proof.contract===product.functional_market_contract && proof.concept_id===product.concept_id && proof.meaning_hash===meaning && HASH.test(proof.scope_hash) && proof.as_of===product.example_as_of);
     const at=utc(proof.as_of,fail), records=await recordMaps(proof.records,product.source_revisions), rows=Object.create(null), used=Object.fromEntries(Object.keys(records).map(k=>[k,new Set()]));
     for (const [rid,frozen] of Object.entries(proof.scoped_records)) { const node=await original(frozen,product.source_revisions?.source_checks?.[rid]); rows[rid]=await scoped(rid,node,records,meaning,product.concept_id,at); for(const ref of rows[rid].references)used[ref.table].add(ref.id); }
     check(Object.keys(records).every(t=>same(Object.keys(records[t]).sort(),[...used[t]].sort())));
     const matched=Object.create(null);
     for (const [ref,m] of Object.entries(proof.matches)) {
       const row=rows[m.scope_review_id]; check(row && row.scope==='narrow_type' && row.admissibility==='accepted' && row.references.some(r=>r.id===ref) && same(m,{scope_review_id:m.scope_review_id,scope_review_hash:row.record_hash,relationship:row.relationship,scope:row.scope,reason:row.reason,limitations:row.limitations}));
-      if(row.method==='functional_source_match_v4') { const p=row.job_proof,answer=p?.accepted_item; const r=answer?.relevance?.filter(r=>r.id===ref); check(p?.role==='E' && p.prompt_version==='research-e-source-support-v4' && p.accepted_item_hash===await digest(answer) && row.support==='insufficient' && r?.length===1 && same(r[0],{id:ref,relationship:row.relationship,scope:row.scope,reason:row.reason,limitations:row.limitations}),'ADMIN_FUNCTIONAL_SOURCE_ANSWER_CHANGED'); }
+      if(row.method==='functional_source_match_v4') { const p=row.job_proof,answer=p?.accepted_item; const r=answer?.relevance?.filter(r=>r.id===ref); check(p?.role==='E' && p.prompt_version==='research-e-source-scope-v5' && p.accepted_item_hash===await digest(answer) && row.support==='insufficient' && r?.length===1 && same(r[0],{id:ref,relationship:row.relationship,scope:row.scope,reason:row.reason,limitations:row.limitations}),'ADMIN_FUNCTIONAL_SOURCE_ANSWER_CHANGED'); }
       else check(row.method==='operator_source_review');
       const node=records.observations?.[ref]??records.trends_evidence?.[ref]; check(node && at>=utc(node.value.observed_at??node.value.parsed?.metadata?.collected_at,fail) && at-utc(node.value.observed_at??node.value.parsed?.metadata?.collected_at,fail)<=7*DAY); matched[ref]=node.value;
     }
-    const signals=await signalsFor(matched,proof.source_support,rows,at);
-    check(deep(proof.source_signals,Object.fromEntries(SITES.map(s=>[s,pick(signals[s],['available','positive','used_ids',...(signals[s].evidence_support?['evidence_support']:[])])]))),'ADMIN_FUNCTIONAL_MARKET_SIGNALS_CHANGED');
+    const signals=signalsFor(matched,at);
+    check(deep(proof.source_signals,Object.fromEntries(SITES.map(s=>[s,pick(signals[s],['available','positive','used_ids'])]))),'ADMIN_FUNCTIONAL_MARKET_SIGNALS_CHANGED');
     check(same(product.market_checks,SITES.map(s=>({source:s,state:signals[s].available?'Available':'Insufficient',detail:signals[s].reason,evidence_ids:signals[s].used_ids,url:null}))),'ADMIN_FUNCTIONAL_MARKET_DISPLAY_CHANGED');
-    const available=SITES.filter(s=>signals[s].available).sort(), positive=available.filter(s=>signals[s].positive===true||signals[s].evidence_support==='reasonably_positive').sort();
-    const basis={available_sources:available.length,positive_sources:positive.length,source_ids:available,positive_source_ids:positive,evidence_by_source:Object.fromEntries(available.map(s=>[s,signals[s].used_ids]))};
-    const priority=available.length>=2?(product.kpi_matches>=6?1:2):positive.length?(product.kpi_matches>=6?3:4):null;
-    check(product.opportunity_policy_id==='opportunity-priority-v2' && product.opportunity_priority===priority && same(product.opportunity_basis,basis) && product.market_label===(available.length?available.length+' sources with relevant information; no sales guarantee.':'No current usable relevant source information.'),'ADMIN_FUNCTIONAL_MARKET_PRIORITY_CHANGED');
-    await witness(product,proof,records,rows,signals,at);
+    const available=SITES.filter(s=>signals[s].available);
+    check(product.market_label===(available.length?available.length+' sources with relevant information; no sales guarantee.':'No current usable relevant source information.'),'ADMIN_FUNCTIONAL_MARKET_DISPLAY_CHANGED');
+    // Python validate_frozen_functional_market: the score is re-run with the
+    // market facts recomputed here and the saved presence/crowding facts as recorded.
+    validateScoreRecord(product,product.kpi_matches,fail);
+    const {presence,crowding}=await scoreFacts(proof,product.concept_id,meaning),[lists,arrivals]=presenceFacts(presence);
+    const inputs={...scoreMarketFacts(signals,matched),platform_lists:lists,new_arrivals:arrivals,crowding:crowdingFacts(crowding),checklist:[{meets:product.kpi_matches},[]]};
+    check(product.opportunity_policy_id===SCORE_POLICY&&same(pick(product,['opportunity_policy_id','opportunity_score','opportunity_label','opportunity_basis']),assembleScore(inputs)),'ADMIN_FUNCTIONAL_MARKET_SCORE_CHANGED');
+    await witness(product,proof,records,rows,at);
     const expectedRefs=Object.entries(proof.matches).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([id,m])=>{ const o=records.observations?.[id]?.value,meta=records.trends_evidence?.[id]?.value?.parsed?.metadata; return {id,url:displayUrl(o?o.facts.url??null:meta.source_reference??null),source:o?o.source:'google-trends',observed_at:o?o.observed_at:meta.collected_at,relationship:m.relationship,relevance_reason:m.reason}; });
     for(const {row:r} of supplier.legacy) {const lead=r.input.id,pages=Object.fromEntries(r.input.pages.map(p=>[p.id,p])),refs=new Set([...r.result.relevance.references,...r.result.terms.flatMap(x=>x.references),...r.result.prices.flatMap(x=>x.references)]);for(const id of [...refs].sort())if(pages[id])expectedRefs.push({id:await key('supplier-ref',[lead,id]),url:displayUrl(pages[id].url),source:'Supplier page (reviewed)',observed_at:r.source_dates?.[id]??r.checked_at,date_basis:r.source_dates?.[id]?'supplier_page_capture':'supplier_interpretation_review',original_page_id:id});}
     expectedRefs.push(...supplier.source_refs);
@@ -494,17 +516,16 @@ export async function validateFunctionalPacket(facts, manifest, { canonical, fai
     for(const row of scopedRows)if(['operator_source_review','functional_source_match_v4'].includes(row.method))for(const ref of row.references){if(!['observations','trends_evidence'].includes(ref.table)||!currentIds.has(ref.id)||source(row.route)==='supplier'||row.method!=='operator_source_review'&&!await matchAnswer(row,ref.id))continue;const old=currentMatches.get(ref.id);if(!old||utc(row.reviewed_at,fail)>utc(old.reviewed_at,fail)||utc(row.reviewed_at,fail)===utc(old.reviewed_at,fail)&&(row.revision>old.revision||row.revision===old.revision&&row.id>old.id))currentMatches.set(ref.id,row);}
     const acceptedMatches=Object.fromEntries([...currentMatches].filter(([,r])=>r.scope==='narrow_type'&&r.admissibility==='accepted'&&['exact_product','relevant_family'].includes(r.relationship)).map(([ref,r])=>[ref,{scope_review_id:r.id,scope_review_hash:r.record_hash,relationship:r.relationship,scope:r.scope,reason:r.reason,limitations:r.limitations}]));
     check(deep(acceptedMatches,product.functional_market_proof.matches),'ADMIN_FUNCTIONAL_MARKET_CURRENTNESS_CHANGED');
-    const opinions=new Map(),orders=new Map();
-    for(const row of scopedRows){if(row.method!=='functional_source_support_v4'||row.scope!=='narrow_type'||row.admissibility!=='accepted')continue;const p=row.job_proof,answer=p?.accepted_item,refs=row.references.filter(r=>['observations','trends_evidence'].includes(r.table)).map(r=>r.id).sort(),site=row.source==='trends'?'google-trends':row.source,judgment={positive:'reasonably_positive',neutral:'neutral',not_positive:'weak',insufficient:'unclear'}[row.support];
-      if(p?.role!=='E'||p.prompt_version!=='research-e-source-support-v4'||!answer||p.accepted_item_hash!==await digest(answer)||!refs.length||!refs.every(ref=>Object.hasOwn(acceptedMatches,ref)&&currentIds.has(ref)))continue;
-      const candidates=answer.source_support.filter(v=>v.source===site&&deep([...v.references].sort(),refs)&&v.judgment===judgment&&v.reason===row.reason),opinion=candidates[0];if(candidates.length!==1||!['observed','inferred','not_stated'].includes(opinion.basis)||['reasonably_positive','weak'].includes(opinion.judgment)&&!['observed','inferred'].includes(opinion.basis))continue;
-      const date=Math.max(...refs.map(ref=>utc(state.observations[ref]?.observed_at??state.trends_evidence[ref]?.parsed.metadata.collected_at,fail))),order=[date,utc(row.reviewed_at,fail),row.id],old=orders.get(site);if(!old||order[0]>old[0]||order[0]===old[0]&&(order[1]>old[1]||order[1]===old[1]&&order[2]>old[2])){orders.set(site,order);opinions.set(site,{...opinion,review_id:row.id,reviewed_at:row.reviewed_at});}}
-    const selected=new Set([...Object.values(acceptedMatches).map(r=>r.scope_review_id),...[...opinions.values()].map(r=>r.review_id)]),expectedScope=await digest({meaning_hash:meaning,heads:Object.fromEntries(scopedRows.map(r=>[r.binding_key,r.record_hash])),current_originals:Object.fromEntries([...currentMatches.keys()].sort().map(ref=>[ref,(records.observations[ref]??records.trends_evidence[ref]).hash]))});
-    check(deep([...opinions.values()],product.functional_market_proof.source_support)&&same([...selected].sort(),Object.keys(marketContext.rows).sort())&&expectedScope===product.functional_market_proof.scope_hash&&[...selected].every(id=>rowMap[id].record_hash===marketContext.rows[id].record_hash),'ADMIN_FUNCTIONAL_MARKET_CURRENTNESS_CHANGED');
+    const selected=new Set(Object.values(acceptedMatches).map(r=>r.scope_review_id)),expectedScope=await digest({meaning_hash:meaning,heads:Object.fromEntries(scopedRows.map(r=>[r.binding_key,r.record_hash])),current_originals:Object.fromEntries([...currentMatches.keys()].sort().map(ref=>[ref,(records.observations[ref]??records.trends_evidence[ref]).hash]))});
+    check(same([...selected].sort(),Object.keys(marketContext.rows).sort())&&expectedScope===product.functional_market_proof.scope_hash&&[...selected].every(id=>rowMap[id].record_hash===marketContext.rows[id].record_hash),'ADMIN_FUNCTIONAL_MARKET_CURRENTNESS_CHANGED');
     const actual=[...[...latest].filter(([k])=>identities.has(k)).map(([,v])=>v.ref),...[...charts].filter(([k])=>chartKeys.has(k)).map(([,v])=>v.ref)].sort(), byRoute=new Map();
     const routeOf=o=>{const f=o.facts??{},capture=state.captures[o.capture_id],explicit=f.source_route||(object(capture?.reference)?capture.reference.route:null);return routeNames.includes(explicit)?explicit:context('observations','',o).route;};
-    const supportedJobs=new Set(scopedRows.filter(r=>r.method==='functional_source_support_v4'&&r.job_proof).map(r=>canonical([r.job_proof.job_id,r.job_proof.accepted_item_hash]))), completed=new Set();
-    for(const r of scopedRows)if(r.method==='functional_source_match_v4'&&supportedJobs.has(canonical([r.job_proof?.job_id,r.job_proof?.accepted_item_hash])))for(const ref of r.references)if(['observations','trends_evidence'].includes(ref.table)&&await matchAnswer(r,ref.id))completed.add(ref.id);
+    // Mirrors Python functional_source_questions: a saved answer is applied once every record it judged has its own match row.
+    const savedRefs=new Map(),answered=new Map(),completed=new Set();
+    for(const r of scopedRows){const p=r.job_proof;if(r.method!=='functional_source_match_v4'||!object(p?.accepted_item))continue;const job=canonical([p.job_id,p.accepted_item_hash]);
+      answered.set(job,new Set((p.accepted_item.relevance??[]).map(v=>v?.id)));if(!savedRefs.has(job))savedRefs.set(job,new Set());for(const ref of r.references)savedRefs.get(job).add(ref.id);}
+    const appliedJobs=new Set([...answered].filter(([job,ids])=>ids.size&&[...ids].every(id=>savedRefs.get(job).has(id))).map(([job])=>job));
+    for(const r of scopedRows)if(r.method==='functional_source_match_v4'&&appliedJobs.has(canonical([r.job_proof?.job_id,r.job_proof?.accepted_item_hash])))for(const ref of r.references)if(['observations','trends_evidence'].includes(ref.table)&&await matchAnswer(r,ref.id))completed.add(ref.id);
     for(const ref of actual){const o=state.observations[ref],chart=state.trends_evidence[ref];let route=chart?'google-trends':context('observations',ref,o).route;
       if(!route&&o){const c=state.captures[o.capture_id];route=c?context('captures',o.capture_id,c).route:null;if(!route){const owned=[...new Set([...(owners.get(ref)??[])].map(id=>tasks[id].route))];if(owned.length===1)route=owned[0];}}
       if(!route)continue;if(!byRoute.has(route))byRoute.set(route,[]);byRoute.get(route).push(ref);
@@ -560,7 +581,7 @@ export async function validateFunctionalPacket(facts, manifest, { canonical, fai
 
   async function matchAnswer(row,ref) {
     const p=row.job_proof,answer=p?.accepted_item;
-    return row.method==='functional_source_match_v4'&&row.support==='insufficient'&&p?.role==='E'&&p.prompt_version==='research-e-source-support-v4'&&answer&&p.accepted_item_hash===await digest(answer)&&deep(answer.relevance?.filter(r=>r.id===ref),[{id:ref,scope:row.scope,relationship:row.relationship,reason:row.reason,limitations:row.limitations}]);
+    return row.method==='functional_source_match_v4'&&row.support==='insufficient'&&p?.role==='E'&&p.prompt_version==='research-e-source-scope-v5'&&answer&&p.accepted_item_hash===await digest(answer)&&deep(answer.relevance?.filter(r=>r.id===ref),[{id:ref,scope:row.scope,relationship:row.relationship,reason:row.reason,limitations:row.limitations}]);
   }
 
   async function routeScopedRows(records,product,at) {
@@ -636,7 +657,7 @@ export async function validateFunctionalPacket(facts, manifest, { canonical, fai
     check(same(r.actual_attempt_refs,actual.sort())&&r.effort_satisfied===Boolean(actual.length)&&r.last_attempt_at===(dates.sort((a,b)=>utc(a,fail)-utc(b,fail)).at(-1)??null)&&(!actual.length?r.internal_outcome==='prelaunch_failed':true)&&(!r.accepted_lead_refs.length||actual.length&&r.internal_outcome==='usable_leads'),'ADMIN_FUNCTIONAL_SUPPLIER_EFFORT_CHANGED');
   }
 
-  async function signalsFor(matched,support,rows,at) {
+  function signalsFor(matched,at) {
     const signals=Object.fromEntries(SITES.map(s=>[s,{available:false,positive:null,used_ids:[],reason:'No fresh reviewed relevant source information.'}]));
     const observations=Object.entries(matched).filter(([,o])=>o.semantic);
     const valid=metaAds(observations,fail), advertisers=metaAdvertiserCount(valid),active=valid.filter(v=>v.active===true);
@@ -645,18 +666,22 @@ export async function validateFunctionalPacket(facts, manifest, { canonical, fai
     const verified=o=>o.source==='amazon'&&!o.facts.limitations?.length&&o.facts.list_type==='bestsellers'&&(!Object.hasOwn(o.facts,'direct_capture')||(o.facts.scope_verified===true&&integer(o.facts.position,1)&&object(o.facts.direct_capture)));
     for(const site of ['amazon','flipkart','blinkit','zepto','instamart']) {const selected=observations.filter(([,o])=>o.source===site&&(verified(o)||['amazon','flipkart'].includes(site)&&o.facts.list_type==='product_search'||['blinkit','zepto','instamart'].includes(site)&&o.facts.list_type==='quickcommerce_context'));const good=selected.some(([,o])=>verified(o)); signals[site]={available:!!selected.length,positive:good?true:selected.length?false:null,used_ids:selected.map(([id])=>id).sort(),reason:good?'Relevant reviewed India list presence; all Amazon routes count as one source.':selected.length?'Relevant current listings supply product, price or availability context; not sales proof.':'No fresh reviewed relevant source information.'};}
     const charts=Object.entries(matched).filter(([,o])=>o.parsed);
-    if(charts.length){const usable=charts.filter(([,o])=>o.parsed.state==='Usable'),[id,o]=(usable.length?usable:charts).sort((a,b)=>utc(a[1].parsed.metadata.collected_at,fail)-utc(b[1].parsed.metadata.collected_at,fail)||a[0].localeCompare(b[0])).at(-1);const signal=trendsSignal(o.parsed,at);signals['google-trends']={available:signal.available,positive:signal.available?signal.positive:null,used_ids:signal.available?[id]:[],reason:signal.reason,...(signal.evidence_support?{evidence_support:signal.evidence_support}:{})};}
-    for(const opinion of support) {
-      const row=rows[opinion.review_id],p=row?.job_proof,answer=p?.accepted_item;
-      const originalRefs=row?.references?.filter(r=>['observations','trends_evidence'].includes(r.table)).map(r=>r.id).sort();
-      const judgments={positive:'reasonably_positive',neutral:'neutral',not_positive:'weak',insufficient:'unclear'};
-      const candidates=answer?.source_support?.filter(v=>v.source===opinion.source&&same([...v.references].sort(),originalRefs)&&v.judgment===judgments[row.support]&&v.reason===row.reason);
-      const judged=candidates?.[0];
-      check(row?.method==='functional_source_support_v4'&&row.scope==='narrow_type'&&row.admissibility==='accepted'&&p.role==='E'&&p.prompt_version==='research-e-source-support-v4'&&p.accepted_item_hash===await digest(answer)&&candidates?.length===1&&['observed','inferred','not_stated'].includes(judged.basis)&&(!['reasonably_positive','weak'].includes(judged.judgment)||(originalRefs.length&&['observed','inferred'].includes(judged.basis)))&&same(opinion,{...judged,review_id:opinion.review_id,reviewed_at:row.reviewed_at}),'ADMIN_FUNCTIONAL_SOURCE_SUPPORT_CHANGED');
-      const signal=signals[opinion.source];check(signal?.available&&opinion.references.length&&opinion.references.every(r=>signal.used_ids.includes(r)));
-      if(opinion.judgment==='reasonably_positive'&&(opinion.source!=='google-trends'||opinion.references.some(r=>matched[r]?.parsed?.series?.some(p=>p.state==='bounded_nonzero'||p.state==='observed'&&p.value>0))))signal.evidence_support='reasonably_positive';
-    }
+    if(charts.length){const usable=charts.filter(([,o])=>o.parsed.state==='Usable'),[id,o]=(usable.length?usable:charts).sort((a,b)=>utc(a[1].parsed.metadata.collected_at,fail)-utc(b[1].parsed.metadata.collected_at,fail)||a[0].localeCompare(b[0])).at(-1);const signal=trendsSignal(o.parsed,at);signals['google-trends']={available:signal.available,positive:signal.available?signal.positive:null,used_ids:signal.available?[id]:[],reason:signal.reason,...(signal.available?{nonzero_points:signal.nonzero_points??null,previous_mean_bounds:signal.previous_mean_bounds??null,recent_mean_bounds:signal.recent_mean_bounds??null,breakout_queries:signal.breakout_queries??0}:{})};}
     return signals;
+  }
+
+  // Python opportunity_score.market_facts over the signals recomputed here.
+  function scoreMarketFacts(signals,matched) {
+    const meta=signals.meta,trends=signals['google-trends'],valid=metaAds(Object.entries(matched).filter(([,o])=>o.semantic),fail);
+    const metaIds=meta.available?[...meta.used_ids].sort():[],trendIds=trends.available?[...trends.used_ids].sort():[],stock={};
+    for(const site of QUICK_COMMERCE)for(const id of signals[site].used_ids){const o=matched[id],place=o?.facts?.location;if(o?.facts?.available===true&&object(place)&&typeof place.name==='string'&&/[^ \t\r\n\f\v]/.test(place.name))(stock[place.name]??=[]).push(id);}  // blank names are ignored, as in Python
+    const cities=Object.fromEntries(Object.keys(stock).sort().map(c=>[c,[...new Set(stock[c])].sort()]));
+    const prev=trends.available?trends.previous_mean_bounds:null,recent=trends.available?trends.recent_mean_bounds:null;
+    return {facebook_ads:[{relevant_ads:metaIds.length,positive:meta.positive===true,advertisers:metaAdvertiserCount(valid)},metaIds],
+      new_advertisers:[{recent_start_advertisers:metaRecentStarts(valid,v=>utc(v,fail))},metaIds],
+      google_searches:[{usable:trends.available,nonzero_points:trends.available?trends.nonzero_points??null:null},trendIds],
+      rising_searches:[{rising:trends.available&&trends.positive===true,previous_mean_upper:prev?meanText(prev[1]):null,recent_mean_lower:recent?meanText(recent[0]):null,breakout_queries:trends.available?trends.breakout_queries??0:0},trendIds],
+      quick_commerce:[{stock_cities:cities},[...new Set(Object.values(cities).flat())].sort()]};
   }
 
   function trendsSignal(parsed, at) {
@@ -688,7 +713,8 @@ export async function validateFunctionalPacket(facts, manifest, { canonical, fai
     const old=windows.slice(0,4),recent=windows.slice(4),mean=(rows,field)=>rows.reduce((a,p)=>a+p[field],0)/4;
     const lowOld=mean(old,'lower'),highOld=mean(old,'upper'),lowNew=mean(recent,'lower'),highNew=mean(recent,'upper');
     Object.assign(result,{previous_mean_bounds:[lowOld,highOld],recent_mean_bounds:[lowNew,highNew]});
-    const related=(parsed.rising_related_queries??[]).some(q=>object(q)&&q.rising===true&&q.same_product===true&&text(q.query)&&text(q.reference));
+    const supporting=(parsed.rising_related_queries??[]).filter(q=>object(q)&&q.rising===true&&q.same_product===true&&text(q.query)&&text(q.reference)),related=supporting.length>0;
+    if(related)result.breakout_queries=supporting.filter(q=>q.growth_kind==='breakout').length;
     if(highOld===0)return recent.filter(p=>p.state==='bounded_nonzero'||p.value>0).length>=2&&related?{...result,positive:true,reason:'Zero previous mean; at least two recent nonzero periods and a same-product rising query.'}:{...result,reason:'Zero previous mean needs two recent nonzero periods and supporting rising-query evidence.'};
     if(related)return {...result,positive:true,reason:'Supported same-product rising related query satisfies the alternative rule.'};
     if(lowOld===0)return {...result,reason:'Bounded values leave the previous mean potentially zero; exact movement cannot be established.'};
@@ -697,46 +723,28 @@ export async function validateFunctionalPacket(facts, manifest, { canonical, fai
     return {...result,reason:"The rising decision depends on the unknown exact value of a bounded '<1' point."};
   }
 
-  async function witness(product,proof,records,rows,signals,at) {
-    const w=product.priority_support,need=[1,2].includes(product.opportunity_priority)?2:1;
-    check(keys(w,['contract','meaning_hash','priority','sources','valid_until'])&&w.contract==='functional-priority-support-v1'&&w.meaning_hash===proof.meaning_hash&&w.priority===product.opportunity_priority&&Array.isArray(w.sources)&&w.sources.length===need);
-    const seen=new Set(),refs=new Set(),all=[];
-    for(const s of w.sources){check(keys(s,['source','kind','references','scope_reviews','valid_until'])&&signals[s.source]?.available&&!seen.has(s.source)&&s.kind===(need===2?'available':'positive')&&Array.isArray(s.references)&&s.references.length&&Array.isArray(s.scope_reviews)&&s.scope_reviews.length);seen.add(s.source);if(need===1)check(signals[s.source].positive===true||signals[s.source].evidence_support==='reasonably_positive');const dates=[];for(const r of s.references){const n=records[r.table]?.[r.id],date=n?.value?.observed_at??n?.value?.parsed?.metadata?.collected_at;check(keys(r,['table','id','hash','source','observed_at'])&&['observations','trends_evidence'].includes(r.table)&&n?.hash===r.hash&&r.observed_at===date&&r.source===s.source&&signals[s.source].used_ids.includes(r.id)&&!refs.has(r.id));refs.add(r.id);all.push(r);dates.push(utc(date,fail));}check(utc(s.valid_until,fail)===Math.min(...dates)+7*DAY);for(const r of s.scope_reviews)check(rows[r.id]?.record_hash===r.hash&&rows[r.id].references.some(v=>s.references.some(x=>v.id===x.id)));}
-    check(ordered(w.sources.map(s=>s.source))&&utc(w.valid_until,fail)===Math.min(...w.sources.map(s=>utc(s.valid_until,fail)))&&product.support_valid_until===w.valid_until&&same(product.priority_support_refs,[...refs].sort()),'ADMIN_FUNCTIONAL_WITNESS_CHANGED');
-    const release=asOf===null?at:utc(asOf,fail);check(release<=utc(w.valid_until,fail)&&all.every(r=>utc(r.observed_at,fail)<=release),'ADMIN_FUNCTIONAL_WITNESS_STALE');
-    // Rebuild the complete minimal witness. An aggregate model opinion cannot
-    // be cherry-picked into a newer, one-row favourable citation.
-    const verified=o=>o.source==='amazon'&&!o.facts.limitations?.length&&o.facts.list_type==='bestsellers'&&(!Object.hasOwn(o.facts,'direct_capture')||(o.facts.scope_verified===true&&integer(o.facts.position,1)&&object(o.facts.direct_capture)));
+  // Python market_validation.functional_score_support / validate_score_support.
+  async function witness(product,proof,records,rows,at) {
+    const w=product.score_support;
+    check(keys(w,['contract','meaning_hash','score','sources','presence','valid_until'])&&w.contract==='functional-score-support-v1'&&w.meaning_hash===proof.meaning_hash&&w.score===product.opportunity_score&&Array.isArray(w.sources)&&product.opportunity_basis.eligible===true);
     const iso=(value, originalDate)=>{const prefix=new Date(value).toISOString().slice(0,19),fraction=/\.(\d{1,6})(?:Z|\+00:00)$/.exec(originalDate)?.[1];return prefix+(fraction&&Number(fraction)?'.'+fraction.padEnd(6,'0'):'')+'+00:00';};
-    const choices=[];
-    for(const site of SITES) {
-      const signal=signals[site];if(!signal.available)continue;
-      const groups=need===2?signal.used_ids.map(r=>[r]):[];
-      if(need===1) {
-        if(signal.positive===true) {
-          if(['amazon','flipkart'].includes(site))groups.push(...signal.used_ids.filter(r=>records.observations?.[r]&&verified(records.observations[r].value)).map(r=>[r]));
-          else groups.push(signal.used_ids);
-        }
-        if(signal.evidence_support==='reasonably_positive')groups.push(...proof.source_support.filter(s=>s.source===site&&s.judgment==='reasonably_positive').map(s=>s.references));
-      }
-      const candidates=[];
-      for(const group of groups) {
-        const originalRefs=[],reviewIds=new Set();
-        for(const ref of [...new Set(group)].sort()) {
-          const table=records.observations?.[ref]?'observations':'trends_evidence',n=records[table]?.[ref], date=n?.value.observed_at??n?.value.parsed?.metadata?.collected_at;
-          check(n&&proof.matches[ref]); originalRefs.push({table,id:ref,hash:n.hash,source:site,observed_at:date});reviewIds.add(proof.matches[ref].scope_review_id);
-        }
-        for(const support of proof.source_support)if(need===1&&support.source===site&&support.judgment==='reasonably_positive'&&same([...support.references].sort(),[...new Set(group)].sort()))reviewIds.add(support.review_id);
-        const oldest=originalRefs.reduce((a,b)=>utc(a.observed_at,fail)<=utc(b.observed_at,fail)?a:b), expiry=utc(oldest.observed_at,fail)+7*DAY;
-        const row={source:site,kind:need===2?'available':'positive',references:originalRefs,scope_reviews:[...reviewIds].sort().map(id=>({id,hash:rows[id].record_hash})),valid_until:iso(expiry,oldest.observed_at)};
-        candidates.push({row,expiry,tie:await digest(row)});
-      }
-      if(candidates.length) choices.push(candidates.sort((a,b)=>a.expiry-b.expiry||(a.tie<b.tie?-1:a.tie>b.tie?1:0)).at(-1));
+    const node=ref=>records.observations?.[ref]??records.trends_evidence?.[ref],dateOf=n=>n?.value?.observed_at??n?.value?.parsed?.metadata?.collected_at;
+    const sites={};
+    for(const [site,refs] of Object.entries(marketEvidence(product)))for(const ref of refs){const n=node(ref),from=records.observations?.[ref]?n.value.source:'google-trends';check(n&&proof.matches[ref]&&(site==='quick-commerce'?QUICK_COMMERCE.includes(from):from===site),'ADMIN_FUNCTIONAL_WITNESS_CHANGED');(sites[from]??=[]).push(ref);}
+    const sources=[],dates=[],all=[];
+    for(const site of Object.keys(sites).sort()){
+      const refs=[...sites[site]].sort(),originals=refs.map(ref=>{const n=node(ref);return {table:records.observations?.[ref]?'observations':'trends_evidence',id:ref,hash:n.hash,source:site,observed_at:dateOf(n)};});
+      const oldest=originals.reduce((a,b)=>utc(a.observed_at,fail)<=utc(b.observed_at,fail)?a:b),reviews=[...new Set(refs.map(ref=>proof.matches[ref].scope_review_id))].sort();
+      sources.push({source:site,references:originals,scope_reviews:reviews.map(id=>({id,hash:rows[id].record_hash})),valid_until:iso(utc(oldest.observed_at,fail)+7*DAY,oldest.observed_at)});
+      dates.push(utc(oldest.observed_at,fail)+7*DAY);all.push(...originals);
     }
-    const groups=need===1?choices.map(v=>[v]):choices.flatMap((v,i)=>choices.slice(i+1).map(other=>[v,other]));
-    check(groups.length>0);groups.sort((a,b)=>Math.min(...a.map(v=>v.expiry))-Math.min(...b.map(v=>v.expiry))||canonical(a.map(v=>v.row.source).sort()).localeCompare(canonical(b.map(v=>v.row.source).sort())));
-    const chosen=groups.at(-1).map(v=>v.row).sort((a,b)=>a.source<b.source?-1:1), min=chosen.reduce((a,b)=>utc(a.valid_until,fail)<=utc(b.valid_until,fail)?a:b);
-    check(same(w,{contract:'functional-priority-support-v1',meaning_hash:proof.meaning_hash,priority:product.opportunity_priority,sources:chosen,valid_until:min.valid_until}),'ADMIN_FUNCTIONAL_WITNESS_CHANGED');
+    const parts=product.opportunity_basis.parts,lists=parts.want.items.platform_lists,at0=lists.points||parts.early.items.new_arrivals.points?lists.facts.presence_at:null;
+    const presence=at0?{at:at0,valid_until:iso(utc(at0,fail)+7*DAY,at0)}:null;
+    if(presence)dates.push(utc(at0,fail)+7*DAY);
+    check(dates.length>0,'ADMIN_FUNCTIONAL_WITNESS_CHANGED');
+    const until=Math.min(...dates),first=[...sources.map(r=>r.valid_until),...(presence?[presence.valid_until]:[])].find(v=>utc(v,fail)===until);
+    check(same(w,{contract:'functional-score-support-v1',meaning_hash:proof.meaning_hash,score:product.opportunity_score,sources,presence,valid_until:first})&&product.support_valid_until===w.valid_until&&same(product.score_support_refs,all.map(r=>r.id).sort()),'ADMIN_FUNCTIONAL_WITNESS_CHANGED');
+    const release=asOf===null?at:utc(asOf,fail);check(release<=until&&all.every(r=>utc(r.observed_at,fail)<=release)&&(!presence||utc(presence.at,fail)<=release),'ADMIN_FUNCTIONAL_WITNESS_STALE');
   }
 
   async function assets() {
@@ -754,15 +762,14 @@ export async function validateFunctionalPacket(facts, manifest, { canonical, fai
     const narrative=facts.narratives[language], proof=narrative?.writing_proof;
     check(keys(proof,['contract','items'])&&proof.contract==='report-writing-acceptance-v1'&&object(proof.items),'ADMIN_FUNCTIONAL_WRITING_PROOF_INVALID');
     const titleId=await key('report-title',[facts.issue_id,language,'writing-input-v1']), hindi=language==='hi-Latn';
-    const context={issue_id:facts.issue_id,language,allowed_placeholders:['title','rank','kpi_matches','date','retail_price','supplier_price'].map(p=>'{{'+p+'}}'),fact_policy:'Supplied facts only; numerical displays, market labels, links and commercial terms remain code-owned.',fit_policy_id:'fit-10-v1',criterion_ids:FIT_IDS,opportunity_policy_id:'opportunity-priority-v2',source_priority_rule:'Distinct confirmed platforms count once. Priority and source counts are code-owned. Catalogue presence and prices are context, not sales proof. Two usable platforms do not require growth; one platform needs supported positive context.',recommendation_contract:'functional-type-examples-v1',writing_contract:'writing-input-v1'};
+    const context={issue_id:facts.issue_id,language,allowed_placeholders:['title','rank','kpi_matches','date','retail_price','supplier_price'].map(p=>'{{'+p+'}}'),fact_policy:'Supplied facts only; numerical displays, market labels, links and commercial terms remain code-owned.',fit_policy_id:'fit-10-v1',criterion_ids:FIT_IDS,opportunity_policy_id:SCORE_POLICY,score_rule:'The opportunity score out of 100 and its four parts (want 20, early 30, room 25, product 25), the label and the Amazon/Flipkart crowding level are code-owned and measured from saved facts. Restate them only as supplied. Listings, stock and prices are context, not sales proof.',recommendation_contract:'functional-type-examples-v1',writing_contract:'writing-input-v1'};
     const english=hindi?facts.narratives.en:null;
     check(!hindi||object(english?.writing_proof?.items),'ADMIN_FUNCTIONAL_WRITING_ENGLISH_REQUIRED');
     const items=[{id:titleId,kind:'report_title',issue_id:facts.issue_id,language,facts:[],required_limitation:'',update_fact:'',source_english:english?{title:english.title}:null,criteria:[]}];
-    const labels={meta:'Facebook ads',amazon:'Amazon India',flipkart:'Flipkart','google-trends':'Google Trends',blinkit:'Blinkit',zepto:'Zepto',instamart:'Instamart'};
     for(const p of facts.products) {
       const f=[{id:'title',text:p.title,basis:'observed',references:[]},{id:'market-label',text:p.market_label,basis:'observed',references:[]}];
-      f.push(...p.market_checks.map((c,i)=>({id:'market-'+i,text:c.source+': '+c.state+'. '+c.detail,basis:c.interpretation_only&&c.basis!=='observed'?'inferred':'observed',references:[]})));
-      f.push({id:'confirmed-sources',text:p.opportunity_basis.source_ids.map(s=>labels[s]).join(', '),basis:'observed',references:Object.values(p.opportunity_basis.evidence_by_source).flat().sort()});
+      f.push(...p.market_checks.map((c,i)=>({id:'market-'+i,text:c.source+': '+c.state+'. '+c.detail,basis:'observed',references:[]})));
+      f.push({id:'opportunity-score',text:scoreText(p,language),basis:'observed',references:[...new Set(Object.values(marketEvidence(p)).flat())].sort()},{id:'crowding',text:crowdingText(p,language),basis:'observed',references:[]});
       f.push(...p.writing_facts.map((r,i)=>({text:r.text,basis:r.basis,references:r.references,id:'benefit-'+i})));
       f.push(...p.criteria.map(r=>({id:'criterion-'+r.id,text:r.state+': '+r.reason,basis:r.basis,references:r.references})));
       const update=p.status==='Updated'?p.update_reason??'':''; if(update)f.push({id:'update',text:update,basis:'observed',references:[]});

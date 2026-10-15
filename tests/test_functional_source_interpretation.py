@@ -12,8 +12,8 @@ from product_radar.research_sources import map_research_rows
 from product_radar.research_scope import validated_scoped_evidence
 from product_radar.source_coverage import execute_source_run, prepare_source_tasks, source_coverage
 from product_radar.marketplace_browser import build_marketplace_request
-from product_radar.source_interpretation import (FUNCTIONAL_MATCH_METHOD, FUNCTIONAL_SUPPORT_METHOD,
-    functional_source_questions, review_source_results)
+from product_radar.source_interpretation import (FUNCTIONAL_MATCH_METHOD, functional_source_questions,
+    review_source_results)
 from test_functional_queries import DEFINITION
 from test_research_sources import amazon_row, request
 import test_source_interpretation as legacy_fixtures
@@ -24,27 +24,21 @@ LATER = "2026-10-09T10:00:00+00:00"
 
 
 class Runner:
-    identity = "synthetic-functional-source-v4"
+    identity = "synthetic-functional-source-v5"
 
-    def __init__(self, *, relationship="relevant_family", scope="narrow_type", judgment="neutral", mutate=None):
+    def __init__(self, *, relationship="relevant_family", scope="narrow_type", judgment=None, mutate=None):
+        # judgment: the retired per-site opinion; the v5 relevance answer has none (kept for callers).
         self.calls = []
-        self.relationship, self.scope, self.judgment, self.mutate = relationship, scope, judgment, mutate
+        self.relationship, self.scope, self.mutate = relationship, scope, mutate
 
     def __call__(self, role, payload, folder):
         self.calls.append(deepcopy(payload))
         values = []
         for item in payload["items"]:
-            narrow = self.scope == "narrow_type" and self.relationship in ("exact_product", "relevant_family")
             values.append({"id": item["id"], "criteria": [], "compliance_note": "", "missing_questions": [],
                 "relevance": [{"id": alias, "relationship": self.relationship, "scope": self.scope,
                     "reason": "Synthetic explicit scope comparison.", "limitations": ["This is observed list context, not sales."]}
-                    for alias in item["reference_aliases"]],
-                "source_support": [{"source": source, "judgment": self.judgment,
-                    "basis": "observed" if narrow else "not_stated",
-                    "references": [alias for alias, ref in item["reference_aliases"].items()
-                        if next(row for row in item["observations"] if row["id"] == ref)["source"] == source] if narrow else [],
-                    "reason": "Synthetic source interpretation."}
-                    for source in sorted({row["source"] for row in item["observations"]})]})
+                    for alias in item["reference_aliases"]]})
         if self.mutate:
             action, self.mutate = self.mutate, None
             action()
@@ -98,10 +92,13 @@ class FunctionalSourceInterpretationTests(unittest.TestCase):
         self.assertEqual(item["meaning_hash"], effective_functional_definition(after, "first")["meaning_hash"])
         self.assertNotIn("report_title", item["description"])
         scoped = validated_scoped_evidence(after, "first", as_of=NOW)
-        self.assertEqual(len([row for row in scoped if row["method"] == FUNCTIONAL_MATCH_METHOD]), 3)
-        support = [row for row in scoped if row["method"] == FUNCTIONAL_SUPPORT_METHOD]
-        self.assertEqual(len(support), 1)
-        self.assertEqual(support[0]["job_proof"]["accepted_item_hash"], digest(support[0]["job_proof"]["accepted_item"]))
+        self.assertEqual(len(scoped), 3)  # one match row per record; no per-site opinion row (W7)
+        self.assertTrue(all(row["method"] == FUNCTIONAL_MATCH_METHOD for row in scoped))
+        proof = scoped[0]["job_proof"]
+        self.assertEqual((proof["prompt_version"], proof["accepted_item_hash"]),
+                         ("research-e-source-scope-v5", digest(proof["accepted_item"])))
+        self.assertNotIn("source_support", proof["accepted_item"])
+        self.assertNotIn("source_support", runner.calls[0])
         self.assertEqual({ctx["observed_at"] for row in scoped for ctx in row["source_contexts"]}, {NOW})
         calls = len(runner.calls)
         self.review(runner)
@@ -155,14 +152,17 @@ class FunctionalSourceInterpretationTests(unittest.TestCase):
         self.assertTrue(any(row["state"] == "waiting" for row in result["outcomes"]), result)
         self.assertFalse(validated_scoped_evidence(self.memory.snapshot(), "first", as_of=NOW))
 
-    def test_support_application_interruption_reuses_exact_saved_job(self):
+    def test_partial_answer_application_reuses_exact_saved_job(self):
+        # The answer is applied when every record it judged has its own match row.
         from product_radar.research_scope import accept_scoped_evidence
-        def fail_support(*args, **kwargs):
-            if kwargs["method"] == FUNCTIONAL_SUPPORT_METHOD:
+        saves = []
+        def fail_last(*args, **kwargs):
+            saves.append(1)
+            if len(saves) == 3:
                 raise OSError("synthetic local save interruption")
             return accept_scoped_evidence(*args, **kwargs)
         runner = Runner()
-        with patch("product_radar.research_scope.accept_scoped_evidence", side_effect=fail_support):
+        with patch("product_radar.research_scope.accept_scoped_evidence", side_effect=fail_last):
             result = self.review(runner)
         self.assertEqual(result["remaining_questions"], 1)
         final = self.review(runner)

@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from product_radar.models import SafetyError, digest
-from product_radar.research_ai import (PROMPT_VERSION, SOURCE_RELEVANCE_PROMPT_VERSION, SOURCE_SUPPORT_PROMPT_VERSION,
+from product_radar.research_ai import (PROMPT_VERSION, SOURCE_RELEVANCE_PROMPT_VERSION,
                                      e_contract, validate_results)
 from product_radar.research_memory import ResearchMemory, import_capture, key
 from product_radar.research_sources import map_research_rows
@@ -46,15 +46,6 @@ class Runner:
                 relevance[0]["id"] = "invented-reference"
             result = {"id": item["id"], "criteria": [], "relevance": relevance,
                       "compliance_note": "", "missing_questions": []}
-            if payload.get("relevance_style") == "short-references-support-v3":
-                result["source_support"] = [{"source": source, "judgment": "neutral" if self.relationship in
-                    ("exact_product", "relevant_family") else "unclear",
-                    "basis": "observed" if self.relationship in ("exact_product", "relevant_family") else "not_stated",
-                    "references": [name for name, ref in item["reference_aliases"].items()
-                                   if next(row for row in item["observations"] if row["id"] == ref)["source"] == source]
-                                   if self.relationship in ("exact_product", "relevant_family") else [],
-                    "reason": "Synthetic current source context, not a sales claim."}
-                    for source in sorted({row["source"] for row in item["observations"]})]
             rows.append(result)
         if self.mutate:
             self.mutate()
@@ -142,6 +133,10 @@ class SourceInterpretationTests(unittest.TestCase):
         self.assertEqual(len(runner.calls), 1)
         record = next(iter(after["market_reviews"].values()))
         self.assertEqual({row["id"] for row in record["relevance"]}, set(before["observations"]))
+        # Relevance only: the retired per-site opinion is neither asked nor saved (W7).
+        self.assertEqual((record["prompt_version"], runner.calls[0]["relevance_style"]),
+                         (SOURCE_RELEVANCE_PROMPT_VERSION, "short-references-v2"))
+        self.assertFalse({"source_support", "support_version"} & set(record))
 
     def test_shared_capture_reviews_each_target_independently_and_replays_without_model(self):
         task_id = self.acquired(ids=["first", "second"]); runner = Runner()
@@ -196,6 +191,27 @@ class SourceInterpretationTests(unittest.TestCase):
         review_source_results(self.memory, runner, run_id="full-list", as_of=NOW)
         self.assertEqual(len(runner.calls), 2)
         self.assertEqual(self.memory.snapshot()["market_reviews"], {})
+
+    def test_source_record_change_during_model_keeps_result_but_does_not_apply_it(self):
+        from unittest.mock import patch
+        import product_radar.source_interpretation as interpretation
+        task_id = self.acquired()
+        changed, real = [], interpretation.source_evidence
+        def evidence(state, ref):
+            source, at, original = real(state, ref)
+            # Saved records are immutable; this stands in for a reviewed record no longer being what was sent.
+            return (source, at, dict(original, changed_meanwhile=True)) if changed and original is not None else (source, at, original)
+        commit = self.memory.commit
+        def committing(event_id, *args, **kwargs):  # the change lands between building the review and saving it
+            if event_id.startswith("market-review-"):
+                changed.append(True)
+            return commit(event_id, *args, **kwargs)
+        with patch.object(interpretation, "source_evidence", side_effect=evidence), \
+                patch.object(self.memory, "commit", side_effect=committing):
+            result = review_source_results(self.memory, Runner(), run_id="full-list", as_of=NOW)
+        self.assertIn("SOURCE_REVIEW_EVIDENCE_CHANGED", {row.get("reason") for row in result["outcomes"]})
+        self.assertEqual(self.memory.snapshot()["market_reviews"], {})
+        self.assertEqual(self.memory.snapshot()["query_tasks"][task_id]["target_results"]["first"]["state"], "interpretation_pending")
 
     def test_description_change_during_model_keeps_result_but_does_not_apply_to_new_product(self):
         task_id = self.acquired()

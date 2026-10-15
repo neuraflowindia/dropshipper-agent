@@ -1,7 +1,7 @@
 """Crowding level per narrow type from reviewed relevant listings (Plan R10 W6).
 
 Every type, review and listing below is synthetic. The saved pages are trimmed
-real first results pages, read by parser v2. No model, page or provider call.
+real first results pages, read by parser v3. No model, page or provider call.
 """
 
 from copy import deepcopy
@@ -55,13 +55,15 @@ class LevelRuleTests(unittest.TestCase):
         self.assertEqual(self.level([listing(ratings=1000)] * 3), ("high", "well_rated_listings"))
         self.assertEqual(self.level([listing(ratings=1000)] * 2 + [listing(ratings=999)]), ("medium", "default"))
 
-    def test_eight_listings_from_five_brands_is_the_brand_boundary(self):
-        brands = ["A", "B", "C", "D", "E"]
-        self.assertEqual(self.level([listing(brand=brand) for brand in brands] + [listing()] * 3),
-                         ("high", "many_brands"))
-        self.assertEqual(self.level([listing(brand=brand) for brand in brands] + [listing()] * 2), ("medium", "default"))
-        self.assertEqual(self.level([listing(brand=brand) for brand in ["A", "a ", "B", "C", "D"]] + [listing()] * 3),
+    def test_eight_listings_showing_five_brands_is_the_brand_boundary(self):
+        brands = ["A", "B", "C", "D", "E", "A", "B", "C"]
+        self.assertEqual(self.level([listing(brand=brand) for brand in brands]), ("high", "many_brands_shown"))
+        self.assertEqual(self.level([listing(brand=brand) for brand in brands[:7]]), ("medium", "default"))
+        self.assertEqual(self.level([listing(brand=brand) for brand in ["A", "a ", "B", "C", "D", "A", "B", "C"]]),
                          ("medium", "default"))  # Brand text compared without case or spacing.
+        # A listing whose card shows no brand never counts towards the brand rule.
+        level, rule, counts = crowding_level([listing(brand=brand) for brand in brands[:5]] + [listing()] * 3, THRESHOLDS)
+        self.assertEqual((level, counts["listings_with_brand"], counts["brand_not_shown"]), ("medium", 5, 3))
 
     def test_two_listings_with_1k_bought_is_the_bought_boundary(self):
         self.assertEqual(self.level([listing(bought=1000), listing("flipkart", bought=5000)]), ("high", "bought_past_month"))
@@ -103,7 +105,7 @@ class LevelRuleTests(unittest.TestCase):
         _, _, counts = crowding_level([listing(ratings=1500, brand="Acme", bought=2000), listing("flipkart"),
                                        listing(bestseller=True, ratings=250)], THRESHOLDS)
         self.assertEqual(counts, {"relevant_listings": {"amazon": 2, "flipkart": 1}, "brands_or_sellers": 1,
-            "max_ratings": 1500, "listings_rated_high": 1, "listings_rated_200_plus": 2, "bought_past_month_hits": 1,
+            "listings_with_brand": 1, "brand_not_shown": 2, "max_ratings": 1500, "listings_rated_high": 1, "listings_rated_200_plus": 2, "bought_past_month_hits": 1,
             "bestseller_hits": 1, "bestseller_badges": 0, "sponsored_listings": 0, "ratings_not_shown": 1,
             "card_facts_missing": 0, "variants_collapsed": 0})
 
@@ -206,7 +208,7 @@ class CrowdingFactTests(TypeFixture):
         self.assertFalse(crowding_known(fact))
         pool = build_report_pool(self.memory, as_of=NOW, recommendation_contract=RECOMMENDATION_CONTRACT)
         decision = next(row for row in pool["decisions"] if row["concept_id"] == self.cid)
-        self.assertIn("crowding_check_pending", decision["codes"])
+        self.assertIn("crowding_pending", decision["codes"])
         self.assertFalse(pool["eligible"])
 
     def test_both_searches_read_with_few_quiet_listings_is_low(self):
@@ -232,7 +234,7 @@ class CrowdingFactTests(TypeFixture):
         self.assertEqual(refresh_crowding(self.memory, [self.cid], as_of=NOW)["saved"], 0)
         decision = next(row for row in build_report_pool(self.memory, as_of=NOW,
             recommendation_contract=RECOMMENDATION_CONTRACT)["decisions"] if row["concept_id"] == self.cid)
-        self.assertNotIn("crowding_check_pending", decision["codes"])
+        self.assertNotIn("crowding_pending", decision["codes"])
 
     def test_well_rated_listings_make_high_and_a_third_listing_makes_medium(self):
         self.make()
@@ -425,6 +427,17 @@ class CalibrationTests(TypeFixture):
         self.assertNotIn("crowding_check", meter["optional_input_failures"])
         self.assertEqual(meter["crowding_check"]["calibration"], "calibration_needed")
         self.assertTrue(meter["crowding_check"]["alert"].startswith("CROWDING CALIBRATION NEEDED"))
+
+    def test_owner_meter_shows_the_opportunity_score_tally(self):
+        import product_radar.programme as programme
+        self.make(with_market=True, count=3)
+        meter = programme.programme_meter(self.memory, root=self.root, as_of=NOW)
+        self.assertNotIn("opportunity_score", meter["optional_input_failures"])
+        score = meter["opportunity_score"]
+        self.assertEqual((score["scored"], score["labels"]["proven_but_crowded"], score["calibration"], score["alert"]),
+                         (3, 3, "waiting_for_sample", None))
+        self.assertEqual(score["text"], "Opportunity score: 3 types scored (0 sweet spot, 0 early bet, 3 proven but crowded, "
+                                        "0 too quiet), 0 waiting for the crowding check; calibration waiting for sample (3 of 50).")
 
     def test_in_range_share_and_too_few_checked_types(self):
         ids = self.make(with_market=True, count=2)

@@ -172,6 +172,37 @@ class DesktopControlTests(unittest.TestCase):
         self.assertEqual(summary["platform_lines"], ["The dropshipping platform records could not be read. See the project log."])
         self.assertTrue(summary["line"].startswith("Sign-in needed: Google account"))
 
+    def test_sign_in_area_ends_with_the_opportunity_score_line_and_its_calibration_alert(self):
+        from product_radar import opportunity_score as score
+        captured = self.root / "data/research/captured"
+        with patch.object(controls, "owned_programmes", return_value=[]):
+            self.assertEqual(controls.status(self.root)["sign_in"]["score_line"], "Opportunity score: no types scored yet.")
+        memory = SimpleNamespace(root=captured, snapshot=lambda: {"batch_runs": {}},
+                                 put=lambda *args, **kwargs: None)
+        def decisions(quiet, sweet):
+            market = {"sources": {site: {"available": False, "positive": None, "used_ids": []}
+                                  for site in ("meta", "amazon", "flipkart", "google-trends", "blinkit", "zepto", "instamart")}}
+            low = {"level": "low", "rule": "few_listings", "thresholds_version": "t", "counts": None, "evidence_ids": []}
+            quiet_row = score.opportunity_fields(score.evaluate_opportunity(
+                {"fit_policy_id": "fit-10-v1", "kpi_matches": 6, "kpi_total": 10}, market, presence=None, crowding=low))
+            sweet_row = score.opportunity_fields(score.evaluate_opportunity(
+                {"fit_policy_id": "fit-10-v1", "kpi_matches": 6, "kpi_total": 10}, market, crowding=low,
+                presence={"at": "2026-10-14T10:00:00+00:00", "listed": {"deodap": ["i1"], "dropdash": ["i2"]},
+                          "on_list": {"deodap": ["i1"], "dropdash": ["i2"]}, "new_arrival": {}}))
+            # Distinct types: the one-time calibration samples each scored type once.
+            return {"decisions": [dict(quiet_row, concept_id=f"quiet{n:02d}") for n in range(quiet)]
+                    + [dict(sweet_row, concept_id=f"sweet{n:02d}") for n in range(sweet)]}
+        saved = score.record_score_summary(memory, decisions(45, 5), at="2026-10-15T10:00:00+00:00")
+        with patch.object(controls, "owned_programmes", return_value=[]):
+            line = controls.status(self.root)["sign_in"]["score_line"]
+        self.assertEqual(line, saved["text"] + "\n" + saved["alert"])
+        self.assertTrue(line.startswith("Opportunity score: 50 types scored (5 sweet spot, 0 early bet, 0 proven but crowded, 45 too quiet)"))
+        self.assertIn("\nSCORE CALIBRATION NEEDED: 0.9000 of the first 50 scored types are Too quiet", line)
+        (captured / "opportunity_score/summary.json").write_text("{corrupt")
+        summary = controls.sign_in_summary(self.root)  # a corrupt score record never hides the sign-in needs
+        self.assertEqual(summary["score_line"], "The opportunity score records could not be read. See the project log.")
+        self.assertTrue(summary["line"].startswith("Sign-in needed: Google account"))
+
     def test_open_sign_in_window_is_rechecked_at_most_every_thirty_seconds(self):
         from product_radar import signed_in_browser
         signed_in_browser.note_sign_in_window(self.root, True, opened=True)
@@ -195,7 +226,8 @@ class DesktopControlTests(unittest.TestCase):
         self.assertEqual(result["sign_in"], {"window_open": False, "needs": [],
                                              "line": "The sign-in records could not be read. See the project log.",
                                              "platform_lines": [],
-                                             "trends_line": "Google Trends: waiting for the owner to sign in."})
+                                             "trends_line": "Google Trends: waiting for the owner to sign in.",
+                                             "score_line": "Opportunity score: no types scored yet."})
 
     def test_sign_in_action_opens_the_window_and_returns_research_status(self):
         from product_radar import signed_in_browser

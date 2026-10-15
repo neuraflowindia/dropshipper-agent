@@ -1,6 +1,6 @@
 # Dropshipping platforms and search services (researched 14 October 2026, built 14 October)
 
-Status (15 October 2026): **built** as package W4 of [Plan R10](../../project/plan-2026-10-14-speed-sources-and-selection.md) (commit `6089f42`, branch `r10`); live proof at the W13 cutover. The client asked (13 October) that four Indian dropshipping platforms be considered as sources; on 14 October the owner confirmed permission from all four platforms and creates the accounts on Dropship India and Dropdash. The findings below come from the 14 October first look, which read public pages only: no login, no forms, a handful of fetches per site.
+Status (15 October 2026): **built** as package W4 of [Plan R10](../../project/plan-2026-10-14-speed-sources-and-selection.md) (commit `4707231`, branch `r10`); live proof at the W13 cutover. The client asked (13 October) that four Indian dropshipping platforms be considered as sources; on 14 October the owner confirmed permission from all four platforms and creates the accounts on Dropship India and Dropdash. The findings below come from the 14 October first look, which read public pages only: no login, no forms, a handful of fetches per site.
 
 ## What was built
 

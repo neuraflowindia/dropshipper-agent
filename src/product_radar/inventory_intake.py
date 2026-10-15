@@ -365,7 +365,7 @@ def refresh_inventory_intake(memory, record, *, as_of, pool=None, subject_limit=
                     "support_dependencies": deepcopy(product.get("source_revisions", {})),
                     "source_scope_hash": product.get("source_scope_hash"), "status": "Updated" if updated else "New",
                     "usable_until": product.get("support_valid_until", product.get("usable_until")),
-                    "priority_support": deepcopy(product.get("priority_support")),
+                    "score_support": deepcopy(product.get("score_support")),
                     "publication_baseline": deepcopy(verdict.get("baseline")) if verdict else None,
                     "update_verdict": deepcopy(verdict)}
                 ref = key("reporting-intake", binding)
@@ -553,15 +553,15 @@ def admit_selected_inventory_work(memory, record, *, as_of, pool, limit=10):
         # A functional recommendation carries its actual sufficient witness.
         # It must not rely on legacy target_results, which correctly remain
         # unpromoted when the accepted meaning is assessed separately.
-        witness = product.get("priority_support") if product else None
+        witness = product.get("score_support") if product else None
         if not product:
             prior = [row["binding"] for row in state["batch_runs"].values()
                      if row.get("kind") == INTAKE_KIND and row.get("binding", {}).get("client_id") == record["client_id"]
                      and row.get("expired") is None
                      and row["binding"].get("concept_id") == cid and row["binding"].get("meaning_hash") == _meaning(state, cid)
-                     and row["binding"].get("priority_support")]
+                     and row["binding"].get("score_support")]
             if prior:
-                witness = max(prior, key=lambda row: (timestamp(row["usable_until"]), digest(row)))["priority_support"]
+                witness = max(prior, key=lambda row: (timestamp(row["usable_until"]), digest(row)))["score_support"]
         required_refs = {ref["id"]: ref for site in (witness or {}).get("sources", []) for ref in site["references"]}
         from .functional_types import effective_functional_definition
         accepted = effective_functional_definition(state, cid)["accepted"]

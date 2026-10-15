@@ -3,11 +3,13 @@
 Amazon and Flipkart are no longer discovery sources; they answer "how crowded
 is this product already?". Code decides the level from AI-reviewed relevant
 listings only (the existing type-scoped relevance reviews; no extra model
-call), joined to parser-v2 card facts read from the saved first pages:
+call), joined to parser-v3 card facts read from the saved first pages:
 
 * High: a relevant item on an Amazon bestseller list, or enough relevant
-  listings with many ratings, or many relevant listings from many different
-  brands/sellers, or enough relevant listings showing "1K+ bought in past
+  listings with many ratings, or many relevant listings that show a brand from
+  many different brands/sellers (rule ``many_brands_shown``: only cards that
+  show a brand count; a card that shows none is "brand not shown", never a
+  brand of its own), or enough relevant listings showing "1K+ bought in past
   month" (thresholds in config/research/crowding.json).
 * Low: at most two relevant listings across both sites, none with 200+ ratings.
 * Medium: everything else.
@@ -31,7 +33,7 @@ from .models import SafetyError, digest, identifier, timestamp, utc_now
 from .research_memory import change, key
 from .storage import load_json
 
-VERSION = "crowding-v1"
+VERSION = "crowding-v2"  # v2: the brand rule counts only listings that show a brand
 FACT_KIND = "crowding-fact-v1"
 CALIBRATION_KIND = "crowding-calibration-v1"
 SETTINGS = Path(__file__).resolve().parents[2] / "config/research/crowding.json"
@@ -92,9 +94,12 @@ def crowding_level(listings, thresholds):
     high, low = thresholds["high"], thresholds["low"]
     cards = [row["card"] for row in listings if row["card"] is not None]
     ratings = [card["ratings_count"] for card in cards if card.get("ratings_count") is not None]
-    brands = {" ".join(card["brand"].casefold().split()) for card in cards if card.get("brand")}
+    branded = [card for card in cards if card.get("brand")]
+    brands = {" ".join(card["brand"].casefold().split()) for card in branded}
     counts = {"relevant_listings": {site: sum(row["site"] == site for row in listings) for site in ("amazon", "flipkart")},
-              "brands_or_sellers": len(brands), "max_ratings": max(ratings) if ratings else None,
+              # Only cards that show a brand count; most pages show none ("brand not shown").
+              "brands_or_sellers": len(brands), "listings_with_brand": len(branded),
+              "brand_not_shown": len(cards) - len(branded), "max_ratings": max(ratings) if ratings else None,
               "listings_rated_high": sum(value >= high["rated_min_ratings"] for value in ratings),
               "listings_rated_200_plus": sum(value >= low["ratings_below"] for value in ratings),
               "bought_past_month_hits": sum((card.get("bought_past_month") or 0) >= high["bought_min_per_month"]
@@ -106,19 +111,35 @@ def crowding_level(listings, thresholds):
               "ratings_not_shown": sum(card.get("ratings_count") is None for card in cards),
               "card_facts_missing": len(listings) - len(cards),
               "variants_collapsed": sum(row.get("variants", 1) - 1 for row in listings)}
-    total = len(listings)
+    return (*threshold_ladder(counts, thresholds), counts)
+
+
+_LADDER_COUNTS = ("bestseller_hits", "listings_rated_high", "listings_with_brand", "brands_or_sellers",
+                  "bought_past_month_hits", "card_facts_missing", "listings_rated_200_plus", "ratings_not_shown")
+
+
+def threshold_ladder(counts, thresholds):
+    """(level or None, rule) the thresholds give for a fact's counts; pure, so a
+    saved or frozen fact can be re-checked from its own counts."""
+    high, low = thresholds["high"], thresholds["low"]
+    if (not isinstance(counts, dict) or any(type(counts.get(name)) is not int or counts[name] < 0 for name in _LADDER_COUNTS)
+            or not isinstance(counts.get("relevant_listings"), dict) or set(counts["relevant_listings"]) != {"amazon", "flipkart"}
+            or any(type(value) is not int or value < 0 for value in counts["relevant_listings"].values())):
+        raise SafetyError("CROWDING_FACT_INVALID")
+    total = sum(counts["relevant_listings"].values())
     for rule, met in (("bestseller_list", counts["bestseller_hits"] >= high["bestseller_hits"]),
                       ("well_rated_listings", counts["listings_rated_high"] >= high["rated_listings"]),
-                      ("many_brands", total >= high["listings"] and counts["brands_or_sellers"] >= high["brands"]),
+                      ("many_brands_shown", counts["listings_with_brand"] >= high["listings"]
+                       and counts["brands_or_sellers"] >= high["brands"]),
                       ("bought_past_month", counts["bought_past_month_hits"] >= high["bought_listings"])):
         if met:
-            return "high", rule, counts
+            return "high", rule
     if counts["card_facts_missing"]:
-        return None, "saved_page_unreadable", counts
+        return None, "saved_page_unreadable"
     # An unknown rating count is not a zero: such a listing never supports Low.
     if total <= low["max_listings"] and counts["listings_rated_200_plus"] == 0 and counts["ratings_not_shown"] == 0:
-        return "low", "few_listings", counts
-    return "medium", "default", counts
+        return "low", "few_listings"
+    return "medium", "default"
 
 
 def _relevant_rows(state, concept_id, *, as_of):
@@ -186,9 +207,10 @@ def _reads(state, concept_id, *, as_of):
     return reads, captures
 
 
-def crowding_inputs(state, concept_id, *, as_of):
+def crowding_inputs(state, concept_id, *, as_of, folders=None):
     """Inputs of the check (records plus the saved pages' file state, no file
-    contents); their hash tells when to look again."""
+    contents); their hash tells when to look again. ``folders`` maps a saved
+    page folder to where it is read (a store copy); records are never changed."""
     from .functional_types import effective_functional_definition
     meaning = effective_functional_definition(state, concept_id)
     if not meaning["accepted"]:
@@ -206,17 +228,22 @@ def crowding_inputs(state, concept_id, *, as_of):
                          "capture_id": (facts.get("direct_capture") or {}).get("capture_id")})
     reads, captures = _reads(state, concept_id, as_of=as_of)
     # The saved pages' own file state: a page that appears or changes is looked at again.
-    pages = {capture_id: _page_state(state, capture_id) for capture_id in sorted(
+    pages = {capture_id: _page_state(state, capture_id, folders) for capture_id in sorted(
         {row["capture_id"] for row in listings if row["capture_id"]} | {ref for refs in captures.values() for ref in refs})}
     return {"meaning_hash": meaning["meaning_hash"], "listings": listings, "reads": reads, "read_captures": captures,
             "pages": pages}
 
 
-def _page_state(state, capture_id):
+def _page_state(state, capture_id, folders=None):
     reference = state["captures"].get(capture_id, {}).get("reference")
     folder = reference.get("folder") if isinstance(reference, dict) else None
     if not isinstance(folder, str):
         return None
+    if folders is not None:
+        try:
+            folder = folders(folder)
+        except SafetyError:
+            return [[name, None, None] for name in ("rendered.html", "snapshot.json")]
     files = []
     for name in ("rendered.html", "snapshot.json"):
         try:
@@ -243,11 +270,12 @@ def _cards(state, capture_id, route, reader, memo):
 _COMPUTE = object()
 
 
-def assess_crowding(state, concept_id, *, as_of, thresholds, card_reader=read_capture_cards, memo=None, inputs=_COMPUTE):
+def assess_crowding(state, concept_id, *, as_of, thresholds, card_reader=read_capture_cards, memo=None, inputs=_COMPUTE,
+                    folders=None):
     """One type's crowding fact (not saved); reads only saved pages."""
     from .marketplace_browser import verified_list_observation
     memo = {} if memo is None else memo
-    inputs = crowding_inputs(state, concept_id, as_of=as_of) if inputs is _COMPUTE else inputs
+    inputs = crowding_inputs(state, concept_id, as_of=as_of, folders=folders) if inputs is _COMPUTE else inputs
     fact = {"kind": FACT_KIND, "version": VERSION, "concept_id": concept_id, "parser_version": CARD_PARSER_VERSION,
             "thresholds_version": thresholds["version"], "meaning_hash": None, "level": NOT_CHECKED,
             "reason": "CROWDING_MEANING_PENDING", "rule": None, "counts": None, "reads": None,
@@ -346,13 +374,52 @@ def crowding_for(state, concept_id, *, thresholds=None):
             "meaning_hash": meaning["meaning_hash"] if meaning["accepted"] else None}
 
 
+def validate_crowding_fact(fact, concept_id, meaning_hash, thresholds=None):
+    """A crowding fact as ``crowding_for`` returns it, for this type and meaning
+    and the current thresholds (a frozen report copy is checked without the
+    research store): its level and rule must be what the threshold ladder gives
+    for its own stored counts; a checked level never stands on its word."""
+    thresholds = thresholds or load_thresholds()
+    try:
+        known = fact["level"] in LEVELS
+        if (fact["kind"] != FACT_KIND or fact["version"] != VERSION or fact["concept_id"] != concept_id
+                or fact["meaning_hash"] != meaning_hash or meaning_hash is None
+                or fact["parser_version"] != CARD_PARSER_VERSION or fact["thresholds_version"] != thresholds["version"]
+                or fact["level"] not in LEVELS + (NOT_CHECKED,) or not isinstance(fact["evidence_ids"], list)
+                or fact["evidence_ids"] != sorted(set(fact["evidence_ids"]))
+                or any(not isinstance(ref, str) for ref in fact["evidence_ids"])):
+            raise SafetyError("CROWDING_FACT_INVALID")
+        if known and (fact["reason"] != "CROWDING_CHECKED"
+                      or threshold_ladder(fact["counts"], thresholds) != (fact["level"], fact["rule"])
+                      or sum(fact["counts"]["relevant_listings"].values()) > len(fact["evidence_ids"])):
+            raise SafetyError("CROWDING_FACT_INVALID")
+        # Not checked: never with a rule, and never when its own counts already show High.
+        if not known and (fact["rule"] is not None or fact["reason"] == "CROWDING_CHECKED"
+                          or fact["counts"] is not None and threshold_ladder(fact["counts"], thresholds)[0] == "high"):
+            raise SafetyError("CROWDING_FACT_INVALID")
+        for ref in fact["evidence_ids"]:
+            identifier(ref)
+    except (SafetyError, KeyError, TypeError, AttributeError):  # an evidence id that is not an identifier too
+        raise SafetyError("CROWDING_FACT_INVALID") from None
+    return fact
+
+
+def crowding_unchanged(state, concept_id, facts, meaning_hash):
+    """Reserve/release check: the type's current crowding still has the frozen
+    level, rule, thresholds version and meaning. Only these four are compared,
+    so a re-check that finds the same answer never disturbs a reservation."""
+    current = crowding_for(state, concept_id)
+    return ((current["level"], current["rule"], current["thresholds_version"], current["meaning_hash"])
+            == (facts["level"], facts["rule"], facts["thresholds_version"], meaning_hash))
+
+
 def crowding_known(fact):
     return isinstance(fact, dict) and fact.get("level") in LEVELS
 
 
-def _due_inputs(state, concept_id, *, as_of, thresholds):
+def _due_inputs(state, concept_id, *, as_of, thresholds, folders=None):
     """The check's inputs when its saved answer is missing or out of date, else None."""
-    inputs = crowding_inputs(state, concept_id, as_of=as_of)
+    inputs = crowding_inputs(state, concept_id, as_of=as_of, folders=folders)
     if inputs is None:
         return None  # No accepted meaning: nothing can be checked or saved.
     saved = state["batch_runs"].get(fact_id(concept_id))
@@ -431,13 +498,15 @@ def _calibrate(memory, thresholds, at):
 
 
 def refresh_crowding(memory, concept_ids, *, as_of=None, priority=(), limit=REFRESH_LIMIT, thresholds=None,
-                     card_reader=read_capture_cards):
+                     card_reader=read_capture_cards, folders=None):
     """Work out and save the crowding fact of up to ``limit`` due types (free, no model).
 
     Only types whose saved answer is missing or out of date (a new meaning,
     parser, thresholds or changed reads, reviews or saved pages) are worked
     out, priority types first, so a large group never re-checks the same types
     while others wait. Finishes with the one-time calibration check.
+    ``card_reader`` and ``folders`` let a reader work on a copy of a store:
+    saved page folders are mapped at read time, never rewritten in records.
     """
     from .read_memo import pure_read_scope
     at = as_of or utc_now(); timestamp(at)
@@ -452,7 +521,7 @@ def refresh_crowding(memory, concept_ids, *, as_of=None, priority=(), limit=REFR
     first = [cid for cid in dict.fromkeys(priority) if cid in ids]
     with pure_read_scope():
         for cid in first + [cid for cid in ids if cid not in set(first)]:
-            inputs = _due_inputs(state, cid, as_of=at, thresholds=thresholds)
+            inputs = _due_inputs(state, cid, as_of=at, thresholds=thresholds, folders=folders)
             if inputs is None:
                 continue
             if len(results) == limit:

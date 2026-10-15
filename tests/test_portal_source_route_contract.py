@@ -25,6 +25,7 @@ from product_radar.providers.trends_browser import parse_trends_csv
 from product_radar.report_narration import generate_report_narratives
 from product_radar.research_memory import ResearchMemory, change
 from product_radar.storage import Journal
+from test_fit_pipeline import older_format_scores
 
 
 def website_validation(facts):
@@ -50,6 +51,7 @@ def website_validation(facts):
 
 
 @unittest.skipUnless(shutil.which("node"), "Website runtime is not installed")
+@older_format_scores
 class PortalSourceContractTests(unittest.TestCase):
     def test_a_dropshipping_platform_row_with_a_finished_check_passes_the_website_validation(self):
         from product_radar.platform_matching import MATCH_VERSION

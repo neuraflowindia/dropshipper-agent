@@ -122,7 +122,7 @@ def scoped_material_snapshot(fact, market):
                     for metric in row.get("measurements", [])]}
                    for row in fact.get("source_route_checks", []) if row.get("source_role") == source]
         sources[source] = {"signal": {name: deepcopy(signal[name]) for name in
-            ("available", "positive", "evidence_support", "advertisers", "active_ads", "recent_mean", "prior_mean",
+            ("available", "positive", "advertisers", "active_ads", "recent_mean", "prior_mean",
              "ratio", "previous_mean_bounds", "recent_mean_bounds", "ratio_bounds") if name in signal},
             "scopes": _unique(contexts[source]), "measurements": _unique(metrics)}
     scoped = fact.get("supplier_scoped_terms") or {}

@@ -40,14 +40,15 @@ class RealPageTests(unittest.TestCase):
     def test_amazon_search_reads_ratings_stars_brand_bought_and_sponsored_per_card(self):
         result = parse_saved_cards("amazon-search", *page("amazon-search-camphor-cones"))
         self.assertEqual((result["parser_version"], result["state"], result["total_results"],
-                          result["total_results_lower_bound"]), (2, "read", 337, False))
+                          result["total_results_lower_bound"]), (3, "read", 337, False))
         cards = result["cards"]
         self.assertEqual(list(cards), ["B0BLLNWWY5", "B0GRMKRBDS", "B0GMDHJDWX", "B07ZJSK969"])
-        self.assertEqual(cards["B0BLLNWWY5"], {"ratings_count": 3752, "star_rating": "4.0", "brand": "CamPure",
+        self.assertEqual(cards["B0BLLNWWY5"], {"ratings_count": 3752, "star_rating": "4.0", "brand": "CamPure", "brand_shown": True,
             "bought_past_month": 900, "bought_text": "900+ bought in past month", "sponsored": True,
             "list_rank": None, "bestseller_badge": False, "position": 1})
         self.assertEqual((cards["B0GRMKRBDS"]["ratings_count"], cards["B0GRMKRBDS"]["brand"],
                           cards["B0GRMKRBDS"]["bought_past_month"]), (14, None, None))
+        self.assertIs(cards["B0GRMKRBDS"]["brand_shown"], False)  # "brand not shown", not "no brand"
         self.assertEqual((cards["B0GMDHJDWX"]["brand"], cards["B0GMDHJDWX"]["bought_past_month"]), ("Haka", 1000))
         self.assertEqual((cards["B07ZJSK969"]["sponsored"], cards["B07ZJSK969"]["ratings_count"],
                           cards["B07ZJSK969"]["star_rating"]), (False, 5813, "4.1"))
@@ -78,12 +79,16 @@ class RealPageTests(unittest.TestCase):
                           "CANHQP28RVTG6ZAA": (216, "4.3"), "CANHPF5ZV3HHZWPD": (6, "3.8")})
         self.assertTrue(all(row["brand"] is None and row["bought_past_month"] is None and row["sponsored"] is False
                             for row in result["cards"].values()))
+        # Flipkart search cards show no brand or seller field (the brand only starts the title).
+        self.assertTrue(all(row["brand_shown"] is False for row in result["cards"].values()))
 
     def test_flipkart_list_layout_reads_indian_grouped_rating_counts(self):
         result = parse_saved_cards("flipkart-search", *page("flipkart-search-juicer-mixer-grinder"))
         self.assertEqual(result["total_results"], 1274)
         self.assertEqual({identity: (row["ratings_count"], row["star_rating"]) for identity, row in result["cards"].items()},
                          {"MIXGRH82YRZPZBZH": (69755, "4.2"), "MIXHMECM5RQF7TNE": (239048, "4.1")})
+        # The list layout shows no brand or seller field either: "brand not shown".
+        self.assertTrue(all(row["brand"] is None and row["brand_shown"] is False for row in result["cards"].values()))
 
     def test_amazon_bestseller_list_reads_rank_and_ratings_without_a_total(self):
         result = parse_saved_cards("amazon-bestsellers", *page("amazon-bestsellers-kitchen"))
@@ -91,6 +96,7 @@ class RealPageTests(unittest.TestCase):
         self.assertEqual({identity: (row["list_rank"], row["ratings_count"], row["star_rating"])
                           for identity, row in result["cards"].items()},
                          {"B07QP9PTZP": (1, 912879, "4.5"), "B0821PN8L4": (2, 54676, "4.4")})
+        self.assertTrue(all(row["brand_shown"] is False for row in result["cards"].values()))  # list cards show no brand
 
 
 class ParserRuleTests(unittest.TestCase):

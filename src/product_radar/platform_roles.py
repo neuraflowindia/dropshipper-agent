@@ -29,7 +29,7 @@ for types whose inputs changed), then discovery admission.
 """
 
 from copy import deepcopy
-from datetime import timedelta
+from datetime import timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 import re
@@ -46,7 +46,7 @@ from .storage import atomic_json, load_json, safe_path
 PRESENCE_KIND = "dropship-platform-presence"
 PRESENCE_VERSION = "dropship-presence-v2"
 LEAD_KIND = "dropship-platform-lead-v2"
-PRESENCE_RENEW_DAYS = 7
+PRESENCE_RENEW_DAYS = 5  # renewed two days before the score stops counting it (7 days, opportunity_score.PRESENCE_DAYS)
 MAX_ITEMS = 20
 NOT_STATED = "Not stated"
 _STATES = ("relevant", "relevant_delisted", "no_relevant_items", "no_relevant_items_in_sample", "review_pending",
@@ -179,6 +179,32 @@ def _valid_presence(record):
     return record
 
 
+def _presence_index(state):
+    index = {}
+    for row in state["source_checks"].values():
+        if row.get("kind") == PRESENCE_KIND and row.get("version") == PRESENCE_VERSION:
+            index.setdefault(row.get("concept_id"), []).append(row)
+    return index
+
+
+def validate_presence_fact(record, concept_id, meaning_hash):
+    """A saved presence fact for this type and meaning, unchanged since it was
+    saved (its own change hash; a frozen report copy is checked offline)."""
+    try:
+        _valid_presence(record)
+        if record["concept_id"] != concept_id or record["meaning_hash"] != meaning_hash:
+            raise SafetyError("DROPSHIP_PRESENCE_RECORD_INVALID")
+        timestamp(record["at"])
+    except (KeyError, TypeError, AttributeError):
+        raise SafetyError("DROPSHIP_PRESENCE_RECORD_INVALID") from None
+    return record
+
+
+def presence_record_id(record):
+    """The saved presence fact's id, from its own type, meaning, change hash and time."""
+    return key("dropship-presence", [record["concept_id"], record["meaning_hash"], record["change_hash"], record["at"]])
+
+
 def current_platform_presence(state, concept_id):
     """Read API: the latest saved presence fact for the type's current meaning, or None.
 
@@ -197,10 +223,12 @@ def current_platform_presence(state, concept_id):
     signed-in catalogue) / not_checked.
     """
     from .functional_types import effective_functional_definition
+    from .read_memo import remember
     meaning = effective_functional_definition(state, concept_id)["meaning_hash"]
-    rows = [row for row in state["source_checks"].values()
-            if row.get("kind") == PRESENCE_KIND and row.get("version") == PRESENCE_VERSION
-            and row.get("concept_id") == concept_id and row.get("meaning_hash") == meaning]
+    # Read once per report-pool scope, not once per type (the score reads it per type).
+    index = remember("dropship_presence_index", state, (), lambda: _presence_index(state),
+                     tables=("source_checks",), copy=False)
+    rows = [row for row in index.get(concept_id, []) if row.get("meaning_hash") == meaning]
     if not rows:
         return None
     return deepcopy(_valid_presence(max(rows, key=lambda row: (timestamp(row["at"]), row["change_hash"]))))
@@ -215,8 +243,10 @@ def record_platform_presence(memory, concept_id, *, root, as_of, catalogues=None
     if (saved is not None and saved["change_hash"] == value["change_hash"]
             and timestamp(as_of) - timestamp(saved["at"]) < timedelta(days=PRESENCE_RENEW_DAYS)):
         return saved
-    record = dict(value, at=as_of)
-    record_id = key("dropship-presence", [concept_id, value["meaning_hash"], value["change_hash"], as_of])
+    # The fact's time is stored in UTC (the score and the portal accept only UTC).
+    at = timestamp(as_of).astimezone(timezone.utc).isoformat()
+    record = dict(value, at=at)
+    record_id = presence_record_id(record)
     memory.put("source_checks", record_id, record, event_id=key("dropship-presence-record", record_id))
     return record
 

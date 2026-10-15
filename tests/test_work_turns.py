@@ -534,7 +534,7 @@ class ReviewShareTests(unittest.TestCase):
 
     DEFINITION = {"role": "B", "payload": {"mode": "functional_definition_review", "items": []}}
     FUNCTIONAL_SOURCE = {"role": "E", "payload": {"mode": "marketplace_relevance_only",
-                                                  "relevance_style": "functional-source-scope-v4", "items": []}}
+                                                  "relevance_style": "functional-source-scope-v5", "items": []}}
 
     def synthetic_turn(self, *, report_ready=False, review_ready=True, jobs=()):
         reservations = {"token-" + job_id: {"purpose": purpose, "job_id": job_id} for job_id, purpose in jobs}
@@ -546,7 +546,7 @@ class ReviewShareTests(unittest.TestCase):
         self.assertTrue(review_model_request(self.DEFINITION))
         self.assertTrue(review_model_request(self.FUNCTIONAL_SOURCE))
         legacy_source = deepcopy(self.FUNCTIONAL_SOURCE)
-        legacy_source["payload"]["relevance_style"] = "short-references-support-v3"
+        legacy_source["payload"]["relevance_style"] = "short-references-v2"
         for request in (legacy_source, {"role": "B", "payload": {"mode": "functional_alias_review"}},
                         {"role": "B", "payload": {"items": []}}, {"role": "A", "payload": {"mode": "functional_definition_review"}},
                         {"role": "B", "payload": None}, None):

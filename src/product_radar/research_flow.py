@@ -115,14 +115,14 @@ def exclude_established_brand(memory, review):
         return {"applied": True, "concept_id": review["concept_id"], "decision": "established"}
 
 
-def research_status(meets, market, *, fit=None):
+def research_status(meets, market, *, fit=None, opportunity=None):
     if meets is None:
         return "assessment_pending"
     if fit is not None and not fit["eligible"]:
         return fit["reason"]
     if fit is not None and fit.get("fit_policy_id") == "fit-10-v1":
-        from .opportunity_policy import evaluate_opportunity
-        opportunity = evaluate_opportunity(fit, market)
+        if opportunity is None:
+            raise SafetyError("OPPORTUNITY_SCORE_REQUIRED")
         return "candidate_for_supplier_review" if opportunity["eligible"] else "needs_market_evidence"
     if fit is None and meets < 7:
         return "below_checklist_threshold"
@@ -133,23 +133,21 @@ def research_status(meets, market, *, fit=None):
     return "candidate_for_supplier_review"
 
 
-def market_follow_up(market, *, fit=None):
+def market_follow_up(market, *, fit=None, opportunity=None):
     """Explain actual coverage gaps; all three sources are not mandatory."""
     if fit is not None and fit.get("fit_policy_id") == "fit-10-v1":
-        from .opportunity_policy import evaluate_opportunity, opportunity_counts
-        opportunity = evaluate_opportunity(fit, market)
-        available, _ = opportunity_counts(opportunity)
+        if opportunity is None:
+            raise SafetyError("OPPORTUNITY_SCORE_REQUIRED")
+        want = opportunity["opportunity_basis"]["parts"]["want"]["points"]
         if opportunity["eligible"]:
-            if available >= 2:
-                return ("Two usable independent market sources support this priority. Growth is not required. "
-                        "Complete other useful planned checks without holding up otherwise suitable products.")
-            return ("One usable source gives supported positive context. This is a lower-priority option, not a rejection. "
-                    "Complete other useful planned checks without requiring a second source before inclusion.")
-        if available:
-            return ("One usable source does not yet give enough positive context for a single-source recommendation. "
-                    "Check another independent source or complete the existing source interpretation. This is pending, not a rejection.")
-        return ("No usable relevant market source is connected yet. Complete the planned checks; "
-                "one reasonably positive source or two usable independent sources can support inclusion.")
+            return ("The opportunity score supports inclusion. Other useful planned checks can still raise it; "
+                    "they do not hold up an otherwise suitable product.")
+        if opportunity["reason"] == "crowding_pending":
+            return ("The free Amazon and Flipkart crowding check is not finished yet; it is worked out again from the "
+                    "saved reads each round. This is pending, not a rejection.")
+        # Otherwise demand_too_quiet (a five-Meets fit is a precondition of every caller).
+        return ("Too quiet so far: " + str(want) + " of the 20 'want' points. Check product-specific Facebook ads, "
+                "Google searches or quick-commerce stock; 5 want points are needed. This is pending, not a rejection.")
     families = market["families"]
     checked = [name for name, value in families.items() if value["available"]]
     if len(checked) >= 2:
@@ -855,7 +853,7 @@ def trends_description_current(state, concept_id, evidence, *, as_of=None):
 
 def candidate_summary(memory, *, as_of=None):
     from .fit_policy import FIT_POLICY_ID
-    from .opportunity_policy import evaluate_opportunity
+    from .opportunity_score import score_type
     as_of = as_of or utc_now()
     state = memory.snapshot()
     products = []
@@ -912,9 +910,7 @@ def candidate_summary(memory, *, as_of=None):
         trends_evidence = [dict(id=i, **e) for i, e in state["trends_evidence"].items()
                            if not functional_fit
                            if trends_description_current(state, concept_id, e, as_of=as_of)]
-        from .market_validation import current_source_support
-        market = compute_market_signals(fresh, relevance, as_of, trends_evidence,
-                                       source_support={} if functional_fit else current_source_support(state, concept_id, as_of=as_of))
+        market = compute_market_signals(fresh, relevance, as_of, trends_evidence)
         functional_market, market_scope_problem = None, None
         if functional_fit:
             from .market_validation import functional_market_context
@@ -931,6 +927,7 @@ def candidate_summary(memory, *, as_of=None):
                 market_scope_problem = str(error)
         meets = fit["kpi_matches"] if fit else None
         current_fit = fit if fit and fit["fit_policy_id"] == FIT_POLICY_ID else None
+        opportunity = score_type(state, concept_id, current_fit, market, as_of=as_of) if current_fit else None
         try:
             effective_brand = brand_binding(state, "concept", concept_id, concept["description"])
             brand_problem = None
@@ -945,14 +942,13 @@ def candidate_summary(memory, *, as_of=None):
             "checklist_total": fit["kpi_total"] if fit else None,
             "fit_tier": fit["fit_tier"] if fit else None,
             "fit": fit, "brand_binding": effective_brand, "brand_binding_problem": brand_problem,
-            **({"opportunity": evaluate_opportunity(current_fit, market)}
-               if current_fit else {}),
+            **({"opportunity": opportunity} if current_fit else {}),
             "criteria": assessment["result"]["criteria"] if assessment else [], "market": market,
             **({"market_scope_status": "reviewed" if functional_market and functional_market["scoped_evidence"] else
                 "reviewed_no_usable_match" if functional_market and functional_market["context_reviews"] else "needs_review",
                 "functional_market_contract": (functional_market or {}).get("contract"),
                 "market_scope_problem": market_scope_problem} if functional_fit else {}),
-            "status": "decision_binding_pending" if brand_problem else "excluded_established_brand" if established else research_status(meets, market, fit=current_fit),
+            "status": "decision_binding_pending" if brand_problem else "excluded_established_brand" if established else research_status(meets, market, fit=current_fit, opportunity=opportunity),
             "market_follow_up": ("Established branded product; do not pursue it as an unbranded recommendation."
                                  if established else "The saved brand correction needs a targeted binding review."
                                  if brand_problem else "Some fit criteria are unknown; a named product review can resolve them without treating unknowns as failures."
@@ -966,7 +962,7 @@ def candidate_summary(memory, *, as_of=None):
                                     not functional_market["scoped_evidence"] and not functional_market["context_reviews"])
                                  else "The saved source results were checked, but did not show usable information for this product type."
                                  if functional_fit and functional_market and not functional_market["scoped_evidence"]
-                                 else market_follow_up(market, fit=current_fit)),
+                                 else market_follow_up(market, fit=current_fit, opportunity=opportunity)),
             "prices": [{"observation_id": i, "observed_at": o["observed_at"], **o["facts"]["price"]} for i, o in observations.items()
                        if "price" in o["facts"] and relevance.get(o["semantic_id"]) in ("exact_product", "relevant_family")],
             # This view owns product/market research, not the supplier join.
@@ -1028,7 +1024,7 @@ def write_summary(memory, summary):
 <h1>Research working summary</h1><p>Internal research, not a client report. Checklist judgments are separate from market evidence. Supplier search results and full report readiness are shown separately; this view does not say whether a supplier search is complete. Publication checks are still required.</p>"""
     if summary["evidence_type"] == "synthetic":
         document += "<p>This small manufactured example checks product grouping and reuse of saved work. Its ads and checklist answers are fictional. Marketplace and Google Trends evidence were not supplied, so the products remain examples awaiting market checks.</p>"
-    document += "<p>Current recommendations are prioritised, not filtered by a mandatory two-out-of-three source-type rule. Six or more checklist matches with two usable independent sources come first; five matches with two sources come next. Six or more matches with one reasonably positive source come third; five matches with that support come fourth. Facebook ads, Amazon India, Flipkart, Google Trends, Blinkit, Zepto and Instamart are separate sources. Multiple searches on one site count once. Prices and catalogue presence do not prove sales. Historical saved reports keep their original rules.</p>"
+    document += "<p>Current recommendations are ranked by the opportunity score out of 100, measured by code from saved facts: do people want it (20: Facebook ads, Google searches, the dropshipping platforms' lists, quick-commerce stock), is it early (30), room for us (25: the Amazon/Flipkart crowding level) and a good product (25: the checklist). A report needs at least five checklist matches, five want points and a known crowding level; High crowding is used only when fewer than ten Low or Medium types are ready. Prices, stock and catalogue presence do not prove sales. Historical saved reports keep their original rules.</p>"
     document += "<p>Evidence: " + escape(summary["evidence_type"]) + ". Products: " + str(len(rows)) + ". Unresolved issues: " + str(summary["unresolved_issues"]) + ". Recovered earlier issues: " + str(summary["recovered_issues"]) + ".</p>"
     document += "<p>Saved source items: " + str(summary["observations"]) + ". Items interpreted: " + str(summary["described_items"]) + ". These are source records, not necessarily different products. The working flow reviews a limited batch at a time.</p>"
     document += "<table><thead><tr>" + "".join("<th>" + h + "</th>" for h in ("Product", "Category", "Checklist", "Market evidence", "Next status", "Next market check", "Last observed")) + "</tr></thead><tbody>" + "".join(rows) + "</tbody></table></html>"

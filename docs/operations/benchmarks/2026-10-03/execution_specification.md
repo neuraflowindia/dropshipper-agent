@@ -1987,7 +1987,7 @@ The launcher's original controlled test left the owner window open and research 
 
 ## 30. Current source routes after Plan R10 (15 October)
 
-This section owns the current route set. It supersedes the route lists and route-specific requirements in sections 5, 19, 20, 22.3, 25 and 26.4 wherever they differ; the state dimensions of section 5 and the recovery rules of sections 21–25 still apply to every route below. Built on branch `r10` (commits `bb4db37`, `6089f42`, `548e054`, `7ad04d1`); loading and live proof are W13 of [Plan R10](../../../project/plan-2026-10-14-speed-sources-and-selection.md). Implemented details, wait codes and settings files are in the [implementation record, R10](../../implementation_2026-10-11.md#r10-plan-r10-sources-crowding-check-product-map-and-spend-watch-1415-october).
+This section owns the current route set. It supersedes the route lists and route-specific requirements in sections 5, 19, 20, 22.3, 25 and 26.4 wherever they differ; the state dimensions of section 5 and the recovery rules of sections 21–25 still apply to every route below. Built on branch `r10` (commits `60fffb0`, `4707231`, `6630cbc`, `42be726`); loading and live proof are W13 of [Plan R10](../../../project/plan-2026-10-14-speed-sources-and-selection.md). Implemented details, wait codes and settings files are in the [implementation record, R10](../../implementation_2026-10-11.md#r10-plan-r10-sources-crowding-check-product-map-and-spend-watch-1415-october).
 
 | Route id | Source group | Role now | Access and limits |
 |---|---|---|---|
@@ -2009,12 +2009,12 @@ Every signed-in read shares 300 seconds of browser time a round and waits calmly
 
 | Retired | Since | Replacement |
 |---|---|---|
-| Amazon search, Amazon bestseller lists and Flipkart search **as discovery** | W6 (`6089f42`) | They run only as each type's crowding check; Meta, the platforms and wider discovery produce candidates. |
-| Amazon Movers & Shakers | W6 (`6089f42`) | None (`CLOSED_ROUTES`); its pages were empty for our categories. |
+| Amazon search, Amazon bestseller lists and Flipkart search **as discovery** | W6 (`4707231`) | They run only as each type's crowding check; Meta, the platforms and wider discovery produce candidates. |
+| Amazon Movers & Shakers | W6 (`4707231`) | None (`CLOSED_ROUTES`); its pages were empty for our categories. |
 | Google Search supplier route | R09 (14 October) | IndiaMART, TradeIndia, Google Maps and company pages. |
-| Quick-commerce discovery and the free quick-commerce browser route | W5 (`548e054`) | The paid API route with admission; `scripts/collect_quickcommerce.py` deleted. |
-| The single-location quick-commerce options `--location-name`, `--latitude`, `--longitude` | W5 (`548e054`) | `config/research/quickcommerce_locations.json`; location left the programme's frozen settings, so the launcher passes no location flags. |
-| The Amazon-page seed lane (`catalogue_branch_inventory_2026-10-08.json`, `scripts/catalogue_research.py`) | W10 (`7ad04d1`) | The product-map lane (`product_map.py`) building from platform, Trends, advertiser and supplier-listing material. |
-| Hidden-browser and Playwright Trends transports and their manual scripts | Not used by research since W2 (`6089f42`) | The signed-in Trends route. **Deleted after its W13 live proof**; until then they serve only the manual scripts. |
+| Quick-commerce discovery and the free quick-commerce browser route | W5 (`6630cbc`) | The paid API route with admission; `scripts/collect_quickcommerce.py` deleted. |
+| The single-location quick-commerce options `--location-name`, `--latitude`, `--longitude` | W5 (`6630cbc`) | `config/research/quickcommerce_locations.json`; location left the programme's frozen settings, so the launcher passes no location flags. |
+| The Amazon-page seed lane (`catalogue_branch_inventory_2026-10-08.json`, `scripts/catalogue_research.py`) | W10 (`42be726`) | The product-map lane (`product_map.py`) building from platform, Trends, advertiser and supplier-listing material. |
+| Hidden-browser and Playwright Trends transports and their manual scripts | Not used by research since W2 (`4707231`) | The signed-in Trends route. **Deleted after its W13 live proof**; until then they serve only the manual scripts. |
 
 The discovery step (`catalogue_discovery.create_catalogue_discovery_step`) now runs renewable heading waves (Meta only, headings in the order of `heading_order.py`), then wider discovery (`wider_discovery.wider_step`) and the product map (`product_map.map_step`); the dropshipping platforms run as their own lane every round. The first use of the two AI calls a round held for discovery rotates among headings, platforms, wider discovery and the map. Round limits come from `config/research/round_limits.json` (16 source reads, 10 AI calls).

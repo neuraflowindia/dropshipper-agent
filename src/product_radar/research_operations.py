@@ -284,8 +284,7 @@ def _is_route_observation(check):
 def missing_market_checks(summary, *, as_of, source_checks=()):
     """Identify concrete checks without pretending an unproved route is ready."""
     from .research_flow import market_follow_up
-    from .opportunity_policy import (CURRENT_OPPORTUNITY_POLICY_ID, evaluate_opportunity, opportunity_fields,
-                                     opportunity_counts)
+    from .opportunity_score import opportunity_fields, work_rank
     now = timestamp(as_of)
     route_status = {}
     for check in source_checks:
@@ -307,18 +306,20 @@ def missing_market_checks(summary, *, as_of, source_checks=()):
             continue
         market = product["market"]
         current_fit = product.get("fit") if product.get("fit_policy_id") == FIT_POLICY_ID else None
-        opportunity = evaluate_opportunity(current_fit, market) if current_fit else None
+        opportunity = product.get("opportunity") if current_fit else None
+        if current_fit and opportunity is None:
+            raise SafetyError("OPPORTUNITY_SCORE_REQUIRED")
         if opportunity is None and market["available_families"] >= 2:
             continue  # Weak products are set aside; usable coverage is not a signal.
-        platform_policy = opportunity is not None and opportunity["opportunity_policy_id"] == CURRENT_OPPORTUNITY_POLICY_ID
-        actual_sources = market["sources"] if platform_policy else market["families"]
-        questions = (("amazon", "Look for relevant India bestseller or product listings."),
-                     ("flipkart", "Look for relevant current Flipkart product listings."),
-                     ("meta", "Check relevant product-specific advertisers and active ads."),
+        scored = opportunity is not None
+        actual_sources = market["sources"] if scored else market["families"]
+        # The sites that can add score points. Amazon and Flipkart are the
+        # crowding check (its own free stage), not a market question.
+        questions = (("meta", "Check relevant product-specific advertisers and active ads."),
                      ("google-trends", "Check comparable India search interest for this product type."),
                      ("blinkit", "Check relevant Blinkit listings at the recorded location."),
                      ("zepto", "Check relevant Zepto listings at the recorded location."),
-                     ("instamart", "Check relevant Instamart listings at the recorded location.")) if platform_policy else (
+                     ("instamart", "Check relevant Instamart listings at the recorded location.")) if scored else (
                      ("marketplace", "Look for this product on a relevant India bestseller list."),
                      ("meta", "Check relevant product-specific advertisers and active ads."),
                      ("trends", "Check comparable India search interest for this product."))
@@ -337,22 +338,26 @@ def missing_market_checks(summary, *, as_of, source_checks=()):
                       "needed_sources": max(0, 2 - market["available_families"]),
                       "positive_families": market["positive_families"],
                       "positive_signal_needed": market["positive_families"] == 0 if opportunity is None else False,
-                      "reason": "Checklist fit passes. Reuse relevant saved evidence first. " + market_follow_up(market, fit=current_fit),
+                      "reason": "Checklist fit passes. Reuse relevant saved evidence first. " + market_follow_up(market, fit=current_fit, opportunity=opportunity),
                       "collector_dispatched": False})
         tasks[-1].update(fit_policy_id=product.get("fit_policy_id", "fit-13-v1"),
                          fit_tier=product.get("fit_tier"), kpi_matches=product["checklist_meets"],
                          brand_binding=product.get("brand_binding"))
         if opportunity is not None:
-            available, positive = opportunity_counts(opportunity)
+            # More market facts can only add want/early points; the crowding
+            # check is separate free work and never needs another market site.
+            waiting = not opportunity["eligible"] and opportunity["reason"] == "demand_too_quiet"
             tasks[-1].update(opportunity_fields(opportunity), blocking=not opportunity["eligible"],
-                             available_sources=available, positive_sources=positive,
-                             needed_sources=max(0, 2 - available),
-                             positive_signal_needed=available == 1 and positive == 0 and not opportunity["eligible"],
-                             minimum_additional_sources=0 if opportunity["eligible"] else 1)
-    tasks.sort(key=lambda task: (task.get("opportunity_priority") if task.get("opportunity_priority") is not None else 5,
-                                0 if task.get("fit_tier") == "good" else 1,
+                             available_sources=market["available_sources"], positive_sources=market["positive_sources"],
+                             needed_sources=0, positive_signal_needed=False,
+                             minimum_additional_sources=1 if waiting else 0)
+    tasks.sort(key=lambda task: (*work_rank(task), 0 if task.get("fit_tier") == "good" else 1,
                                 -task.get("positive_sources", task["positive_families"]), task["concept_id"]))
     return tasks
+
+
+def _meta_points(record):
+    return record["opportunity_basis"]["parts"]["want"]["items"]["facebook_ads"]["points"]
 
 
 def validation_targets(memory, *, as_of, client_id="default"):
@@ -360,7 +365,7 @@ def validation_targets(memory, *, as_of, client_id="default"):
     from .report_selection import build_report_pool
     from .service import load_policy
     from .fit_policy import LEGACY_POLICY_ID
-    from .opportunity_policy import CURRENT_OPPORTUNITY_POLICY_ID, opportunity_counts
+    from .opportunity_score import POLICY_ID
     state = memory.snapshot()
     frozen = SimpleNamespace(snapshot=lambda: deepcopy(state), evidence_type=memory.evidence_type)
     pool = build_report_pool(frozen, as_of=as_of, client_id=client_id,
@@ -374,14 +379,13 @@ def validation_targets(memory, *, as_of, client_id="default"):
             continue
         codes = decisions[concept_id]["codes"]
         # The free crowding check (W6) is separate work; it never holds a market question back.
-        if any(code not in ("market_coverage_required", "market_support_pending", "supplier_search_required",
-                            "crowding_check_pending") for code in codes):
+        if any(code not in ("market_coverage_required", "demand_too_quiet", "supplier_search_required",
+                            "crowding_pending") for code in codes):
             continue
         families = {row["source"]: row for row in fact["market_checks"]}
-        if fact.get("opportunity_policy_id") == CURRENT_OPPORTUNITY_POLICY_ID:
-            confirmed = fact["opportunity_basis"]["source_ids"]
-            if "meta" in confirmed or not confirmed:
-                continue
+        if fact.get("opportunity_policy_id") == POLICY_ID:
+            if _meta_points(fact):
+                continue  # Facebook ads already count in the score.
         elif families["marketplace"]["state"] != "Positive" or families["meta"]["state"] != "Insufficient":
             continue
         assessment = state["assessments"][concept_id]
@@ -394,10 +398,8 @@ def validation_targets(memory, *, as_of, client_id="default"):
                   "positive_families": sum(row["state"] == "Positive" for row in families.values()),
                   "meta_state": families["meta"]["state"], "meta_used_ids": list(families["meta"]["evidence_ids"]),
                   "marketplace_state": families["marketplace"]["state"]}
-        if fact.get("opportunity_policy_id") == CURRENT_OPPORTUNITY_POLICY_ID:
-            available, positive = opportunity_counts(fact)
-            before.update(available_sources=available, positive_sources=positive,
-                          source_ids=deepcopy(fact["opportunity_basis"]["source_ids"]))
+        if fact.get("opportunity_policy_id") == POLICY_ID:
+            before.update(opportunity_score=fact["opportunity_score"], meta_points=_meta_points(fact))
         question = {"description": fact["description"], "assessment_input_hash": assessment["input_hash"],
                     "criteria": assessment["result"]["criteria"], "relevance": assessment["result"]["relevance"],
                     "market": fact["market_checks"], "reviews": review_facts,
@@ -412,7 +414,7 @@ def validation_targets(memory, *, as_of, client_id="default"):
         if assessment.get("fit_policy_id", LEGACY_POLICY_ID) != LEGACY_POLICY_ID:
             targets[concept_id].update(fit_tier=fact["fit_tier"], kpi_matches=fact["kpi_matches"])
         if "opportunity_policy_id" in fact:
-            from .opportunity_policy import opportunity_fields
+            from .opportunity_score import opportunity_fields
             targets[concept_id].update(opportunity_fields(fact))
     return targets, pool
 
@@ -435,21 +437,16 @@ def validation_target_result(action, summary, *, state=None):
     after = {"available_families": market["available_families"], "positive_families": market["positive_families"],
              "meta_state": meta["state"], "meta_used_ids": list(meta["used_ids"]),
              "marketplace_state": market["families"]["marketplace"]["state"]}
-    from .opportunity_policy import CURRENT_OPPORTUNITY_POLICY_ID, evaluate_opportunity, opportunity_counts
-    opportunity = (evaluate_opportunity(product["fit"], market)
-                   if product.get("fit_policy_id") == "fit-10-v1" and product.get("fit") else None)
-    platform_policy = opportunity is not None and opportunity["opportunity_policy_id"] == CURRENT_OPPORTUNITY_POLICY_ID
-    if platform_policy:
-        available, positive = opportunity_counts(opportunity)
-        after.update(available_sources=available, positive_sources=positive,
-                     source_ids=deepcopy(opportunity["opportunity_basis"]["source_ids"]))
+    opportunity = product.get("opportunity") if product.get("fit_policy_id") == "fit-10-v1" and product.get("fit") else None
+    if opportunity is not None:
+        after.update(opportunity_score=opportunity["opportunity_score"], meta_points=_meta_points(opportunity))
     if state is not None and digest(state["concepts"][product["id"]]["description"]) != target["description_hash"]:
         return {"concept_id": product["id"], "before_market": before, "after_market": after,
                 "status": "target_changed", "useful_progress": None}
     pending = product["checklist_meets"] is None or product["id"] in {
         p["affected_id"] for p in summary.get("problems", [])
         if p.get("stage") == "assessment" and p.get("current_status") == "unresolved"}
-    progress = (("meta" in after["source_ids"] and "meta" not in before.get("source_ids", [])) if platform_policy
+    progress = ((after["meta_points"] > before.get("meta_points", 0)) if opportunity is not None
                 else (meta["available"] and before["meta_state"] == "Insufficient")) or (
                 meta["positive"] is True and before["meta_state"] != "Positive")
     covered = opportunity["eligible"] if opportunity is not None else market["available_families"] >= 2
@@ -498,8 +495,9 @@ def plan_meta_validation(memory, *, as_of, client_id="default", max_actions=3, b
     # from the label or add provider facts to the product fingerprint.
     prior_actions = {action["action_id"]: action for plan in state["batch_plans"].values()
                      for action in plan.get("actions", [])}
+    from .opportunity_score import work_rank
     ordered = sorted(targets.values(), key=lambda t: (
-                     t.get("opportunity_priority") if t.get("opportunity_priority") is not None else 5,
+                     *work_rank(t),
                      0 if t.get("fit_tier") == "good" else 1,
                      -t.get("kpi_matches", 0) if t.get("fit_tier") in ("good", "decent") else 0,
                      -t["before_market"].get("positive_sources", t["before_market"]["positive_families"]),

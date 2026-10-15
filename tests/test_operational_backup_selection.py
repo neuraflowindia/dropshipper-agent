@@ -1690,6 +1690,19 @@ class EssentialBackupSelectionTests(unittest.TestCase):
         self.assertEqual(selected["files"], [])
         self.assertEqual({row["reason"] for row in selected["unsafe"]}, {"CROWDING_SETTINGS_INVALID"})
 
+    def test_opportunity_score_settings_are_a_checked_public_setting(self):
+        from product_radar.opportunity_score import SETTINGS
+        from product_radar.storage import load_json
+        good = load_json(SETTINGS)
+        path = self.json("config/research/opportunity_score.json", good)
+        selected = self.select()
+        self.assertEqual(self.files(selected)[path.relative_to(self.root).as_posix()]["kind"], "public_setting")
+        self.assertEqual(selected["unsafe"], [])
+        self.json("config/research/opportunity_score.json", dict(good, parts=dict(good["parts"], want=21)))
+        selected = self.select()
+        self.assertEqual(selected["files"], [])
+        self.assertEqual({row["reason"] for row in selected["unsafe"]}, {"OPPORTUNITY_SETTINGS_INVALID"})
+
     def test_quickcommerce_places_are_a_checked_public_setting(self):
         from product_radar.quickcommerce_plan import LOCATIONS
         from product_radar.storage import load_json

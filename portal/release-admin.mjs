@@ -10,6 +10,7 @@ import { buildReleaseHistory, archiveEntry, issueProjection, selectedTypeHistory
   firstAvailability, publicationRef, recommendationsFromFacts, timelineKey, revisionKey, revisionProjection, canonicalType, lineageKey, lineageTypeContext, validateLineageAdjacency } from './release-history.mjs';
 import { validateAliasProof } from './alias-proof.mjs';
 import { validateLineageProof } from './lineage-proof.mjs';
+import { POLICY_ID as SCORE_POLICY, issueCrowdingValid, marketEvidence, validateScoreRecord } from './opportunity-score.mjs';
 const verifyDraftServiceAssertion = createServiceAssertionVerifier();
 const ID = /^[A-Za-z0-9_-]{1,80}$/;
 const HASH = /^[a-f0-9]{64}$/;
@@ -27,11 +28,8 @@ const FIT_STATES = Object.freeze(['Meets', 'Does not meet', 'Unclear', 'Not asse
 const FIT_DESCRIPTION_CONTRACT = 'product-description-inference-v1';
 const FIT_DESCRIPTION_FIELDS = new Set(['label', 'function', 'mechanism', 'features', 'audience']);
 const INFERRED_MEASUREMENT = /(?:\p{Nd}+(?:[.,]\p{Nd}+)?\s*(?:%|percent\b|per\s+cent\b|kg\b|kilograms?\b|grams?\b|cm\b|centimet(?:er|re)s?\b|mm\b|millimet(?:er|re)s?\b|met(?:er|re)s?\b|inches\b|lbs?\b|pounds?\b|minutes?\b|mins?\b|seconds?\b|secs?\b|hours?\b|rupees?\b|dollars?\b|sales\b|orders\b)|[₹$€£]\s*\p{Nd})/iu;
-const OPPORTUNITY_POLICY = 'opportunity-priority-v1';
-const OPPORTUNITY_PLATFORM_POLICY = 'opportunity-priority-v2';
-const OPPORTUNITY_POLICIES = Object.freeze([OPPORTUNITY_POLICY, OPPORTUNITY_PLATFORM_POLICY]);
-const OPPORTUNITY_SOURCES = Object.freeze(['meta', 'amazon', 'flipkart', 'google-trends', 'blinkit', 'zepto', 'instamart']);
-const OPPORTUNITY_FIELDS = Object.freeze(['opportunity_policy_id', 'opportunity_priority', 'opportunity_basis']);
+// The opportunity score (opportunity-score.mjs) replaced the priority tiers; no older policy is accepted.
+const OPPORTUNITY_FIELDS = Object.freeze(['opportunity_policy_id', 'opportunity_score', 'opportunity_label', 'opportunity_basis']);
 const SOURCE_ROUTE_CONTRACT = 'saved-source-routes-v1';
 const SUPPLIER_TERMS_DISPLAY_VERSION = 'supplier-terms-v2';
 const SOURCE_ROUTES = Object.freeze([
@@ -211,7 +209,7 @@ function validateSourceRouteFacts(product, current) {
   if (!marked) return; // Frozen historical packets keep their original contract.
   const invalid = () => fail('ADMIN_SOURCE_ROUTE_FACTS_INVALID', 409);
   const rows = product.source_route_checks, revisions = product.source_revisions;
-  if (!current || product.opportunity_policy_id !== OPPORTUNITY_PLATFORM_POLICY ||
+  if (!current || product.opportunity_policy_id !== SCORE_POLICY ||
       product.source_route_contract !== (product.recommendation_contract === 'functional-type-examples-v1' ? 'saved-source-routes-v2' : SOURCE_ROUTE_CONTRACT) || !Array.isArray(rows) ||
       (rows.length !== CLIENT_SOURCE_ROUTES.length && rows.length !== SOURCE_ROUTES.length) ||
       !revisions || typeof revisions !== 'object' || Array.isArray(revisions) || encoder.encode(canonical(rows)).length > 64 * 1024) invalid();
@@ -286,7 +284,7 @@ export function validateFitPacket(facts, manifest) {
   } else if (fields.some(field => Object.hasOwn(facts, field) || Object.hasOwn(manifest, field))) fail('ADMIN_FIT_POLICY_MISMATCH', 409);
   const prioritised = facts.products.some(product => product && OPPORTUNITY_FIELDS.some(field => Object.hasOwn(product, field)));
   if (prioritised) {
-    if (!current || !OPPORTUNITY_POLICIES.includes(facts.opportunity_policy_id) || manifest.opportunity_policy_id !== facts.opportunity_policy_id ||
+    if (!current || facts.opportunity_policy_id !== SCORE_POLICY || manifest.opportunity_policy_id !== facts.opportunity_policy_id ||
         facts.products.some(product => !product || product.opportunity_policy_id !== facts.opportunity_policy_id ||
           !OPPORTUNITY_FIELDS.every(field => Object.hasOwn(product, field)))) fail('ADMIN_OPPORTUNITY_POLICY_MISMATCH', 409);
   } else if (Object.hasOwn(facts, 'opportunity_policy_id') || Object.hasOwn(manifest, 'opportunity_policy_id')) fail('ADMIN_OPPORTUNITY_POLICY_MISMATCH', 409);
@@ -297,35 +295,13 @@ export function validateFitPacket(facts, manifest) {
     const matches = states.filter(state => state === 'Meets').length;
     if (matches < (current ? 5 : 7) || product.kpi_matches !== matches) fail('ADMIN_FACT_REQUIREMENTS_NOT_MET', 409);
     if (prioritised) {
-      const basis = product.opportunity_basis;
-      if (!basis || typeof basis !== 'object' || Array.isArray(basis)) fail('ADMIN_OPPORTUNITY_BASIS_INVALID', 409);
-      let available, positive;
-      if (product.opportunity_policy_id === OPPORTUNITY_PLATFORM_POLICY) {
-        const fields = ['available_sources', 'evidence_by_source', 'positive_source_ids', 'positive_sources', 'source_ids'];
-        const sortedSources = values => Array.isArray(values) && values.every(value => OPPORTUNITY_SOURCES.includes(value)) &&
-          same(values, [...new Set(values)].sort());
-        if (!same(Object.keys(basis).sort(), fields) || !integer(basis.available_sources, 1, OPPORTUNITY_SOURCES.length) ||
-            !integer(basis.positive_sources, 0, basis.available_sources) || !sortedSources(basis.source_ids) ||
-            !sortedSources(basis.positive_source_ids) || basis.source_ids.length !== basis.available_sources ||
-            basis.positive_source_ids.length !== basis.positive_sources ||
-            basis.positive_source_ids.some(source => !basis.source_ids.includes(source)) ||
-            !basis.evidence_by_source || typeof basis.evidence_by_source !== 'object' || Array.isArray(basis.evidence_by_source) ||
-            !same(Object.keys(basis.evidence_by_source).sort(), basis.source_ids)) fail('ADMIN_OPPORTUNITY_BASIS_INVALID', 409);
-        if (!Array.isArray(product.source_refs)) fail('ADMIN_OPPORTUNITY_SOURCE_REFERENCE_INVALID', 409);
-        const seen = new Set(), references = new Set(product.source_refs.map(ref => ref?.id));
-        for (const [source, refs] of Object.entries(basis.evidence_by_source)) {
-          if (!Array.isArray(refs) || !refs.length || refs.some(ref => typeof ref !== 'string' || !ID.test(ref)) ||
-              !same(refs, [...new Set(refs)].sort()) || refs.some(ref => seen.has(ref) || !references.has(ref))) fail('ADMIN_OPPORTUNITY_SOURCE_REFERENCE_INVALID', 409);
-          for (const ref of refs) seen.add(ref);
-        }
-        available = basis.available_sources; positive = basis.positive_sources;
-      } else {
-        if (!same(Object.keys(basis).sort(), ['available_families', 'positive_families']) ||
-            !integer(basis.available_families, 1, 3) || !integer(basis.positive_families, 0, basis.available_families)) fail('ADMIN_OPPORTUNITY_BASIS_INVALID', 409);
-        available = basis.available_families; positive = basis.positive_families;
-      }
-      const expected = available >= 2 ? (matches >= 6 ? 1 : 2) : positive >= 1 ? (matches >= 6 ? 3 : 4) : null;
-      if (!integer(product.opportunity_priority, 1, 4) || product.opportunity_priority !== expected) fail('ADMIN_OPPORTUNITY_PRIORITY_INVALID', 409);
+      // Mirrors Python opportunity_score.validate_opportunity: arithmetic, label,
+      // eligibility and the cited market evidence.
+      const expected = validateScoreRecord(product, matches, fail);
+      if (!expected.opportunity_basis.eligible) fail('ADMIN_OPPORTUNITY_NOT_ELIGIBLE', 409);
+      if (!Array.isArray(product.source_refs)) fail('ADMIN_OPPORTUNITY_SOURCE_REFERENCE_INVALID', 409);
+      const references = new Set(product.source_refs.map(ref => ref?.id));
+      if (Object.values(marketEvidence(product)).flat().some(ref => !references.has(ref))) fail('ADMIN_OPPORTUNITY_SOURCE_REFERENCE_INVALID', 409);
     }
     if (current) {
       if (!Array.isArray(product.source_refs) || product.source_refs.some(ref => !ref || !ID.test(ref.id ?? '')) ||
@@ -353,10 +329,11 @@ export function validateFitPacket(facts, manifest) {
                Array.isArray(product.criteria) && product.criteria.some(row => row?.description_inference != null)) fail('ADMIN_FACT_REQUIREMENTS_NOT_MET', 409);
     if (Object.hasOwn(product, 'supplier_terms_display_version') &&
         (!current || product.supplier_terms_display_version !== SUPPLIER_TERMS_DISPLAY_VERSION ||
-         product.opportunity_policy_id !== OPPORTUNITY_PLATFORM_POLICY ||
+         product.opportunity_policy_id !== SCORE_POLICY ||
          product.source_route_contract !== (functional ? 'saved-source-routes-v2' : SOURCE_ROUTE_CONTRACT))) fail('ADMIN_SUPPLIER_TERMS_DISPLAY_VERSION_INVALID', 409);
     validateSourceRouteFacts(product, current);
   }
+  if (prioritised && !issueCrowdingValid(facts.products)) fail('ADMIN_ISSUE_HIGH_CROWDING_RULE', 409);
   if (current) {
     if (!Array.isArray(manifest.languages) || !facts.narratives || typeof facts.narratives !== 'object') fail('ADMIN_CHECKLIST_PHRASES_INVALID', 409);
     for (const language of manifest.languages) {

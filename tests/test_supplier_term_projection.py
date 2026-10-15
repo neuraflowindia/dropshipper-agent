@@ -24,6 +24,7 @@ from product_radar.live_outputs import (
 )
 from product_radar.models import SafetyError, digest
 from product_radar.suppliers import SUPPLIER_FIELDS
+from test_fit_pipeline import older_format_scores
 
 
 def term(field, value, basis="observed"):
@@ -65,6 +66,7 @@ def without_marker(issue, dataset):
     return issue, dataset
 
 
+@older_format_scores
 class SupplierTermProjectionTests(unittest.TestCase):
     def display(self, supplier, language="en"):
         return supplier_terms_display(supplier, language, terms_version=SUPPLIER_TERMS_DISPLAY_VERSION)

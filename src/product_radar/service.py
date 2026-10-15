@@ -98,7 +98,7 @@ def product_fit(product, expected_policy_id=None):
     if declared != "fit-13-v1" and (product.get("fit_tier") != fit["fit_tier"]
             or type(product.get("kpi_matches")) is not int or product["kpi_matches"] != fit["kpi_matches"]):
         raise SafetyError("ISSUE_KPI_REQUIREMENTS_NOT_MET")
-    from .opportunity_policy import validate_opportunity
+    from .opportunity_score import validate_opportunity
     validate_opportunity(product, matches=fit["kpi_matches"])
     return fit
 
@@ -130,14 +130,15 @@ def issue_fit_policy(issue):
             raise SafetyError("ISSUE_FIT_POLICY_MISMATCH")
     else:
         raise SafetyError("ISSUE_FIT_POLICY_MISMATCH")
-    from .opportunity_policy import OPPORTUNITY_POLICY_IDS, validate_opportunity
-    priorities = [validate_opportunity(product) for product in products]
-    marked = [priority is not None for priority in priorities]
+    from .opportunity_score import OPPORTUNITY_POLICY_IDS, validate_issue_crowding, validate_opportunity
+    scores = [validate_opportunity(product) for product in products]
+    marked = [score is not None for score in scores]
     if any(marked):
         policy_ids = {product.get("opportunity_policy_id") for product in products}
         if (not all(marked) or len(policy_ids) != 1 or issue.get("opportunity_policy_id") not in OPPORTUNITY_POLICY_IDS
                 or issue["opportunity_policy_id"] != next(iter(policy_ids))):
             raise SafetyError("ISSUE_OPPORTUNITY_POLICY_MISMATCH")
+        validate_issue_crowding(products)
     elif "opportunity_policy_id" in issue:
         raise SafetyError("ISSUE_OPPORTUNITY_POLICY_MISMATCH")
     return policy_id
@@ -193,7 +194,7 @@ def validate_issue(products, published_ids=(), queued_ids=(), policy=None):
     declared_policies = set(declarations)
     if len(declared_policies) != 1:
         raise SafetyError("ISSUE_FIT_POLICY_MISMATCH")
-    from .opportunity_policy import OPPORTUNITY_FIELDS
+    from .opportunity_score import OPPORTUNITY_FIELDS
     marked = [any(field in product for field in OPPORTUNITY_FIELDS) for product in products]
     if any(marked) and not all(marked):
         raise SafetyError("ISSUE_OPPORTUNITY_POLICY_MISMATCH")

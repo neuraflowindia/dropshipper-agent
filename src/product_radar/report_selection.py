@@ -13,7 +13,7 @@ import re
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
-from .crowding import crowding_for, crowding_known, load_thresholds as load_crowding_thresholds
+from .opportunity_score import load_settings as load_score_settings
 from .discovery import latest_observations
 from .models import SafetyError, digest, identifier, timestamp, utc_now
 from .material_updates import material_snapshot, review_supplier_update, review_material_update, prepare_material_update
@@ -25,8 +25,7 @@ from .suppliers import VERSION as SUPPLIER_VERSION, derive_supply_arrangement, r
 from .brand_reviews import current_brand, brand_binding
 from .fit_policy import evaluate_fit, policy_for, FIT_POLICY_ID, LEGACY_POLICY_ID
 from .supplier_effort import current_supplier_effort
-from .opportunity_policy import (evaluate_opportunity, opportunity_fields, opportunity_sort_key,
-                                 opportunity_counts, opportunity_source_limit, CURRENT_OPPORTUNITY_POLICY_ID)
+from .opportunity_score import opportunity_fields, opportunity_sort_key, score_type, work_rank
 from .report_source_facts import (CONTRACT as SOURCE_ROUTE_CONTRACT, FIELDS as SOURCE_ROUTE_FIELDS,
                                   FUNCTIONAL_CONTRACT as FUNCTIONAL_SOURCE_ROUTE_CONTRACT,
                                   CONTRACTS as SOURCE_ROUTE_CONTRACTS,
@@ -46,6 +45,20 @@ def _url(value):
         return value
     except ValueError:
         return None
+
+
+SCORE_REASONS = {
+    "crowding_pending": "The free Amazon and Flipkart crowding check is not finished yet.",
+    "demand_too_quiet": ("Too quiet so far: fewer than 5 of the 20 'want' points (Facebook ads, Google searches, "
+                         "dropshipping platform lists, quick-commerce stock). This is pending, not a rejection."),
+}
+
+
+def _sources_open(opportunity):
+    """A market sub-point that still earns nothing can be worth checking (optional)."""
+    parts = opportunity["opportunity_basis"]["parts"]
+    return any(not parts[part]["items"][name]["points"] for part, name in
+               (("want", "facebook_ads"), ("want", "google_searches"), ("want", "quick_commerce")))
 
 
 def _amount(value):
@@ -404,16 +417,6 @@ def _facts(state, product, assessment, suppliers, as_of, current_observations, c
                            if (assessment or {}).get("fit_policy_id") == FIT_POLICY_ID else {}).items():
         if signal.get("available") is not True:
             continue
-        if signal.get("support_review_id"):
-            support_detail = signal["support_reason"]
-            if signal["support_basis"] == "inferred" and not support_detail.casefold().startswith("estimated:"):
-                support_detail = "Estimated: " + support_detail
-            checks.append({"source": source + " interpretation", "state": signal["support_judgment"],
-                "detail": support_detail, "evidence_ids": list(next(
-                    row["references"] for row in product["market"]["source_support"]
-                    if row["review_id"] == signal["support_review_id"] and row["source"] == source)),
-                "basis": signal["support_basis"], "market_review_id": signal["support_review_id"],
-                "interpretation_only": True})
         for evidence_id in signal["used_ids"]:
             observation = state["observations"].get(evidence_id)
             if observation:
@@ -457,7 +460,7 @@ def _facts(state, product, assessment, suppliers, as_of, current_observations, c
                      "source": observation["source"], "observed_at": observation["observed_at"],
                      "relationship": photo["relationship"]})
     source_routes = None
-    if policy_id == FIT_POLICY_ID and product["market"].get("source_policy_id") == CURRENT_OPPORTUNITY_POLICY_ID:
+    if policy_id == FIT_POLICY_ID:
         related = {observation_id: observation for observation_id, observation in current_observations.items()
                    if relevance.get(observation["semantic_id"]) in ("exact_product", "relevant_family")}
         source_routes = source_route_facts(state, concept_id, route_coverage or [], product, related, as_of)
@@ -479,10 +482,9 @@ def _facts(state, product, assessment, suppliers, as_of, current_observations, c
             **({field: deepcopy(fit[field]) for field in ("fit_policy_id", "criterion_ids", "kpi_total", "kpi_matches", "fit_tier")}
                if fit and policy_id == FIT_POLICY_ID else {}),
             **({"brand_binding": deepcopy(product["brand_binding"])} if fit and policy_id == FIT_POLICY_ID else {}),
-            **(opportunity_fields(evaluate_opportunity(fit, product["market"]))
+            **(opportunity_fields(score_type(state, concept_id, fit, product["market"], as_of=as_of))
                if fit and policy_id == FIT_POLICY_ID else {}),
-            "market_review_ids": sorted(set(current_review_by_semantic.values()) |
-                {row["review_id"] for row in product["market"].get("source_support", [])}), "trends_evidence_ids": sorted(set(trend_ids)),
+            "market_review_ids": sorted(set(current_review_by_semantic.values())), "trends_evidence_ids": sorted(set(trend_ids)),
             "supplier_assessment_ids": suppliers["assessment_ids"],
             "description": deepcopy(state["concepts"][concept_id]["description"]),
             "usable_until": min(expiries).isoformat() if expiries else None, "image_path": photo["path"] if photo else None,
@@ -811,14 +813,15 @@ def _functional_facts(state, product, assessment, suppliers, as_of, route_covera
     from .report_examples import (freeze_functional_examples, functional_image_candidates,
                                   freeze_functional_photo, validate_frozen_functional_photo)
     from .frozen_records import freeze_original_json
-    from .market_validation import functional_market_context, functional_priority_support, freeze_functional_market
+    from .market_validation import functional_market_context, functional_score_support, freeze_functional_market
     from .fit_description import FUNCTIONAL_INFERENCE_KIND
     cid = product["id"]
     block = freeze_functional_examples(state, cid, as_of=as_of)
     context = functional_market_context(state, cid, as_of=as_of)
     fit = evaluate_fit(product["criteria"], FIT_POLICY_ID, description=assessment["input"]["description"],
                        description_contract=FUNCTIONAL_INFERENCE_KIND)
-    support = functional_priority_support(state, context, fit, as_of=as_of)
+    opportunity = score_type(state, cid, fit, context["market"], as_of=as_of)
+    support = functional_score_support(state, context, opportunity, as_of=as_of)
     supplier_proof, suppliers = _freeze_functional_suppliers(state, suppliers, cid, state["concepts"][cid]["description"], as_of)
     related = {}
     for ref, match in context["matches"].items():
@@ -872,8 +875,8 @@ def _functional_facts(state, product, assessment, suppliers, as_of, route_covera
         "functional_route_proof": freeze_functional_route_proof(state, cid, as_of=as_of),
         "supplier_terms_display_version": SUPPLIER_TERMS_DISPLAY_VERSION, **block,
         **{field: deepcopy(fit[field]) for field in ("fit_policy_id", "criterion_ids", "kpi_total", "kpi_matches", "fit_tier")},
-        **opportunity_fields(support["opportunity"]),
-        **{field: support[field] for field in ("priority_support", "priority_support_refs", "support_valid_until")}}
+        **opportunity_fields(opportunity),
+        **{field: support[field] for field in ("score_support", "score_support_refs", "support_valid_until")}}
     validate_frozen_functional_fit(fact)
     from .market_validation import validate_frozen_functional_market
     validate_frozen_functional_market(fact)
@@ -1042,23 +1045,8 @@ def selection_scope(state, concept_id, *, source_route_contract=None):
             if semantic_id not in latest_reviews or order > latest_reviews[semantic_id][0]:
                 latest_reviews[semantic_id] = (order, review_id, review)
     scoped_reviews = {review_id: review for _, review_id, review in latest_reviews.values()}
-    from .market_validation import SOURCE_SUPPORT_VERSION
-    # Chart-only source interpretation has no marketplace semantic row. Its
-    # opinion still needs to invalidate a current selection if it changes.
-    support_by_source = {}
-    for insertion, (review_id, review) in enumerate(state.get("market_reviews", {}).items()):
-        if (review.get("concept_id") == concept_id and review.get("description_hash") == digest(concept["description"])
-                and review.get("support_version") == SOURCE_SUPPORT_VERSION):
-            for support in review.get("source_support", []):
-                order = (timestamp(review["reviewed_at"]), review["input_hash"], insertion)
-                source = support["source"]
-                if source not in support_by_source or order > support_by_source[source][0]:
-                    support_by_source[source] = order, review_id, review
-    scoped_reviews.update({review_id: review for _, review_id, review in support_by_source.values()})
     for review_id, review in scoped_reviews.items():
         fields = ("concept_id", "review_version", "description_hash", "input_hash", "relevance")
-        if "support_version" in review:
-            fields += ("support_version", "source_support", "evidence_hashes", "scope_evidence_hashes")
         scope["market_reviews"][review_id] = digest({field: review.get(field) for field in fields})
     wanted, latest_suppliers = _supplier_scope(dict(concept["description"], concept_id=concept_id)), {}
     for record_id, record in state.get("supplier_assessments", {}).items():
@@ -1188,7 +1176,7 @@ def _build_report_pool(memory, as_of, client_id, *, fit_policy_id, recommendatio
     material_identities = alias_projection(state)
     published = _seen(state, client_id, material_identities)
     eligible, facts, update_work = [], {}, []
-    crowding_thresholds = load_crowding_thresholds()
+    score_settings = load_score_settings()
     for product in sorted(summary["products"], key=lambda row: row["id"]):
         concept_id, codes, reasons = product["id"], [], []
         try:
@@ -1218,22 +1206,24 @@ def _build_report_pool(memory, as_of, client_id, *, fit_policy_id, recommendatio
                 code = "fit_information_pending" if fit["reason"] == "fit_information_pending" and fit["fit_policy_id"] == FIT_POLICY_ID else "below_checklist_threshold"
                 codes.append(code); reasons.append("Some fit points still need a useful judgment." if code == "fit_information_pending"
                     else "The supported checklist judgments are below the inclusion threshold.")
-        opportunity = (evaluate_opportunity(fit, product["market"])
+        opportunity = (score_type(state, concept_id, fit, product["market"], as_of=as_of, settings=score_settings)
                        if concept_id in assessments and fit["fit_policy_id"] == FIT_POLICY_ID else None)
         if opportunity is not None:
+            # The score decides inclusion (owner, 15 October 2026): 5+ Meets,
+            # 5+ want points and a known Amazon/Flipkart crowding level.
             if not opportunity["eligible"] and fit["eligible"]:
-                codes.append(opportunity["reason"]); reasons.append(product["market_follow_up"])
+                codes.append(opportunity["reason"]); reasons.append(SCORE_REASONS[opportunity["reason"]])
             # Eligibility and completion are separate. Remaining source work
             # stays visible even after a product can appear in a report; it
-            # must not become an implicit second/third-source inclusion gate.
-            available, positive = opportunity_counts(opportunity)
-            if fit["eligible"] and concept_id not in published and available < opportunity_source_limit(opportunity):
+            # never becomes an extra inclusion gate.
+            if fit["eligible"] and concept_id not in published and (not opportunity["eligible"] or _sources_open(opportunity)):
                 market_work.append({"concept_id": concept_id,
                                     "code": opportunity["reason"] if not opportunity["eligible"] else "market_completion_optional",
                                     "reason": product["market_follow_up"],
                                     "available_families": product["market"]["available_families"],
                                     "positive_families": product["market"]["positive_families"],
-                                    "available_sources": available, "positive_sources": positive,
+                                    "available_sources": product["market"]["available_sources"],
+                                    "positive_sources": product["market"]["positive_sources"],
                                     "positive_signal_needed": False,
                                     "blocking": not opportunity["eligible"], **opportunity_fields(opportunity)})
         elif product["market"]["available_families"] < 2:
@@ -1245,14 +1235,6 @@ def _build_report_pool(memory, as_of, client_id, *, fit_policy_id, recommendatio
                                     "positive_signal_needed": product["market"]["positive_families"] == 0, "blocking": True})
         elif product["market"]["positive_families"] < 1:
             codes.append("weak_market_signal"); reasons.append("Two assessable source families exist, but neither supplies a positive signal.")
-        if functional and concept_id in assessments and fit["eligible"]:
-            # Owner rule (D4, A2): not report-eligible until the free Amazon and
-            # Flipkart crowding check is known, whatever ranking is used. An
-            # older-contract type (no accepted meaning, so no crowding answer) can
-            # only fill an older-format report; that path is not gated here.
-            if not crowding_known(crowding_for(state, concept_id, thresholds=crowding_thresholds)):
-                codes.append("crowding_check_pending")
-                reasons.append("The free Amazon and Flipkart crowding check is not finished yet.")
         if not suppliers["effort_satisfied"]:
             codes.append("supplier_search_required"); reasons.append("No accepted cursory supplier search is linked to this product yet.")
             # A passing checklist queues its supplier search at once, beside
@@ -1288,7 +1270,7 @@ def _build_report_pool(memory, as_of, client_id, *, fit_policy_id, recommendatio
         outcome = "excluded" if (set(codes) & {"below_checklist_threshold", "weak_market_signal"}
                                   or update is not None and update["decision"] == "not_material") else "deferred" if codes else "included"
         decisions.append({"concept_id": concept_id, "decision": outcome, "codes": codes,
-                          "reasons": reasons or ["Current checklist and source support meet the agreed priority, and a supplier search was recorded."
+                          "reasons": reasons or ["The checklist, the opportunity score and a known crowding level meet the inclusion rules, and a supplier search was recorded."
                                                  if opportunity else "Accepted identity and checklist, sufficient positive market coverage, and a recorded supplier search."],
                           "supplier_leads_checked": suppliers["checked"], "supplier_leads_found": len(suppliers["all_leads"]),
                           **({"useful_update_decision": update["decision"]} if update is not None else {}),
@@ -1347,10 +1329,8 @@ def _build_report_pool(memory, as_of, client_id, *, fit_policy_id, recommendatio
                 source_route_contract=fact.get("source_route_contract")))
             eligible.append(row)
     eligible.sort(key=lambda row: (*opportunity_sort_key(row), row["concept_id"]))
-    market_work.sort(key=lambda row: (row.get("opportunity_priority") if row.get("opportunity_priority") is not None else 5,
-                                      -row.get("positive_sources", row["positive_families"]), row["concept_id"]))
-    supplier_work.sort(key=lambda row: (row.get("opportunity_priority") if row.get("opportunity_priority") is not None else 5,
-                                        row["concept_id"]))
+    market_work.sort(key=lambda row: (*work_rank(row), -row.get("positive_sources", row["positive_families"]), row["concept_id"]))
+    supplier_work.sort(key=lambda row: (*work_rank(row), row["concept_id"]))
     source_decisions = [{"child_id": child_id, "semantic_id": row.get("semantic_id"),
                          "concept_id": row.get("concept_id"), "decision": row.get("status"),
                          "reason": row.get("reason"), "method": row.get("method"), "job_id": row.get("job_id")}

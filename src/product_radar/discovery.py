@@ -6,6 +6,12 @@ import unicodedata
 
 from .models import SafetyError, timestamp, digest
 
+# The market sites whose relevant reviewed results are kept per type. Amazon
+# and Flipkart stay for display and crowding; the score gives them no want points.
+MARKET_SITES = ("meta", "amazon", "flipkart", "google-trends", "blinkit", "zepto", "instamart")
+MARKET_SITE_LABELS = {"meta": "Facebook ads", "amazon": "Amazon India", "flipkart": "Flipkart",
+                      "google-trends": "Google Trends", "blinkit": "Blinkit", "zepto": "Zepto", "instamart": "Instamart"}
+
 
 def normalise(value):
     return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
@@ -115,8 +121,12 @@ def latest_observations(observations, as_of, *, max_age_days=7):
     return dict(latest.values())
 
 
-def compute_market_signals(observations, relevance, as_of, trends_evidence=(), *, source_support=()):
-    """Count relevant source facts; optionally use controlled Trends exports."""
+def compute_market_signals(observations, relevance, as_of, trends_evidence=()):
+    """Count relevant source facts; optionally use controlled Trends exports.
+
+    The per-site ``sources`` carry the measured facts the opportunity score
+    reads (``opportunity_score.market_facts``); no model opinion is applied.
+    """
     relevant = [(i, o) for i, o in latest_observations(observations, as_of).items()
                 if relevance.get(o["semantic_id"]) in ("exact_product", "relevant_family")]
     meta = [(i, o) for i, o in relevant if o["source"] == "meta"]
@@ -146,11 +156,10 @@ def compute_market_signals(observations, relevance, as_of, trends_evidence=(), *
                    "reason": "Comparable Trends series is not connected in this slice."},
     }
     # Keep those original three-group figures unchanged for historical report
-    # contracts. Current opportunity ranking separately counts distinct sites.
-    from .opportunity_policy import CURRENT_OPPORTUNITY_POLICY_ID, SOURCE_PLATFORMS
+    # contracts. The opportunity score reads the separate per-site facts.
     sources = {source: {"available": False, "positive": None, "used_ids": [],
                         "reason": "No fresh reviewed relevant source information."}
-               for source in SOURCE_PLATFORMS}
+               for source in MARKET_SITES}
     sources["meta"] = {"available": bool(valid_ads), "positive": True if positive else False if valid_ads else None,
                        "used_ids": families["meta"]["used_ids"],
                        "reason": "Relevant retained ads; missing ad metadata is not negative demand proof.",
@@ -166,6 +175,17 @@ def compute_market_signals(observations, relevance, as_of, trends_evidence=(), *
                            "reason": ("Relevant reviewed India list presence; all Amazon routes count as one source." if list_proof
                                       else "Relevant current listings supply product, price or availability context; not sales proof." if rows
                                       else "No fresh reviewed relevant source information.")}
+        if source in ("blinkit", "zepto", "instamart"):
+            # Cities where a relevant reviewed listing is in stock (score "want").
+            stock = {}
+            for i, o in rows:
+                location = o["facts"].get("location")
+                name = location.get("name") if isinstance(location, dict) else None
+                # A blank location name says nothing about a city; ignore it
+                # (the portal mirror uses the same ASCII-whitespace rule).
+                if o["facts"].get("available") is True and isinstance(name, str) and name.strip(" \t\r\n\f\v"):
+                    stock.setdefault(name, []).append(i)
+            sources[source]["stock_locations"] = {name: sorted(ids) for name, ids in sorted(stock.items())}
     if trends_evidence:
         from .trends import compute_trends_signal
         from .trends_related import chart_with_related_support
@@ -197,50 +217,18 @@ def compute_market_signals(observations, relevance, as_of, trends_evidence=(), *
             sources["google-trends"] = {"available": usable_context, "positive": signal.get("positive") if usable_context else None,
                                          "used_ids": [evidence_id] if usable_context else [],
                                          "reason": signal["reason"], "context_only": signal.get("positive") is not True}
-            if usable_context and signal.get("evidence_support") == "reasonably_positive":
-                sources["google-trends"]["evidence_support"] = "reasonably_positive"
-    applied_support = []
-    for support in source_support:
-        if not isinstance(support, dict) or support.get("source") not in sources:
-            continue
-        source, refs = support["source"], support.get("references")
-        signal = sources[source]
-        if (signal["available"] is not True or not isinstance(refs, list)
-                or any(not isinstance(ref, str) for ref in refs)
-                or not set(refs) <= set(signal["used_ids"])
-                or not isinstance(support.get("review_id"), str)
-                or support.get("judgment") not in ("reasonably_positive", "neutral", "weak", "unclear")):
-            continue
-        positive_support = support["judgment"] == "reasonably_positive" and bool(refs)
-        if positive_support and source == "google-trends":
-            # An all-zero or missing chart cannot become observed demand by
-            # interpretation. Stable actual nonzero interest need not grow.
-            charts = [row for row in trends_evidence if row["id"] in refs]
-            positive_support = any(any(point.get("state") == "bounded_nonzero"
-                or point.get("state") == "observed" and type(point.get("value")) is int and point["value"] > 0
-                for point in chart.get("parsed", {}).get("series", [])) for chart in charts)
-        if positive_support:
-            signal["evidence_support"] = "reasonably_positive"
-        # Keep measured source arithmetic and historical three-group rules
-        # untouched. The current recommendation additionally uses this opinion.
-        zero_chart_veto = support["judgment"] == "reasonably_positive" and source == "google-trends" and not positive_support
-        signal["support_judgment"] = "unclear" if zero_chart_veto else support["judgment"]
-        signal["support_reason"] = ("No observed nonzero chart interest is available; this is not proof of absent demand."
-                                    if zero_chart_veto else support.get("reason", ""))
-        signal["support_basis"] = "not_stated" if zero_chart_veto else support.get("basis")
-        signal["support_accepted"] = not zero_chart_veto
-        signal["support_review_id"] = support["review_id"]
-        applied_support.append(support)
+            if usable_context:
+                # Measured chart facts for the score (nonzero points, the
+                # rising bounds and same-product Breakout rising queries).
+                sources["google-trends"].update(
+                    nonzero_points=signal.get("nonzero_points"), previous_mean_bounds=signal.get("previous_mean_bounds"),
+                    recent_mean_bounds=signal.get("recent_mean_bounds"), breakout_queries=signal.get("breakout_queries", 0))
     positive_count = sum(f["positive"] is True for f in families.values())
     available_count = sum(f["available"] for f in families.values())
     confirmed_count = sum(source["available"] is True for source in sources.values())
-    supported_count = sum(source["available"] is True and
-                          (source["positive"] is True or source.get("evidence_support") == "reasonably_positive")
-                          for source in sources.values())
+    supported_count = sum(source["available"] is True and source["positive"] is True for source in sources.values())
     return {"families": families, "positive_families": positive_count, "available_families": available_count,
-            "source_policy_id": CURRENT_OPPORTUNITY_POLICY_ID, "sources": sources,
-            **({"source_support": applied_support} if applied_support else {}),
-            "available_sources": confirmed_count, "positive_sources": supported_count,
+            "sources": sources, "available_sources": confirmed_count, "positive_sources": supported_count,
             "source_label": (str(confirmed_count) + " sources with relevant information; no sales guarantee."
                              if confirmed_count else "No current usable relevant source information."),
             "label": ("Weak", "Worth Watching", "Promising Market Signal", "Strong Market Signal")[positive_count]

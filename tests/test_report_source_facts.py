@@ -35,6 +35,8 @@ from product_radar.research_memory import ResearchMemory, change
 from product_radar.source_coverage import prepare_source_tasks, execute_source_run, source_coverage
 from product_radar.storage import Journal
 from product_radar.trends import compute_trends_signal
+from test_fit_pipeline import older_format_scores
+from product_radar.opportunity_score import market_evidence
 
 
 def source_fixture(count=10):
@@ -56,6 +58,7 @@ def select(memory):
     return pool, issue, build_issue_dataset(issue, facts, evidence_type="synthetic")
 
 
+@older_format_scores
 class SavedSourceReportTests(unittest.TestCase):
     def real_memory(self, directory, count=10):
         memory = ResearchMemory(Path(directory) / "research", Journal(Path(directory) / "finance"), evidence_type="synthetic")
@@ -240,7 +243,7 @@ class SavedSourceReportTests(unittest.TestCase):
         self.assertIs(row["actual_attempt"], True)
         self.assertEqual(row["observed_at"], old)
         self.assertEqual(row["measurements"], [])
-        self.assertNotIn("meta", product["opportunity_basis"]["source_ids"])
+        self.assertNotIn("meta", market_evidence(product))  # an expired ad earns no score points
         self.assertNotIn("meta000", latest_observations(memory.state["observations"], NOW))
         self.assertIn("meta000", latest_observations(memory.state["observations"], NOW, max_age_days=None))
         for option in (False, 0, -1):
@@ -273,7 +276,7 @@ class SavedSourceReportTests(unittest.TestCase):
         self.assertIn("not units sold", listing["detail"])
         self.assertNotIn("list_rank_bounds", {m["name"] for m in generic["measurements"]})
         self.assertEqual(next(m["value"] for m in generic["measurements"] if m["name"] == "relevant_listings"), 1)
-        self.assertEqual(product["opportunity_basis"]["source_ids"], ["amazon", "meta"])
+        self.assertEqual(market_evidence(product), {"meta": ["meta000"]})  # Amazon gives no want points
 
     def test_current_unrelated_and_unclear_are_reviewed_outcomes_while_retired_reviews_need_review(self):
         for relationship, version, outcome in (("unrelated", REVIEW_VERSION, "completed_no_results"),
@@ -336,7 +339,8 @@ class SavedSourceReportTests(unittest.TestCase):
         self.assertIn("Synthetic Delhi", row["detail"])
         self.assertIn("Synthetic Mumbai", row["detail"])
         self.assertNotIn("Checked location: Synthetic Delhi", row["detail"])
-        self.assertEqual(self.product(dataset)["opportunity_basis"]["source_ids"].count("blinkit"), 1)
+        stock = self.product(dataset)["opportunity_basis"]["parts"]["want"]["items"]["quick_commerce"]
+        self.assertEqual((stock["facts"], stock["points"]), ({"stock_cities": {"Synthetic Delhi": ["blinkit-Delhi"]}}, 1))
 
     def test_quickcommerce_same_location_replacement_is_only_counted_once(self):
         memory = source_fixture()

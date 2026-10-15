@@ -65,8 +65,10 @@ class ProgrammeLegacyUpgradeTests(unittest.TestCase):
         pool = build_report_pool(memory, as_of=functional.NOW, recommendation_contract=RECOMMENDATION_CONTRACT)
         if len(pool["eligible"]) != 20:
             raise AssertionError((len(pool["eligible"]), pool["decisions"]))
-        if sorted(row["opportunity_priority"] for row in pool["eligible"]) != [1] * 10 + [2] * 10:
-            raise AssertionError("The genuine fixture must contain ten priority-1 and ten priority-2 types.")
+        # Ten types meet all ten points (score 31) and ten only five (score 16);
+        # all have six want points and High crowding (Proven but crowded).
+        if sorted(row["opportunity_score"] for row in pool["eligible"]) != [16] * 10 + [31] * 10:
+            raise AssertionError("The genuine fixture must contain ten 31-point and ten 16-point types.")
 
     def setUp(self):
         self.case = legacy.ProgrammeReportsTests(); self.case.setUp()
@@ -185,8 +187,8 @@ class ProgrammeLegacyUpgradeTests(unittest.TestCase):
         selected = [row["concept_id"] for packet in packets for row in packet["issue"]["products"]]
         self.assertEqual(len(selected), len(set(selected)))
         self.assertEqual(set(selected), set(ids))
-        self.assertEqual([[row["opportunity_priority"] for row in packet["issue"]["products"]]
-                          for packet in packets], [[1] * 10, [2] * 10])
+        self.assertEqual([[row["opportunity_score"] for row in packet["issue"]["products"]]
+                          for packet in packets], [[31] * 10, [16] * 10])
         for index in (0, 1):
             draft = self.record["drafts"][self.slots[index]["issue_id"]]
             self.assertTrue(draft["complete"], draft)
@@ -375,8 +377,8 @@ class ProgrammeLegacyUpgradeTests(unittest.TestCase):
         self.assertNotEqual(first, programme._report_upgrade_binding(reordered, None))
         for field, value in (("source_scope_hash", "1" * 64),
                              ("source_revisions", {"concepts": {"changed-producer": "1" * 64}}),
-                             ("opportunity_priority", 4), ("status", "Updated"),
-                             ("priority_support", {"valid_until": "2026-10-06T09:00:00+00:00"}),
+                             ("opportunity_score", 4), ("status", "Updated"),
+                             ("score_support", {"valid_until": "2026-10-06T09:00:00+00:00"}),
                              ("supplier_scoped_terms", [{"current": False}]),
                              ("supplier_scope_coverage", {"qualified": 0}),
                              ("source_route_checks", [{"state": "needs_recheck"}])):

@@ -218,9 +218,11 @@ class ProgrammeSourcePriorityTests(unittest.TestCase):
     def test_spent_even_turn_applies_the_exact_saved_source_answer_without_another_call(self):
         from product_radar import research_scope
         original_accept = research_scope.accept_scoped_evidence
+        saves = []
         def failed_local_support(*args, **kwargs):
-            if kwargs["method"] == source_interpretation.FUNCTIONAL_SUPPORT_METHOD:
-                raise OSError("Synthetic saved answer awaits local support application")
+            saves.append(1)
+            if len(saves) == 1:  # the saved answer is not yet applied (its one record)
+                raise OSError("Synthetic saved answer awaits local application")
             return original_accept(*args, **kwargs)
         with patch.object(research_scope, "accept_scoped_evidence", side_effect=failed_local_support):
             first = source_interpretation.review_source_results(self.memory, self.runner,

@@ -78,6 +78,8 @@ def compute_trends_signal(observation, now=None):
         if supporting:
             output["related_query_references"] = sorted({q["reference"] for q in supporting})
             output["used_ids"] = sorted(set(output["used_ids"] + output["related_query_references"]))
+            # Google's "Breakout" label on a same-product rising query (score "early").
+            output["breakout_queries"] = sum(q.get("growth_kind") == "breakout" for q in supporting)
         if high_previous == 0:
             recent_nonzero = sum(p["state"] == "bounded_nonzero" or p["value"] > 0 for p in recent)
             if recent_nonzero >= 2 and supporting:

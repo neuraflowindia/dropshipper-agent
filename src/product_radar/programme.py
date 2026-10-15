@@ -2323,7 +2323,7 @@ def _current_report_selection(issue, eligible, state, record, *, expected_replac
     """Check the frozen selection, not unrelated catalogue/research changes."""
     from .issue_allocation import ACTIVE_STATES, _fingerprint, _held, _published, draft_ordinal, selection_fingerprint, _fresh_at_release
     from .material_updates import update_baseline_current
-    from .opportunity_policy import OPPORTUNITY_FIELDS
+    from .opportunity_score import OPPORTUNITY_FIELDS
     from .service import issue_fit_policy, validate_issue
     from .functional_aliases import alias_binding, alias_projection, selected_alias_binding
     aliases = alias_projection(state) if alias_binding(state) is not None else {}
@@ -2374,7 +2374,7 @@ def _current_report_selection(issue, eligible, state, record, *, expected_replac
                 or any(current.get(field) != product.get(field) for field in
                     ("category", "identity_reviewed", "kpi_states", *OPPORTUNITY_FIELDS))
                 or current.get("recommendation_contract") != product.get("recommendation_contract")
-                or not _fresh_at_release(current, issue)):
+                or not _fresh_at_release(current, issue, state=state)):
             return "REPORT_CURRENT_ELIGIBILITY_CHANGED"
         if product.get("source_scope_hash") is not None and current.get("source_scope_hash") != product["source_scope_hash"]:
             return "REPORT_SELECTED_SOURCE_CHANGED"
@@ -2420,7 +2420,7 @@ def _report_upgrade_binding(issue, language):
     to the source research. Keep real expiry-sensitive supplier/route/support
     projections and every selected membership/order exact, however.
     """
-    from .opportunity_policy import OPPORTUNITY_FIELDS
+    from .opportunity_score import OPPORTUNITY_FIELDS
     issue_fields = ("issue_id", "client_id", "date", "recommendation_contract",
         "identity_context_hash", "projected_ordinal", "language_state", "fit_policy_id",
         "criterion_ids", "kpi_total", "opportunity_policy_id")
@@ -2428,7 +2428,7 @@ def _report_upgrade_binding(issue, language):
         "kpi_states", "fit_policy_id", "criterion_ids", "kpi_total", "kpi_matches", "fit_tier",
         *OPPORTUNITY_FIELDS, "status", "material_update_reviewed", "update_reason", "material_update_review",
         "source_scope_hash", "source_revisions", "functional_definition_hash", "usable_until",
-        "priority_support", "priority_support_refs", "support_valid_until", "example_products",
+        "score_support", "score_support_refs", "support_valid_until", "example_products",
         "example_bindings", "example_coverage", "example_review_proofs", "example_selection",
         "supplier_scoped_terms", "supplier_scope_coverage", "supplier_terms_display_version",
         "source_route_contract", "source_route_checks")
@@ -2461,7 +2461,7 @@ def _saved_functional_upgrade(root, issue, facts, *, state, record, eligible, re
                 or _report_upgrade_binding(original, language) != binding
                 or _current_report_selection(original, eligible, state, record,
                     expected_replaceable_hold=reservation) is not None
-                or any(not _fresh_at_release(row, original, as_of=at) for row in original["products"])):
+                or any(not _fresh_at_release(row, original, as_of=at, state=state) for row in original["products"])):
             continue
         receipt = validate_report_asset_receipt(original.get("report_asset_receipt"),
             issue_id=original["issue_id"], revision=revision)
@@ -2562,6 +2562,14 @@ def _reports(memory, record, context):
     from .report_examples import RECOMMENDATION_CONTRACT
     from .service import load_policy
     pool = _programme_report_pool(memory, record, as_of=context["at"])
+    try:
+        # Score tally for the owner (desktop line) and the one-time calibration.
+        from .opportunity_score import record_score_summary
+        record_score_summary(memory, pool, at=context["at"])
+    except (SafetyError, OSError) as error:
+        if isinstance(error, SafetyError) and str(error) in INTEGRITY_FAILURES:
+            raise
+        record_error("opportunity_score_summary_failed", error, stage="reports")
     state = memory.snapshot()
     eligible = _reporting_eligible(record, state, pool)
     example_preparation = _prepare_reporting_examples(memory, record, context, state=state, eligible=eligible)
@@ -4383,14 +4391,14 @@ def _closed_model_allowance_continuation(memory, state, record, *, runner, at, r
         if possibly_spent("E:source_support"):
             for question in source_questions.get(scope["programme_id"], []):
                 if (not question["unknown_ids"] or question.get("kind") != "functional_source_scope"
-                        and question.get("kind") != "saved_source_support" and question["relevant_ids"]):
+                        and question["relevant_ids"]):
                     continue
                 target = question["task_id"] + ":" + question["concept_id"]
                 if not _due(scope, "match", target, digest(question), at):
                     continue
                 try:
                     functional = question.get("kind") == "functional_source_scope"
-                    style = FUNCTIONAL_SOURCE_STYLE if functional else "short-references-support-v3"
+                    style = FUNCTIONAL_SOURCE_STYLE if functional else "short-references-v2"
                     payload = {"mode": "marketplace_relevance_only", "relevance_style": style,
                                "criteria": [], "items": [source_item(state, question, 30)]}
                     if ready("E:source_support", "E", payload, review=functional):
@@ -5065,6 +5073,9 @@ def programme_meter(memory, *, root, as_of=None):
     result["trends_check"] = _summary_input(lambda: proof_gate_line(root), failures, "trends_check")
     from .crowding import crowding_summary
     result["crowding_check"] = _summary_input(lambda: crowding_summary(state), failures, "crowding_check")
+    from .opportunity_score import score_summary
+    result["opportunity_score"] = (_summary_input(lambda: score_summary(state, pool), failures, "opportunity_score")
+                                   if pool is not None and state is not None else None)
     from .dropship_platforms import platform_lines
     result["platforms"] = _summary_input(lambda: platform_lines(memory.root), failures, "platforms")
     result["optional_input_failures"] = failures

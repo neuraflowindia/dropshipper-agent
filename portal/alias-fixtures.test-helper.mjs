@@ -1,6 +1,7 @@
 // Actual local Python constructors with synthetic saved captures and a fake B
 // runner. No provider, production data, external service or real model call.
 import { spawnSync } from 'node:child_process';
+import { PYTHON } from './python.test-helper.mjs';
 let cached;
 export function actualAliasFixtures() {
   if(cached)return structuredClone(cached);
@@ -34,7 +35,7 @@ for mode in ('exact','operator','model','negative'):
  finally:clock.stop();t.doCleanups()
 print(json.dumps(out,ensure_ascii=False,separators=(',',':')))
 `;
-  const result=spawnSync('.venv/bin/python',['-c',script],{cwd:new URL('..',import.meta.url),env:{...process.env,PYTHONPATH:'src:tests'},maxBuffer:8*1024*1024,timeout:30000});
+  const result=spawnSync(PYTHON,['-c',script],{cwd:new URL('..',import.meta.url),env:{...process.env,PYTHONPATH:'src:tests'},maxBuffer:8*1024*1024,timeout:30000});
   if(result.status!==0||!result.stdout?.length)throw new Error('Offline alias fixture failed: '+(result.stderr?.toString()??result.error?.message??''));
   cached=JSON.parse(result.stdout.toString());
   return structuredClone(cached);

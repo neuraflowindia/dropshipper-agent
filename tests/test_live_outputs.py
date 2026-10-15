@@ -17,6 +17,7 @@ from product_radar.live_outputs import (LEGACY_PRICE_DISPLAY_VERSION, PRICE_DISP
 from product_radar.models import SafetyError, digest
 from product_radar.service import CATEGORIES
 from product_radar.storage import atomic_json
+from test_fit_pipeline import older_format_scores
 
 
 def fixture(count=10):
@@ -42,6 +43,7 @@ def fixture(count=10):
     return issue, dataset
 
 
+@older_format_scores
 class LiveOutputTests(unittest.TestCase):
     def photo_fixture(self):
         issue, dataset = fixture()

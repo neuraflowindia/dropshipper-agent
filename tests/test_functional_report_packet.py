@@ -195,6 +195,39 @@ class FunctionalPacketTests(unittest.TestCase):
         saved = reserve_issue(memory, issue, report_root=self.root / "hold-test", **options)
         self.assertEqual(saved["selection_hash"], issue["selection_hash"])
 
+    def test_a_changed_crowding_answer_blocks_the_hold_and_the_release_but_a_same_answer_recheck_does_not(self):
+        from product_radar.crowding import fact_id
+        from product_radar.issue_allocation import _fresh_at_release
+        root = self.root / "crowding-hold"
+        memory, pool, issue, _ = functional_packet_fixture(root)
+        freeze_review_input(memory, issue, [pool["facts_by_concept"][row["concept_id"]] for row in issue["products"]], root=root)
+        product = issue["products"][0]
+        record_id = fact_id(product["concept_id"])
+        original = memory.snapshot()["batch_runs"][record_id]
+        self.assertEqual(original["level"], "high")
+
+        def saved(**changes):
+            old = memory.snapshot()["batch_runs"][record_id]
+            memory.put("batch_runs", record_id, dict(original, **changes), previous=old)
+
+        def reserve():
+            return reserve_issue(memory, issue, report_root=root, as_of=NOW, expected_input_hash=issue["input_hash"],
+                                 expected_snapshot_hash=allocation_snapshot_hash(memory.snapshot()))
+
+        # A re-check that finds the same answer (new time, new inputs hash) changes nothing.
+        saved(assessed_at="2026-10-06T10:00:00+00:00", basis_hash="0" * 64)
+        self.assertTrue(_fresh_at_release(product, issue, as_of=NOW, state=memory.snapshot()))
+        for changes in ({"level": "low", "rule": "few_listings"}, {"rule": "well_rated_listings"},
+                        {"thresholds_version": "crowding-thresholds-v9"}):
+            saved(**changes)
+            with self.subTest(changes=changes):
+                self.assertFalse(_fresh_at_release(product, issue, as_of=NOW, state=memory.snapshot()))
+                with self.assertRaisesRegex(SafetyError, "ISSUE_CROWDING_CHANGED"):
+                    reserve()
+        self.assertFalse(_fresh_at_release(dict(product, opportunity_basis={}), issue, as_of=NOW, state=memory.snapshot()))
+        saved()
+        self.assertEqual(reserve()["selection_hash"], issue["selection_hash"])
+
     def test_actual_public_photo_survives_original_loss_in_render_and_workbook(self):
         from test_report_assets import image_bytes
         memory, _ = functional_pool_fixture(self.root / "photo-inputs", count=10, with_images=True)

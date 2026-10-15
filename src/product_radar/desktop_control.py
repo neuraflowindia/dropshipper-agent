@@ -136,9 +136,11 @@ def sign_in_summary(root, *, runner=subprocess.run, recheck_seconds=30):
     except (SafetyError, OSError):
         summary = {"window_open": False, "line": "The sign-in records could not be read. See the project log.", "needs": []}
     # Under the sign-in needs: one line per dropshipping platform waiting on
-    # something the owner can see (W4), then the signed-in Trends check (W2).
+    # something the owner can see (W4), the signed-in Trends check (W2), then
+    # the opportunity score tally and its one-time calibration alert (W7).
     # Their own records failing never hides the sign-in needs.
-    return dict(summary, platform_lines=_platform_lines(root), trends_line=_trends_line(root))
+    return dict(summary, platform_lines=_platform_lines(root), trends_line=_trends_line(root),
+                score_line=_score_line(root))
 
 
 def _platform_lines(root):
@@ -155,6 +157,14 @@ def _trends_line(root):
         return proof_gate_line(root)
     except (SafetyError, OSError):
         return "The Google Trends check records could not be read. See the project log."
+
+
+def _score_line(root):
+    from .opportunity_score import score_line
+    try:
+        return score_line(_memory(root).root)
+    except (SafetyError, OSError):
+        return "The opportunity score records could not be read. See the project log."
 
 
 def open_sign_in(root):

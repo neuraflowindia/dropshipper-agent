@@ -271,8 +271,10 @@ class MarketplaceContextJoinTests(unittest.TestCase):
                 self.assertEqual(facts["image_candidates"][0]["observation_id"], "context-obs")
                 context = next(c for c in facts["market_checks"] if c.get("context_only"))
                 self.assertIn("not sales", context["detail"])
-                self.assertEqual(facts["opportunity_basis"]["available_sources"], 2 if source == "amazon" else 3)
-                self.assertIn(source, facts["opportunity_basis"]["source_ids"])
+                # Listings, prices and stock-less quick-commerce rows are context: no score points.
+                from product_radar.opportunity_score import market_evidence
+                self.assertEqual(market_evidence(facts), {"meta": ["meta000"]})
+                self.assertEqual(facts["opportunity_basis"]["parts"]["want"]["points"], 2)
 
     def test_unit_rate_range_and_missing_are_not_presented_as_single_unit_prices(self):
         for quote in ("₹199 / 100g", "₹199–299", None):

@@ -1,16 +1,16 @@
 # Plan R10 — sources, crowding check, larger product map and spend watch (14 October 2026)
 
 **Project stage: Development and testing** (no real users; precautions that only protect real users are not planned).
-**Status (15 October 2026): approved by the owner on 14 October 2026 (A1); waves 1–4 built on branch `r10`, not yet loaded into the running research.** One part is being redesigned with the owner: how products are ranked (a weighted opportunity score instead of the four priority tiers; see "Owner answers" in section 6). W6's selection step and W7's market rules wait for that design; everything else proceeds.
+**Status (15 October 2026): approved by the owner on 14 October 2026 (A1); W1–W12 built on branch `r10` (the ranking score with the owner's weights 20/30/25/25 included, section 6 "Ranking score"), not yet loaded into the running research.** Next: W13 cutover and live proof, then W14.
 
 | Package | Build state | Commit |
 |---|---|---|
-| W1 sign-in browser, W3 IndiaMART and Maps, W9 AI judgment, W12 spend watch | Built | `bb4db37` (wave 1) |
-| W2 Trends, W4 platforms, W11 Apify Meta depth | Built | `6089f42` (wave 2) |
-| W6 crowding check, part 1 (parser v2, crowding level, eligibility gate, calibration record, retired discovery routes) | Built | `6089f42` (wave 2) |
-| W6 selection step (Low/Medium first) and W7 market-site set | Waiting for the owner's ranking design | — |
-| W5 quick commerce, W8 wider discovery | Built | `548e054` (wave 3) |
-| W10 product map | Built | `7ad04d1` (wave 4) |
+| W1 sign-in browser, W3 IndiaMART and Maps, W9 AI judgment, W12 spend watch | Built | `60fffb0` (wave 1) |
+| W2 Trends, W4 platforms, W11 Apify Meta depth | Built | `4707231` (wave 2) |
+| W6 crowding check, part 1 (parser v2, crowding level, eligibility gate, calibration record, retired discovery routes) | Built | `4707231` (wave 2) |
+| W6 selection step (Low/Medium first) and W7 ranking score (`opportunity-score-v3`) | Built | see the implementation record |
+| W5 quick commerce, W8 wider discovery | Built | `6630cbc` (wave 3) |
+| W10 product map | Built | `42be726` (wave 4) |
 | W13 cutover and live proof | Not started | — |
 | W14 documents, suites, outside steps | In progress | — |
 
@@ -98,7 +98,7 @@ An independent review (14 October, read-only, extra-high effort) checked this pl
 
 ### W1. Signed-in research browser and owner sign-in
 
-- **Status: built** (`bb4db37`). The sign-in window opens seven tabs: Google, Google Trends, IndiaMART, DeoDap, BaapStore, Dropship India and Dropdash (DeoDap and BaapStore optional). Live check pending (W13).
+- **Status: built** (`60fffb0`). The sign-in window opens seven tabs: Google, Google Trends, IndiaMART, DeoDap, BaapStore, Dropship India and Dropdash (DeoDap and BaapStore optional). Live check pending (W13).
 - **Objective:** one lasting, separate Chrome profile for the program (never the owner's everyday profile) so Trends, IndiaMART, Dropship India and Dropdash can be read while signed in; the owner signs in once.
 - **Profile:** Windows folder `%LOCALAPPDATA%\NeuraFlowDropshipper\research-browser-profile` (path resolved through PowerShell, not hard-coded). `native_public_browser.native_snapshot` gains `profile="signed-in"`; all other routes keep the throwaway profile.
 - **Changes the lasting profile needs** (`native_public_browser.py:72-75,123,254`): delete any old `DevToolsActivePort` file before each start; close Chrome with the browser's own close command first and force-kill only as a fallback (protects saved sign-ins); one signed-in Chrome at a time through a lock that also covers the owner's sign-in window.
@@ -112,7 +112,7 @@ An independent review (14 October, read-only, extra-high effort) checked this pl
 
 ### W2. Google Trends through the signed-in browser
 
-- **Status: built** (`6089f42`). The proof gate passes after three complete signed-in reads of which at least one is a verified chart export (Google's "not enough data" answers count but never alone). The old hidden-browser and Playwright routes are no longer used by research; they and their manual scripts are deleted after the W13 proof (L8).
+- **Status: built** (`4707231`). The proof gate passes after three complete signed-in reads of which at least one is a verified chart export (Google's "not enough data" answers count but never alone). The old hidden-browser and Playwright routes are no longer used by research; they and their manual scripts are deleted after the W13 proof (L8).
 - **Build:** the `google-trends` route uses W1's profile with the existing chart/CSV export logic (`trends_controller.capture_direct_trends`; `headed`/`profile` passed through at line 214, at `create_trends_handlers` line 504, and through the cooperative path at `trends_shared.py:126`). Pacing: at most one Trends read every 90 seconds, daily ceiling 200 (config). Escalating waits stay (5 min → 1 h → 6 h → 24 h) under the new access identity. Rising related queries feed discovery (W8).
 - **Proof gate:** after the owner signs in, the first three Trends reads must save complete exports. If Google still refuses, the route stays blocked with the exact reason, the desktop app says so, and the program carries on without Trends (fail closed; no workaround). The contract's "connected browser chart/export route" wording is replaced by this route.
 - **Removed:** hidden-browser and Playwright Trends routes and their manual scripts (see the rules above), with their tests.
@@ -120,14 +120,14 @@ An independent review (14 October, read-only, extra-high effort) checked this pl
 
 ### W3. IndiaMART signed in, and Google Maps straight to the browser
 
-- **Status: built** (`bb4db37`); IndiaMART is limited to 4 reads a round (L5). Live check pending (W13).
+- **Status: built** (`60fffb0`); IndiaMART is limited to 4 reads a round (L5). Live check pending (W13).
 - **IndiaMART:** supplier route reads search results in the signed-in profile; pacing one read every 30 seconds, daily ceiling 150. The login-wall detector stays (`supplier_route_acquisition.py:220-243`): a wall while signed in means the sign-in expired → `OWNER_SIGN_IN_REQUIRED`. Parser v6 reads supplier name, location, product title, price/MOQ text and listing link. IndiaMART category pages also feed the product map (W10).
 - **Google Maps (D11):** `supplier_search.supplier_request_for_state` (101-117) returns the browser request directly for `google-maps`; the proof gates at 726-730, 811-812 and 854 accept a Maps browser read without a plain read; the plain-read-first branch for Maps is deleted.
 - **Tests:** wall while signed in, parser v6 on saved fixtures, pacing, Maps browser-first planning and gate.
 
 ### W4. Four dropshipping platforms
 
-- **Status: built** (`6089f42`), except role (b): until the owner's ranking design is settled, a platform listing is recorded as a per-type **presence fact** (relevant items, bestseller/trending/new-arrival membership, price, stock, how much of the platform was read) for the coming score, not as a market vote. The platforms' refresh has its own 150-second budget a round (L5). The signed-in pages of Dropship India and Dropdash have not yet been seen signed in; their layouts are checked at W13.
+- **Status: built** (`4707231`), except role (b): until the owner's ranking design is settled, a platform listing is recorded as a per-type **presence fact** (relevant items, bestseller/trending/new-arrival membership, price, stock, how much of the platform was read) for the coming score, not as a market vote. The platforms' refresh has its own 150-second budget a round (L5). The signed-in pages of Dropship India and Dropdash have not yet been seen signed in; their layouts are checked at W13.
 - **Route ids:** four separate routes (`deodap`, `baapstore`, `dropship-india`, `dropdash`) in a new source group `dropship-platforms`, counted as **one** market site.
 - **DeoDap and BaapStore (public Shopify feeds):** `collections.json`, collection product lists and `products.json`, one request every 5 seconds, daily ceiling 1,500 per platform. Fields: title, images, price and MRP, stock flag, vendor, tags, created date, collection membership (new arrivals, bestsellers, trending, state-wise bestsellers). A full catalogue refresh at most weekly; new-arrival and bestseller collections daily.
 - **Dropship India and Dropdash (signed in, W1):** browser reads of the catalogue, trending / "high demand" / "winning products" pages and product pages; one read every 30 seconds, daily ceiling 300 each.
@@ -137,7 +137,7 @@ An independent review (14 October, read-only, extra-high effort) checked this pl
 
 ### W5. Quick commerce switched on (after W6)
 
-- **Status: built** (`548e054`), with the 30-day no-repeat and 7-day issue refresh (L2) and the free browser route deleted (L3). It runs only with `--funded-quickcommerce-fallback` and `--cooperative-turns` (both in the launcher's allowed flags; section 2 found the installed task already running with the funded flag). Live check pending (W13).
+- **Status: built** (`6630cbc`), with the 30-day no-repeat and 7-day issue refresh (L2) and the free browser route deleted (L3). It runs only with `--funded-quickcommerce-fallback` and `--cooperative-turns` (both in the launcher's allowed flags; section 2 found the installed task already running with the funded flag). Live check pending (W13).
 - **Locations:** the contract's three reference points: Mumbai (19.0760, 72.8777), Delhi NCR (28.6139, 77.2090), Bengaluru (12.9716, 77.5946), in `config/research/quickcommerce_locations.json`. The request builder reads the list from config; location leaves the programme's frozen settings (`programme.py:104,194,204-212,252,4780`) and the `--location-*` options are removed (`run_programme.py:89,157-160`), so the Windows launcher needs no new flags.
 - **No discovery use:** the quick-commerce discovery specs (`catalogue_discovery.py:377-383`) are deleted; credits are spent only on product checks.
 - **Admission rule:** paid checks only for types that pass the checklist and whose crowding is Low or Medium (not High, not "Not checked"); one phrase only (the type's main phrase, no sparse-result extra phrases from `source_coverage.py:1316-1385`); Mumbai first on all three apps (3 credits), Delhi NCR and Bengaluru (6 more) only when Mumbai shows a relevant result. Held-back checks are recorded as "reserved for later", not as failures.
@@ -147,7 +147,7 @@ An independent review (14 October, read-only, extra-high effort) checked this pl
 
 ### W6. Amazon and Flipkart as a crowding check (D4)
 
-- **Status: part 1 built** (`6089f42`): parser v2, the crowding level, the rule that a type is not report-eligible until its crowding is known, the calibration record, the retired discovery routes and Movers & Shakers. **The selection step below waits for the owner's ranking design**; selection order is unchanged until then.
+- **Status: part 1 built** (`4707231`): parser v2, the crowding level, the rule that a type is not report-eligible until its crowding is known, the calibration record, the retired discovery routes and Movers & Shakers. **The selection step below waits for the owner's ranking design**; selection order is unchanged until then.
 - **Readers:** parser version 2 adds, per result card on the **first results page only**: ratings count, star rating, brand/seller text where shown, "bought in past month" (Amazon), sponsored label; per page: total result count. Saved pages are re-read with v2 (development stage; no old-parser compatibility).
 - **Crowding level (code, from AI-reviewed relevant listings only):**
   - **High:** a relevant item on an Amazon bestseller list; or at least 3 relevant listings with 1,000+ ratings; or at least 8 relevant listings from at least 5 different brands/sellers; or at least 2 relevant listings showing "1K+ bought in past month".
@@ -161,7 +161,7 @@ An independent review (14 October, read-only, extra-high effort) checked this pl
 
 ### W7. New market-site set and one market review per type
 
-- **Status: waiting for the owner's ranking design** (A2). Until then the current opportunity policy (`opportunity-priority-v2`, seven sites including Amazon and Flipkart) still decides priority.
+- **Status: built (15 October) as the ranking score** (section 6, "Ranking score"). The score (`opportunity-score-v3`) replaces the four priority tiers and the site-count rules below; Amazon and Flipkart only feed "room"; the AI market-support opinion is retired (so one support review per type, P4, is not needed beyond the existing per-type relevance reviews). The text below is the original 14 October wording.
 - **Market sites become four:** Meta; Google Trends; Quick commerce (Blinkit, Zepto and Instamart together count as one site, like Amazon's lists did); Dropship platforms (bestseller/trending lists only). Amazon and Flipkart leave the list (`opportunity_policy.SOURCE_PLATFORMS` and `_evaluate_platforms` 85-89, 113-117; `market_validation.py:44,80,257`; `discovery.py:179-188`; `research_ai.py:167,1054`; wording in `report_narration.py:296-300` and `live_outputs.py:839-845`). New opportunity policy version (v3). Tier rules keep their shape: two usable sites, or one reasonably positive site; **at least one site is still required.** Quick-commerce stock stays neutral context (usable, not positive), as the contract says.
 - **One review per type (P4):** a type's saved results waiting for AI relevance review are reviewed together in one AI call, with a new support-prompt version; every type is re-reviewed once under it (extra AI load counted in W12's measurements).
 - **Dry run first:** before cutover, run the new policy on a copy of the store and record how many types stay eligible. Expect a big drop (today's eligible types rest on Amazon and Flipkart search: the store holds 724 Amazon, 385 Flipkart, 171 Meta, 0 Trends and 0 quick-commerce observations). The count recovers as Trends, quick commerce and the platforms come online. This is accepted in advance (question A2).
@@ -169,21 +169,21 @@ An independent review (14 October, read-only, extra-high effort) checked this pl
 
 ### W8. Wider discovery
 
-- **Status: built** (`548e054`). Source reads per round were raised to 16, not 20, until W13 measures (L1); supplier listings are labelled as leads (L4). IndiaMART and TradeIndia offer no "newest first" order, so "newest" means not seen before, under mapped category terms.
+- **Status: built** (`6630cbc`). Source reads per round were raised to 16, not 20, until W13 measures (L1); supplier listings are labelled as leads (L4). IndiaMART and TradeIndia offer no "newest first" order, so "newest" means not seen before, under mapped category terms.
 - **Meta:** heading searches stay; each relevant advertiser's other active ads (free, same direct read) become candidates.
 - **Dropship platforms:** new arrivals, bestsellers, trending (W4). **Google Trends:** rising related queries (W2). **IndiaMART and TradeIndia:** newest listings in mapped categories.
 - **Round limits:** source reads per round 12 → 20 (config). AI calls stay at 10 per round until W12 has measured the weekly-allowance share per AI job; then raised only if the weekly projection stays under the pause level.
 
 ### W9. AI judgment and finishing nearly-ready products
 
-- **Status: built** (`bb4db37`): checklist contract `research-e-fit10-functional-v5`; while the report sets are short, two of a round's ten AI calls are kept for discovery until discovery has run.
+- **Status: built** (`60fffb0`): checklist contract `research-e-fit10-functional-v5`; while the report sets are short, two of a round's ten AI calls are kept for discovery until discovery has run.
 - **P2:** the checklist prompt gains one rule: when the product's form and use are known, give a labelled practical estimate ("Estimated: …") instead of "Unclear"; keep "Unclear" only when the form or use itself is not known. New prompt version; every type is re-assessed once under it, then reused.
 - **P3:** stage planning puts nearly-ready types first: any type that passes the checklist gets its market review, crowding check and supplier search queued at once (`report_selection.py:1245-1250` no longer waits for supplier search to be the last gap), ahead of new discovery while the report sets are short of eligible types.
 - **Tests:** prompt version and reuse, priority order, supplier queueing for every passing type.
 
 ### W10. Bigger product map and AI expansion switched on (D8)
 
-- **Status: built** (`7ad04d1`): 48 sub-areas (12 per category) with a target of 25 headings each; materials are platform collections and items, Trends rising queries, relevant advertisers' other ads and supplier listings from W8 (IndiaMART/TradeIndia category trees are not read separately). Every new heading must carry a Meta discovery phrase. The Amazon-page seed lane is retired (L6). The map grows inside the ordinary round allowance (one build call and at most one renewal call a round); there is no separate bulk run.
+- **Status: built** (`42be726`): 48 sub-areas (12 per category) with a target of 25 headings each; materials are platform collections and items, Trends rising queries, relevant advertisers' other ads and supplier listings from W8 (IndiaMART/TradeIndia category trees are not read separately). Every new heading must carry a Meta discovery phrase. The Amazon-page seed lane is retired (L6). The map grows inside the ordinary round allowance (one build call and at most one renewal call a round); there is no separate bulk run.
 - **Target:** about 1,200 headings (4 categories × about 12 sub-areas × about 25 headings), built mainly from non-Amazon material: DeoDap/BaapStore collection trees, Dropship India/Dropdash catalogues, IndiaMART/TradeIndia category trees, Meta advertisers and the existing headings.
 - **Builder:** the existing seed path (`catalogue_seed.py`, AI role C, one branch per call) is extended to take these new materials as branch inputs; this builds the map. `catalogue_expansion.run_expansion` (one concept at a time, at most five) is then switched on in the discovery step for **renewal**: one AI slot per round when new material exists (new arrivals, rising queries, new advertisers). About 200–300 AI jobs for the first build (estimate, measured by W12).
 - **AI schema:** phrase sources add `dropship` (`research_ai.py:233-235`; `catalogue.py:103` already accepts `supplier` and `quickcommerce`).
@@ -192,14 +192,14 @@ An independent review (14 October, read-only, extra-high effort) checked this pl
 
 ### W11. Apify free allowance for deeper Meta reads (D3)
 
-- **Status: built** (`6089f42`). Each new Apify month is read from Apify's free limits endpoint and earmarked automatically (US$4.45 for the deeper read; US$0.55 kept back = the US$0.50 buffer plus the ledger's five-cent tolerance). The account list is switched on at cutover (`scripts/r10_cutover.py apply`). Live check pending (W13).
+- **Status: built** (`4707231`). Each new Apify month is read from Apify's free limits endpoint and earmarked automatically (US$4.45 for the deeper read; US$0.55 kept back = the US$0.50 buffer plus the ledger's five-cent tolerance). The account list is switched on at cutover (`scripts/r10_cutover.py apply`). Live check pending (W13).
 - **Separate follow-up route** `meta-ads-depth` (not the `meta_handler=` slot, which would replace the free read): it runs only for types whose free Meta read lacks advertiser counts or ad start dates, through the existing account registry, ledger and reserve-before-spend rules (`accounts.choose_account`, the Apify transport, `map_meta_rows`), charge recorded as unknown until settled. Its results count toward the single Meta site.
 - **Account and money:** the one funded account (period 3 October – 2 November). The "USD 3.07 earmarked" is the part of this period's USD 5.00 set aside for source reads after earlier trial charges and holds; the route may use it down to the protected USD 0.50 buffer and then waits for the next monthly allowance. The other two approved accounts in the contract are not funded and are not used.
 - **Tests:** admission rule, reserve and settle, stop at the buffer, period rollover, no retry of an uncertain paid call, Meta site counted once.
 
 ### W12. Spend and allowance watch (D9)
 
-- **Status: built** (`bb4db37`), with the AI money guard (L7). Usage is read through `account/rateLimits/read`; the session-file fallback was not needed.
+- **Status: built** (`60fffb0`), with the AI money guard (L7). Usage is read through `account/rateLimits/read`; the session-file fallback was not needed.
 
 | Item | Allowance | How it is measured |
 |---|---|---|
@@ -288,12 +288,25 @@ Already approved: ordinary research; focused tests; commits and pushes; clean st
 | # | Answer |
 |---|---|
 | A1 | **Yes**: the whole programme, including both whole test suites once at the end. |
-| A2 | Crowding rules **yes as written** (High crowding fills an issue only when fewer than ten others are ready; reports show crowding; temporary drop accepted). The proof-of-demand rule is **reopened**: the owner does not want a simple "bestseller list or nothing" rule (bestsellers may already be crowded; plain listings may have no demand) and asked for a weighted score across platforms, bestseller presence and crowding. Design under discussion; W6 selection and W7 wait for it. |
+| A2 | Crowding rules **yes as written** (High crowding fills an issue only when fewer than ten others are ready; reports show crowding; temporary drop accepted). The proof-of-demand rule is **reopened**: the owner does not want a simple "bestseller list or nothing" rule (bestsellers may already be crowded; plain listings may have no demand) and asked for a weighted score across platforms, bestseller presence and crowding. Settled 15 October: the owner set the four part weights (section 6, "Ranking score"). |
 | A3 | A separate research Gmail (the owner offered two; the chosen one is recorded only in the private handoff). |
 | A4 | **No AI pause.** Flag usage only (see W12). |
 | A5 | **Yes.** |
 | A6 | **No**: the repository stays public. Consequence: personal details (such as Gmail addresses) are never written into committed files. |
 | A7 | Yes, when the credits run low (the owner buys). Everything must behave exactly as it will for the client: full production behaviour, no shortcuts. |
+
+### Ranking score (owner's weights, 15 October 2026)
+
+The owner replaced the four priority tiers with a score out of 100 in four parts. The owner set the four part weights; the lead set the points inside each part (values live in `config/research/opportunity_score.json`, versioned, so they can be changed without code changes).
+
+| Part | Points | What earns them (lead's split) |
+|---|---:|---|
+| **Do people want it?** | 20 | Facebook ads up to 8 (Meta positive with 5+ relevant advertisers 8; Meta positive 6; relevant ads but not positive 2). Google searches up to 5 (usable India 12-month chart with 4+ nonzero points 5; 1–3 nonzero points 2). Platforms' lists up to 5 (on a bestseller / trending / high-demand list of 2+ platforms 5, of one platform 4; otherwise listed on 2+ platforms 2, on one 1). Quick-commerce stock up to 2 (relevant stock in 2+ cities 2, in one city 1). |
+| **Is it early?** | 30 | Rising searches up to 12 (Trends rising by the contract's rule 8; rising by 50% or more, or a same-product "Breakout" rising query, 12). New advertisers up to 9 (advertisers whose first relevant ad started in the last 30 days: 3+ = 9, 2 = 6, 1 = 3). Newly-launched lists up to 9 (on the new-arrivals list of 2+ platforms 9, of one 6). |
+| **Room for us?** | 25 | Amazon/Flipkart crowding Low 25, Medium 12, High 0. |
+| **Good product?** | 25 | Ten-point checklist: 5 Meets = 10 points, each further Meet +3 (10 Meets = 25). |
+
+Rules: a type can go into a report only when it has at least 5 Meets, at least 5 of the 20 "want" points, and a known crowding level. Amazon and Flipkart give no "want" points any more; they only decide "room". In each issue, Low and Medium crowding types go first, highest score first (ties: higher "early", then higher "product", then the existing category-balance and freshness order, then the stable type id; the existing New/Updated preference and the issue's own holds still come first, as before); High crowding types are used only when fewer than ten Low/Medium types are ready for that issue. Labels shown in reports: **Too quiet** (under 5 want points; not reportable), **Proven but crowded** (High crowding), **Early bet** (Low/Medium, early 15+ and want under 10), **Sweet spot** (every other Low/Medium type). The AI's "reasonably positive" market opinion is retired because the score is measured from facts; the AI keeps checking whether each listing or ad is the same product. One-time calibration: after the first 50 scored types, if more than 70% or fewer than 10% are Too quiet, the agent adjusts only the inner point thresholds once (never the owner's four weights), records before/after counts and reports it.
 
 Defaults the agent will use without asking: spend alerts in the desktop app, meter and alert log only (no email); the official Google Trends API application is an optional owner to-do (section 7), not a dependency.
 

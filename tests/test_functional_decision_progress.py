@@ -30,8 +30,7 @@ from product_radar.market_validation import functional_market_context
 from product_radar.research_questions import prepare_research_questions
 from product_radar.research_records import CATALOGUE_SCOPE_KIND, SCOPED_EVIDENCE_KIND
 from product_radar.research_ai import current_attempt
-from product_radar.source_interpretation import (FUNCTIONAL_MATCH_METHOD,
-    FUNCTIONAL_SUPPORT_METHOD, review_source_results)
+from product_radar.source_interpretation import FUNCTIONAL_MATCH_METHOD, review_source_results
 from product_radar.storage import load_json
 from product_radar.work_turns import bind_work_turn, close_work_turn, open_work_turn
 
@@ -323,8 +322,8 @@ class FunctionalDecisionProgressTests(unittest.TestCase):
                 record = change.get("value", {})
                 if record.get("kind") == SCOPED_EVIDENCE_KIND:
                     before_saves.append(read_operation_status(self.root))
-                    if record["method"] == FUNCTIONAL_SUPPORT_METHOD:
-                        raise OSError("Fictional interruption before the source-support save")
+                    if len(before_saves) == 3:
+                        raise OSError("Fictional interruption before the last record's save")
             return original(eid, changes, validate=validate)
         before = fixture.memory.snapshot()
         with operation_run(self.root) as recorder, operation_writer():
@@ -336,44 +335,44 @@ class FunctionalDecisionProgressTests(unittest.TestCase):
             with patch.object(operations, "utc_now", return_value="2026-10-12T10:00:30+00:00"), \
                     patch.object(fixture.memory, "commit", side_effect=fail_support):
                 partial = fixture.review(runner)
-            self.assertEqual([row["counts"]["completed_results"] for row in before_saves], [0, 1, 2, 3])
+            self.assertEqual([row["counts"]["completed_results"] for row in before_saves], [0, 1, 2])
             self.assertEqual(partial["remaining_questions"], 1)
             self.assertTrue(any(row["state"] == "waiting" for row in partial["outcomes"]))
             first = read_operation_status(self.root)
-            self.assertEqual(first["counts"]["completed_results"], 3)
+            self.assertEqual(first["counts"]["completed_results"], 2)
             self.assertEqual(first["last_useful_result_at"], "2026-10-12T10:00:30+00:00")
             for field in parent_fields:
                 self.assertEqual(first[field], parent[field], field)
             first_records = self.kind_records(fixture.memory, SCOPED_EVIDENCE_KIND)
-            self.assertEqual(len(first_records), 3)
+            self.assertEqual(len(first_records), 2)
             self.assertEqual({row["method"] for row in first_records.values()}, {FUNCTIONAL_MATCH_METHOD})
             with patch.object(operations, "utc_now", return_value="2026-10-12T10:01:00+00:00"):
                 result = fixture.review(runner)
             self.assertEqual(result["remaining_questions"], 0)
             self.assertEqual(len(runner.calls), 1)
             records = self.kind_records(fixture.memory, SCOPED_EVIDENCE_KIND)
-            self.assertEqual(len(records), 4)
+            self.assertEqual(len(records), 3)
             self.assertEqual(len(set(records) - set(first_records)), 1)
             self.assertEqual({row["record_id"] for row in self.saved(recorder)}, set(records))
             current = read_operation_status(self.root)
-            self.assertEqual(current["counts"]["completed_results"], 4)
+            self.assertEqual(current["counts"]["completed_results"], 3)
             self.assertEqual(current["last_useful_result_at"], "2026-10-12T10:01:00+00:00")
             for field in parent_fields:
                 self.assertEqual(current[field], parent[field], field)
             for table in ("query_tasks", "captures", "observations", "assessments", "market_reviews"):
                 self.assertEqual(fixture.memory.snapshot()[table], before[table], table)
-            # Four saved decisions describe one source/product review, not
-            # four products. The returned aggregate adds no fifth credit.
+            # Three saved decisions describe one source/product review, not
+            # three products. The returned aggregate adds no fourth credit.
             self.assertTrue(all(isinstance(row["scoped_evidence_refs"], list)
                                 for row in result["outcomes"] if row["state"] == "reviewed"))
             record_progress({"stage": "match", "phase_state": "finished", "result": result})
-            self.assertEqual(read_operation_status(self.root)["counts"]["completed_results"], 4)
+            self.assertEqual(read_operation_status(self.root)["counts"]["completed_results"], 3)
             before_reuse = fixture.memory.snapshot_with_provenance()
             repeated = fixture.review(runner)
             self.assertEqual(fixture.memory.snapshot_with_provenance(), before_reuse)
             record_progress({"stage": "match", "phase_state": "finished", "result": repeated})
-            self.assertEqual(read_operation_status(self.root)["counts"]["completed_results"], 4)
-            self.assertEqual(len(self.saved(recorder)), 4)
+            self.assertEqual(read_operation_status(self.root)["counts"]["completed_results"], 3)
+            self.assertEqual(len(self.saved(recorder)), 3)
             self.assertEqual(len(runner.calls), 1)
 
     def test_functional_source_false_and_failed_scope_commits_have_no_result_or_summary_credit(self):
@@ -394,7 +393,7 @@ class FunctionalDecisionProgressTests(unittest.TestCase):
                 with operation_run(self.root) as recorder, operation_writer():
                     with patch.object(fixture.memory, "commit", side_effect=refuse):
                         result = fixture.review(runner)
-                    self.assertEqual(len(visits), 4 if failure == "false" else 1)
+                    self.assertEqual(len(visits), 3 if failure == "false" else 1)
                     self.assertEqual(self.kind_records(fixture.memory, SCOPED_EVIDENCE_KIND), {})
                     self.assertEqual(self.saved(recorder), [])
                     record_progress({"stage": "match", "phase_state": "finished", "result": result})
@@ -403,34 +402,28 @@ class FunctionalDecisionProgressTests(unittest.TestCase):
                     recovered = fixture.review(runner)
                     self.assertEqual(recovered["remaining_questions"], 0)
                     self.assertEqual(len(runner.calls), 1)
-                    self.assertEqual(len(self.saved(recorder)), 4)
+                    self.assertEqual(len(self.saved(recorder)), 3)
                     record_progress({"stage": "match", "phase_state": "finished", "result": recovered})
-                    self.assertEqual(read_operation_status(self.root)["counts"]["completed_results"], 4)
+                    self.assertEqual(read_operation_status(self.root)["counts"]["completed_results"], 3)
 
-    def test_negative_and_unclear_functional_source_judgments_count_without_changing_their_opinion(self):
-        for relationship, judgment, support in (
-            ("relevant_family", "weak", "not_positive"),
-            ("unclear", "unclear", "insufficient"),
-            ("unrelated", "unclear", "insufficient"),
-        ):
-            with self.subTest(relationship=relationship, judgment=judgment):
+    def test_negative_and_unclear_functional_source_judgments_count_and_save_no_opinion(self):
+        for relationship in ("relevant_family", "unclear", "unrelated"):
+            with self.subTest(relationship=relationship):
                 fixture = self.fixture(source_fixtures.FunctionalSourceInterpretationTests)
-                runner = source_fixtures.Runner(relationship=relationship, judgment=judgment)
+                runner = source_fixtures.Runner(relationship=relationship)
                 with operation_run(self.root) as recorder, operation_writer():
                     result = fixture.review(runner)
                     self.assertEqual(result["remaining_questions"], 0)
-                    self.assertEqual(len(self.saved(recorder)), 4)
+                    self.assertEqual(len(self.saved(recorder)), 3)
                     records = self.kind_records(fixture.memory, SCOPED_EVIDENCE_KIND)
-                    opinions = [row for row in records.values() if row["method"] == FUNCTIONAL_SUPPORT_METHOD]
-                    self.assertEqual(len(opinions), 1)
-                    self.assertEqual(opinions[0]["support"], support)
+                    # Only relevance rows: no per-site market opinion is asked or saved (W7).
+                    self.assertEqual({row["method"] for row in records.values()}, {FUNCTIONAL_MATCH_METHOD})
                     market = functional_market_context(fixture.memory.snapshot(), "first", as_of=source_fixtures.NOW)
                     signal = market["market"]["sources"]["amazon"]
-                    self.assertNotEqual(signal.get("evidence_support"), "reasonably_positive")
-                    if judgment == "weak":
-                        # Observed bestseller placement stays observed; the
-                        # activity update must not turn E's weak opinion positive.
-                        self.assertEqual(signal.get("support_judgment"), "weak")
+                    self.assertFalse({"evidence_support", "support_judgment"} & set(signal))
+                    if relationship == "relevant_family":
+                        # Observed bestseller placement stays observed.
+                        self.assertIs(signal["positive"], True)
                     else:
                         self.assertIs(signal["available"], False)
                         self.assertIsNot(signal["positive"], True)
@@ -439,7 +432,7 @@ class FunctionalDecisionProgressTests(unittest.TestCase):
                     self.assertEqual(fixture.memory.snapshot_with_provenance(), before_reuse)
                     record_progress({"stage": "match", "phase_state": "finished", "result": result})
                     record_progress({"stage": "match", "phase_state": "finished", "result": repeated})
-                    self.assertEqual(read_operation_status(self.root)["counts"]["completed_results"], 4)
+                    self.assertEqual(read_operation_status(self.root)["counts"]["completed_results"], 3)
                     self.assertEqual(len(runner.calls), 1)
 
     def test_plain_legacy_source_review_keeps_its_original_summary_credit(self):
@@ -476,13 +469,13 @@ class FunctionalDecisionProgressTests(unittest.TestCase):
             current_result = functional.review(source_fixtures.Runner())
             older_result = review_source_results(legacy.memory, legacy_source_fixtures.Runner(),
                 run_id="full-list", as_of=legacy_source_fixtures.NOW)
-            self.assertEqual(len(self.saved(recorder)), 4)
-            self.assertEqual(read_operation_status(self.root)["counts"]["completed_results"], 4)
+            self.assertEqual(len(self.saved(recorder)), 3)
+            self.assertEqual(read_operation_status(self.root)["counts"]["completed_results"], 3)
             mixed = {"outcomes": current_result["outcomes"] + older_result["outcomes"]}
             self.assertEqual(sum(row["state"] == "reviewed" for row in mixed["outcomes"]), 2)
             record_progress({"stage": "match", "phase_state": "finished", "result": mixed})
-            self.assertEqual(read_operation_status(self.root)["counts"]["completed_results"], 5)
-            self.assertEqual(len(self.saved(recorder)), 4)
+            self.assertEqual(read_operation_status(self.root)["counts"]["completed_results"], 4)
+            self.assertEqual(len(self.saved(recorder)), 3)
 
     def test_real_match_join_has_immediate_credit_and_no_stage_finish_or_replay_double_count(self):
         fixture = self.fixture(alias_review_fixtures.FunctionalAliasReviewTests)

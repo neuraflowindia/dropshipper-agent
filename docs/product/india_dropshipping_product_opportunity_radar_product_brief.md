@@ -77,12 +77,12 @@ The active checklist has ten criteria. Retire original IDs **3 (High margin), 4 
 
 | Active score | Fit tier and report treatment |
 |---|---|
-| 6–10 Meets | **Good fit**; combined source coverage determines its priority tier. |
-| 5 Meets | **Decent fit**; eligible under the same combined source-priority policy. |
+| 6–10 Meets | **Good fit**; its place in a report follows the opportunity score (section 6). |
+| 5 Meets | **Decent fit**; eligible under the same opportunity score rules. |
 | 0–4 Meets, enough unknowns to potentially reach five | **More fit information needed**; not a proved product failure. Use a bounded practical judgment/review if useful. |
 | 0–4 Meets, even all unknowns cannot reach five | Below the agreed fit threshold on current judgments. Keep the reasons; reopen only for a relevant change or named review. |
 
-There is no minimum quota of Good-fit products. A useful ten-product issue can contain both tiers, or Decent-fit products alone when they satisfy the combined source priorities below, identity, supplier-work and novelty requirements. Fit is suitability, not market performance or a promise of sales. Five Matches with two usable related market sites ranks before six Matches with only one reasonably positive site.
+There is no minimum quota of Good-fit products. A useful ten-product issue can contain both tiers, or Decent-fit products alone when they satisfy the opportunity score rules below, identity, supplier-work and novelty requirements. Fit is suitability, not market performance or a promise of sales. The checklist is the score's "good product" part (25 of 100 points); demand, earliness and room decide the rest.
 
 | Original ID / active criterion | Practical assessment guidance |
 |---|---|
@@ -113,9 +113,9 @@ Implementation contracts: [ten-criterion migration](../operations/benchmarks/202
 |---|---|
 | Meta Ad Library | Broad product discovery (heading searches, relevant advertisers' other active ads, rising Trends queries searched on Meta) and product-specific advertising validation; offer seeds can include COD/free shipping. A paid deeper read through the free Apify allowance fills missing advertiser identities or start dates; it counts inside the one Meta site. |
 | Google Trends | India relative search interest and seasonality, not absolute demand; read in the program's signed-in research browser (owner reports Google's permission, D5). Rising related queries feed discovery. |
-| Amazon India (search and bestseller lists) and Flipkart search | **Crowding check only** (owner decision D4): how crowded a product already is (Low / Medium / High / Not checked) from reviewed relevant listings. They no longer produce discovery candidates. How crowding and these sites enter selection is pending the owner's ranking design (section 6 is unchanged until then). Amazon Movers & Shakers is retired. |
-| Blinkit, Zepto, Swiggy Instamart | Location-specific availability/competition context through the provider's paid API, only for types that pass the checklist with Low or Medium crowding (Mumbai first, then Delhi NCR and Bengaluru after a relevant Mumbai result). A relevant reviewed result can supply neutral site support; stock or a price alone is not reasonably positive demand or sales proof. Never a discovery source. |
-| Dropshipping platforms (DeoDap, BaapStore, Dropship India, Dropdash) | Owner-confirmed permission from all four (D1). Discovery from new-arrival, bestseller and trending lists; a per-type presence fact (listed items, list membership, price, stock); supplier leads with each platform's stated terms. A listing is not a market vote; any weight it gets is pending the owner's ranking design. |
+| Amazon India (search and bestseller lists) and Flipkart search | **Crowding check only** (owner decision D4): how crowded a product already is (Low / Medium / High / Not checked) from reviewed relevant listings. They give no "want" points and no discovery candidates; crowding decides the score's "room" part and the High-crowding rule (section 6). Amazon Movers & Shakers is retired. |
+| Blinkit, Zepto, Swiggy Instamart | Location-specific availability/competition context through the provider's paid API, only for types that pass the checklist with Low or Medium crowding (Mumbai first, then Delhi NCR and Bengaluru after a relevant Mumbai result). A relevant reviewed listing in stock earns up to 2 "want" points (owner decision, 15 October: one city 1, two or more cities 2); stock or a price is never sales proof. Never a discovery source. |
+| Dropshipping platforms (DeoDap, BaapStore, Dropship India, Dropdash) | Owner-confirmed permission from all four (D1). Discovery from new-arrival, bestseller and trending lists; a per-type presence fact (listed items, list membership, price, stock), renewed weekly, which earns "want" points (bestseller / trending / high-demand lists, plain listings less) and "early" points (new-arrival lists) in the score; supplier leads with each platform's stated terms. |
 | Supplier/company pages, IndiaMART (signed in), TradeIndia, Google Maps | Possible product/manufacturer/wholesaler leads. Google Search supplier results are retired (see Suppliers). |
 
 All current source routes ([execution specification section 30](../operations/benchmarks/2026-10-03/execution_specification.md#30-current-source-routes-after-plan-r10-15-october)) and the real-photo pipeline are connected to the programme; the Plan R10 routes are built and pass their live proof at the cutover (W13). Retired routes (Google Search suppliers, Amazon Movers & Shakers, Amazon/Flipkart as discovery) keep their saved history only. The benchmark distinguishes actual captures, empty results, access failures and unfinished interpretation for each route; connection is not proof of whole-pool research or recurring reliability. [Source-specific contracts](../operations/benchmarks/2026-10-03/execution_specification.md#22-source-connections-and-practical-assessment-implementation) define capture, parsing, location, scope, outcomes and recovery.
@@ -142,27 +142,35 @@ Capture prices already encountered during marketplace, ad-destination and suppli
 
 ## 6. Market assessment and selection
 
-Keep market evidence separate from the ten-criterion fit score and Good/Decent tier. Current selection distinguishes seven sites: Meta, Amazon, Flipkart, Google Trends, Blinkit, Zepto and Instamart. Amazon's three routes count as one site. Relevant reviewed quick-commerce results can provide neutral site support, not positive demand inferred from stock or price. Supplier searches never add market votes. The earlier three-family grouping remains only for the legacy numerical diagnostics below; it is not a current two-source exclusion gate.
+Keep market evidence separate from the ten-criterion fit and the Good/Decent tier. Since 15 October 2026 the owner's **opportunity score** out of 100 (`opportunity-score-v3`) replaces the four priority tiers and their site counts. Code measures it from saved facts only; no model opinion enters it (the AI still judges whether each listing, ad or chart is the same product). The owner set the four part weights; the inner points live in a versioned settings file (`config/research/opportunity_score.json`).
 
-Existing numerical measurements, retained for context rather than universal exclusion:
+| Part | Points | What earns them |
+|---|---:|---|
+| Do people want it? | 20 | Facebook ads up to 8 (Meta positive with 5+ relevant advertisers 8; Meta positive 6; relevant ads but not positive 2). Google searches up to 5 (usable India 12-month chart with 4+ nonzero points 5; 1–3 nonzero points 2). Dropshipping platforms' lists up to 5 (a relevant item on a bestseller / trending / high-demand list of 2+ platforms 5, of one 4; otherwise listed on 2+ platforms 2, on one 1). Quick-commerce stock up to 2 (a relevant in-stock listing in 2+ cities 2, in one 1). Amazon and Flipkart give no want points. |
+| Is it early? | 30 | Rising searches up to 12 (rising by the rule below 8; also rising by 50% or more on the lower ratio bound, or a same-product "Breakout" rising query, 12). New advertisers up to 9 (advertisers whose first relevant ad started within 30 days of being seen: 3+ = 9, 2 = 6, 1 = 3). Newly launched lists up to 9 (a relevant item on the new-arrivals list of 2+ platforms 9, of one 6). |
+| Room for us? | 25 | Amazon/Flipkart crowding Low 25, Medium 12, High 0. Not checked earns nothing and blocks inclusion. |
+| Good product? | 25 | Ten-point checklist: 5 Meets = 10 points, each further Meet +3 (10 Meets = 25). |
+
+Measurements the score reuses (unchanged definitions):
 - Meta positive: at least three distinct relevant advertisers OR at least five relevant active ads with oldest relevant active ad at least 14 days old.
-- Marketplace positive: relevant Amazon Bestseller/Movers & Shakers presence OR relevant matches on Amazon and Flipkart with at least one in its first ten returned positions. Returned search order is not sales rank.
-- Trends: consistent India 12-month series; exclude incomplete periods; at least four nonzero points. Compare last four comparable periods with preceding four; rising requires ratio >= 1.15 and increase >= five points. Supported same-product rising related queries may satisfy the alternative rule. With zero previous average, require at least two recent nonzero periods plus a supporting rising query; otherwise insufficient/stable as appropriate. Missing/sparse/all-zero data is insufficient, not negative demand.
+- Trends: consistent India 12-month series; exclude incomplete periods; at least four nonzero points. Compare last four comparable periods with preceding four; rising requires ratio >= 1.15 and increase >= five points (on the bounds of any "<1" values). Supported same-product rising related queries may satisfy the alternative rule. With zero previous average, require at least two recent nonzero periods plus a supporting rising query; otherwise insufficient/stable as appropriate. Missing, sparse or all-zero data earns no points; it is never negative demand.
+- Crowding: section 5 and the crowding check (Low / Medium / High from reviewed relevant listings; Not checked is never Low).
+- Quick-commerce and platform facts count only relevant reviewed items; a platform presence fact older than a week earns nothing.
 
-States per family: Positive (available true, positive true), Not-positive (true, false), Insufficient or Unavailable (false, null), with method/reason and source references. A positive OR branch suffices; absence of a required field cannot establish failure of every branch. Store exact available families, not just counts.
-
-The old Strong/Promising/Worth-Watching/Weak labels describe whether numerical thresholds were met; they do not establish commercial success or failure. Current priority distinguishes usable relevant coverage from practical support. Flat interest is not automatically negative and does not fail a two-source product. For one-source products, a bounded product-specific interpretation may find reasonable support in steady interest or useful marketplace/ad context without demanding the old growth thresholds.
+Labels shown in reports: **Too quiet** (under 5 want points; not reportable), **Proven but crowded** (High crowding), **Early bet** (Low or Medium crowding, early 15+ and want under 10), **Sweet spot** (every other Low or Medium type). Reports show "Opportunity score NN/100" with the four parts and the label, and "Amazon/Flipkart crowding: Low / Medium / High" with the counts behind it. Every sub-point is stored with its facts and evidence ids, and every reader re-checks the arithmetic and label.
 
 Selection order:
 1. Check identity/category, moderate brand decision and lightweight safety flags.
-2. Require five supported Matches across the ten active criteria using practical observed/inferred reasons. Unknowns are not failures; complete their actual assessment rather than presume negative results.
-3. Prioritise in this exact order: at least six Matches with at least two usable related market sites; five with at least two; at least six with one reasonably positive site; five with one reasonably positive site. Two-site tiers have no additional positive-growth gate. One-site tiers disclose narrower support and need a real favourable interpretation, not empty/unrelated data. Count Meta, Amazon, Flipkart, Google Trends, Blinkit, Zepto and Instamart separately when their actual related result is usable; all Amazon lists/searches count as one site. Suppliers are not market votes. Quick-commerce stock alone is neutral context, not sales proof or automatic positive support.
-4. Within a priority tier, use meaningful support, score, useful category balance/freshness and stable concept ID. Preserve required New share and holds; never insist on ten Good-fit products or exclude solely because a numerical growth threshold was missed.
-5. Record actual discouraging information and obvious unsuitable products with a specific reason. Category balance does not justify weak padding, and an old label alone is not a completed suitability judgment.
+2. Inclusion needs at least five supported Matches across the ten active criteria (practical observed/inferred reasons; unknowns are not failures; complete their actual assessment rather than presume negative results), at least 5 of the 20 want points, and a known crowding level. Otherwise the type waits with a named reason (`fit_information_pending`, `crowding_pending`, `demand_too_quiet`); waiting is not rejection.
+3. In each issue, Low and Medium crowding types go first, highest score first. Inside a crowding group the order is: higher score, then higher early, then higher product points; only types still equal after that are separated by category balance (a category with fewer than two types already in the issue first, then the category with fewer types in it) and the earlier usable-until date; the stable type id decides last. The issue's New/Updated mix and its own held types are settled before this order (item 4). High crowding types are used only when fewer than ten Low/Medium types are ready for that issue: Low/Medium types already in it, plus those it can still actually take (New ones, and Updated ones only within the update cap). Suppliers never add points.
+4. Preserve each issue's size, required New share and holds; category balance does not justify weak padding.
+5. Record actual discouraging information and obvious unsuitable products with a specific reason. An old label alone is not a completed suitability judgment.
 6. Allocate products to issues, enforce each issue's size and novelty, perform supplier search and validate the package.
 7. If insufficient eligible products remain, save exact shortfall/rejection counts and ask the owner. Continue independent work; do not auto-publish a short report.
 
-Movement comparisons require comparable source-family sets and collection/query/assessment policies. A changed policy/coverage is not strengthened demand. Reusing the same observation across issue dates is not a new trend measurement.
+One-time calibration, exactly once in total (a later settings version never starts another): the sample is the first 50 scored types (5+ Meets and a known crowding level) in the order they were first scored, each with the label it had then; if more than 70% or fewer than 10% of them are Too quiet, the agent adjusts only the inner point thresholds once (never the owner's four weights), with a new settings version, records the before/after counts and reports it. The owner meter and the desktop app show scored types per label and the calibration alert.
+
+Movement comparisons require comparable source sets and collection/query/assessment policies. A changed policy or coverage is not strengthened demand. Reusing the same observation across issue dates is not a new trend measurement.
 
 ## 7. Supplier search and recurring-fee preference
 
@@ -276,7 +284,7 @@ Implementation order and acceptance criteria live in the [execution specificatio
 
 Before production prove:
 - Real source relevance, enough eligible new concepts and supplier search within measured budgets.
-- Each issue has >=10 products, >=5 of ten supported Matches each, the four combined fit/source priorities and <=20% meaningful updates.
+- Each issue has >=10 products, >=5 of ten supported Matches each, the opportunity-score order and High-crowding rule of section 6, and <=20% meaningful updates.
 - Category/identity/brand/safety policies work without unexplained over-filtering.
 - Apify tests/production/unknown holds use the approved actual account periods and approximate pooled allowance. Minor cents do not cause approval pauses; no automatic paid upgrade or reset of old commitments.
 - All planned dates, including partial/fifth weeks and provider-period boundaries, are covered.

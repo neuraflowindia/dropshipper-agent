@@ -1,9 +1,9 @@
 """Associate saved marketplace evidence without recollection or checklist edits."""
 
 import re
+from contextvars import ContextVar
 from copy import deepcopy
 from datetime import timedelta
-from itertools import combinations
 
 from .discovery import latest_observations, normalise, tokens
 from .brand_reviews import current_brand
@@ -15,11 +15,9 @@ from .storage import Journal, load_json, safe_path
 
 REVIEW_VERSION = "marketplace-relevance-v2"
 RELEVANCE_PROMPT_VERSION = prompt_version("E", {"mode": "marketplace_relevance_only", "criteria": []})
-SOURCE_SUPPORT_VERSION = "captured-source-support-v3"
 FUNCTIONAL_MARKET_CONTRACT = "functional-market-scope-v1"
-PRIORITY_SUPPORT_CONTRACT = "functional-priority-support-v1"
+SCORE_SUPPORT_CONTRACT = "functional-score-support-v1"
 FUNCTIONAL_MATCH_METHOD = "functional_source_match_v4"
-FUNCTIONAL_SUPPORT_METHOD = "functional_source_support_v4"
 
 
 def source_evidence(state, evidence_id):
@@ -33,76 +31,14 @@ def source_evidence(state, evidence_id):
     return None, None, None
 
 
-def current_source_support(state, concept_id, *, as_of):
-    """Latest current, reference-bound interpretation; unknown is not negative.
-
-    An interpretation cannot travel to changed source facts merely because a
-    title or semantic meaning is reused. Older source-E v2 records retain their
-    relevance meaning and do not acquire invented support judgments.
-    """
-    from .research_ai import SOURCE_SUPPORT_PROMPT_VERSION
-    from .opportunity_policy import SOURCE_PLATFORMS
-    current_hash, now = digest(state["concepts"][concept_id]["description"]), timestamp(as_of)
-    latest = {}
-    for insertion, (review_id, review) in enumerate(state["market_reviews"].items()):
-        if (review.get("concept_id") != concept_id or review.get("description_hash") != current_hash
-                or review.get("review_version") != REVIEW_VERSION or review.get("support_version") != SOURCE_SUPPORT_VERSION
-                or review.get("prompt_version") != SOURCE_SUPPORT_PROMPT_VERSION):
-            continue
-        try:
-            reviewed_at = timestamp(review["reviewed_at"])
-            if reviewed_at > now:
-                continue
-            evidence = review["input"]["observations"]
-            if review["input_hash"] != digest(review["input"]) or not isinstance(review["evidence_hashes"], dict):
-                continue
-            context = {}
-            for row in evidence:
-                source, captured_at, original = source_evidence(state, row["id"])
-                if (source != row.get("source") or original is None or captured_at is None
-                        or review["evidence_hashes"].get(row["id"]) != digest(original)
-                        or not 0 <= (now - timestamp(captured_at)).total_seconds() <= 7 * 86400):
-                    raise SafetyError("SOURCE_SUPPORT_EVIDENCE_CHANGED")
-                context.setdefault(source, []).append(row["id"])
-            if set(review["evidence_hashes"]) != {row["id"] for row in evidence}:
-                continue
-            scope_ids = {}
-            for evidence_id, expected_hash in review.get("scope_evidence_hashes", review["evidence_hashes"]).items():
-                source, captured_at, original = source_evidence(state, evidence_id)
-                if (original is None or captured_at is None or digest(original) != expected_hash
-                        or not 0 <= (now - timestamp(captured_at)).total_seconds() <= 7 * 86400):
-                    raise SafetyError("SOURCE_SUPPORT_EVIDENCE_CHANGED")
-                scope_ids.setdefault(source, []).append(evidence_id)
-            relevant = {row["id"] for row in review["relevance"]
-                        if row["relationship"] in ("exact_product", "relevant_family")}
-            for support in review["source_support"]:
-                source, refs = support["source"], support["references"]
-                if (source not in SOURCE_PLATFORMS or source not in context or not isinstance(refs, list)
-                        or len(set(refs)) != len(refs) or not set(refs) <= relevant
-                        or not set(refs) <= set(context[source])
-                        or support["judgment"] not in ("reasonably_positive", "neutral", "weak", "unclear")
-                        or not isinstance(support["reason"], str) or not support["reason"].strip()
-                        or support["basis"] not in ("observed", "inferred", "not_stated")
-                        or support["judgment"] in ("reasonably_positive", "weak")
-                        and (not refs or support["basis"] not in ("observed", "inferred"))):
-                    continue
-                order = reviewed_at, review["input_hash"], insertion
-                value = dict(support, review_id=review_id, reviewed_at=review["reviewed_at"],
-                             context_ids=sorted(context[source]),
-                             scope_ids=sorted(scope_ids.get(source, context[source])),
-                             evidence_hashes={ref: review["evidence_hashes"][ref] for ref in context[source]})
-                if source not in latest or order > latest[source][0]:
-                    latest[source] = order, value
-        except (KeyError, TypeError, ValueError, SafetyError):
-            # A malformed optional interpretation cannot break independent
-            # acquisition lanes or silently certify its opinion.
-            continue
-    return [latest[source][1] for source in sorted(latest)]
-
-
 def _functional_originals(state, row):
     return [(ref, source_evidence(state, ref["id"])) for ref in row["references"]
             if ref["table"] in ("observations", "trends_evidence")]
+
+
+# Set only by the store-copy score preview (r10_cutover._provisional) to count
+# saved answers of an older relevance prompt; empty on every research path.
+PREVIEW_MATCH_VERSIONS = ContextVar("preview_match_versions", default=())
 
 
 def _functional_match(row, ref):
@@ -111,38 +47,13 @@ def _functional_match(row, ref):
     from .research_ai import FUNCTIONAL_SOURCE_PROMPT_VERSION
     proof = row.get("job_proof") or {}
     answer = proof.get("accepted_item")
-    if (row["method"] != FUNCTIONAL_MATCH_METHOD or row["support"] != "insufficient"
-            or proof.get("role") != "E" or proof.get("prompt_version") != FUNCTIONAL_SOURCE_PROMPT_VERSION
+    if (row["method"] != FUNCTIONAL_MATCH_METHOD or row["support"] != "insufficient" or proof.get("role") != "E"
+            or proof.get("prompt_version") not in (FUNCTIONAL_SOURCE_PROMPT_VERSION, *PREVIEW_MATCH_VERSIONS.get())
             or not isinstance(answer, dict) or digest(answer) != proof.get("accepted_item_hash")):
         return False
     expected = {"id": ref, "scope": row["scope"], "relationship": row["relationship"],
                 "reason": row["reason"], "limitations": row["limitations"]}
     return [value for value in answer.get("relevance", []) if value.get("id") == ref] == [expected]
-
-
-def _functional_support(row):
-    """Authenticate the aggregate opinion, not a mere successful model job."""
-    from .research_ai import FUNCTIONAL_SOURCE_PROMPT_VERSION
-    proof = row.get("job_proof") or {}
-    answer = proof.get("accepted_item")
-    if (row.get("method") != FUNCTIONAL_SUPPORT_METHOD or proof.get("role") != "E"
-            or proof.get("prompt_version") != FUNCTIONAL_SOURCE_PROMPT_VERSION
-            or not isinstance(answer, dict) or digest(answer) != proof.get("accepted_item_hash")):
-        return None
-    source = "google-trends" if row["source"] == "trends" else row["source"]
-    refs = sorted(ref["id"] for ref in row["references"] if ref["table"] in ("observations", "trends_evidence"))
-    judgments = {"positive": "reasonably_positive", "neutral": "neutral", "not_positive": "weak", "insufficient": "unclear"}
-    candidates = [value for value in answer.get("source_support", []) if value.get("source") == source
-                  and sorted(value.get("references", [])) == refs and value.get("judgment") == judgments[row["support"]]
-                  and value.get("reason") == row["reason"]]
-    if len(candidates) != 1:
-        return None
-    value = candidates[0]
-    if (value.get("basis") not in ("observed", "inferred", "not_stated")
-            or value["judgment"] in ("reasonably_positive", "weak")
-            and (not refs or value["basis"] not in ("observed", "inferred"))):
-        return None
-    return deepcopy(value)
 
 
 def functional_market_context(state, concept_id, *, as_of):
@@ -197,28 +108,8 @@ def functional_market_context(state, concept_id, *, as_of):
     observations = {ref: state["observations"][ref] for ref in accepted if ref in state["observations"]}
     relevance = {row["semantic_id"]: accepted[ref]["relationship"] for ref, row in observations.items()}
     charts = [dict(id=ref, **state["trends_evidence"][ref]) for ref in accepted if ref in state.get("trends_evidence", {})]
-    opinions = {}
-    for row in rows:
-        if row["scope"] != "narrow_type" or row["admissibility"] != "accepted":
-            continue
-        opinion = _functional_support(row)
-        if opinion is None or not opinion["references"] or not set(opinion["references"]) <= set(accepted):
-            continue
-        originals = _functional_originals(state, row)
-        if not originals or any(ref["id"] not in current_ids or captured_at is None
-                or not 0 <= (now - timestamp(captured_at)).total_seconds() <= 7 * 86400
-                for ref, (_, captured_at, _) in originals):
-            continue
-        source = opinion["source"]
-        order = max(timestamp(value[1][1]) for value in originals), timestamp(row["reviewed_at"]), row["id"]
-        value = dict(opinion, review_id=row["id"], reviewed_at=row["reviewed_at"])
-        if source not in opinions or order > opinions[source][0]:
-            opinions[source] = order, value
-    market = compute_market_signals(observations, relevance, as_of, charts,
-                                    source_support=[value[1] for value in opinions.values()])
+    market = compute_market_signals(observations, relevance, as_of, charts)
     selected_rows = {row["id"]: row for row in accepted.values()}
-    selected_rows.update({value[1]["review_id"]: next(row for row in rows if row["id"] == value[1]["review_id"])
-                          for value in opinions.values()})
     dependencies = {table: {} for table in ("source_checks", "observations", "captures", "trends_evidence")}
     for row in selected_rows.values():
         dependencies["source_checks"][row["id"]] = digest({key: value for key, value in row.items() if key != "id"})
@@ -235,112 +126,119 @@ def functional_market_context(state, concept_id, *, as_of):
                 "current_originals": {ref: digest(source_evidence(state, ref)[2]) for ref in sorted(current_ids & set(matches))}})}
 
 
-def functional_priority_support(state, context, fit, *, as_of):
-    """Choose the latest-expiring complete sufficient witness, not extra gates."""
-    from .opportunity_policy import evaluate_opportunity
-    from .marketplace_browser import verified_list_observation
-    opportunity = evaluate_opportunity(fit, context["market"])
+def _expiry(at):
+    return (timestamp(at) + timedelta(days=7)).isoformat()
+
+
+def _score_sites(records, opportunity):
+    """Market sites whose evidence earns score points: {site: [evidence ids]}.
+    Quick-commerce evidence is split by its own app (one site row each)."""
+    from .opportunity_score import QUICK_COMMERCE, market_evidence
+    sites = market_evidence(opportunity)
+    for ref in sites.pop("quick-commerce", []):
+        platform = source_evidence(records, ref)[0]
+        if platform not in QUICK_COMMERCE:
+            raise SafetyError("FUNCTIONAL_MARKET_WITNESS_REFERENCE_INVALID")
+        sites.setdefault(platform, []).append(ref)
+    return {site: sorted(refs) for site, refs in sorted(sites.items())}
+
+
+def _presence_at(opportunity):
+    parts = opportunity["opportunity_basis"]["parts"]
+    platform = parts["want"]["items"]["platform_lists"]
+    earned = platform["points"] or parts["early"]["items"]["new_arrivals"]["points"]
+    return platform["facts"]["presence_at"] if earned else None
+
+
+def functional_score_support(records, context, opportunity, *, as_of):
+    """The dated evidence behind the score's market and platform points.
+
+    Every market site earning points is cited with its original records and
+    scope reviews; the platform presence fact counts when it earns points.
+    The support lasts until the earliest of their seven-day validities.
+    """
     if not opportunity["eligible"]:
-        return {"opportunity": opportunity, "priority_support": None,
-                "priority_support_refs": [], "support_valid_until": None}
+        return {"score_support": None, "score_support_refs": [], "support_valid_until": None}
     by_id = {row["id"]: row for row in context["scoped_evidence"]}
-    candidates = {}
-    for source, signal in context["market"]["sources"].items():
-        if not signal["available"]:
-            continue
-        groups = []
-        positive_needed = opportunity["opportunity_priority"] in (3, 4)
-        if not positive_needed:
-            groups = [[ref] for ref in signal["used_ids"]]
-        else:
-            if signal.get("positive") is True:
-                if source in ("amazon", "flipkart"):
-                    groups.extend([[ref] for ref in signal["used_ids"] if ref in state["observations"]
-                                   and verified_list_observation(state["observations"][ref])])
-                else:
-                    groups.append(list(signal["used_ids"]))
-            if signal.get("evidence_support") == "reasonably_positive":
-                groups.extend([list(row["references"]) for row in context["market"].get("source_support", [])
-                               if row["source"] == source and row["judgment"] == "reasonably_positive"])
-        choices = []
-        for refs in groups:
-            originals, reviews = [], set()
-            for ref in sorted(set(refs)):
-                platform, captured_at, original = source_evidence(state, ref)
-                if platform != source or original is None or ref not in context["matches"]:
-                    raise SafetyError("FUNCTIONAL_MARKET_WITNESS_REFERENCE_INVALID")
-                table = "observations" if ref in state["observations"] else "trends_evidence"
-                originals.append({"table": table, "id": ref, "hash": digest(original), "source": source, "observed_at": captured_at})
-                reviews.add(context["matches"][ref]["scope_review_id"])
-            for support in context["market"].get("source_support", []):
-                if positive_needed and support["source"] == source and support["judgment"] == "reasonably_positive" and set(support["references"]) == set(refs):
-                    reviews.add(support["review_id"])
-            expiry = min(timestamp(ref["observed_at"]) + timedelta(days=7) for ref in originals)
-            choices.append({"source": source, "kind": "positive" if positive_needed else "available",
-                "references": originals, "scope_reviews": [{"id": rid, "hash": by_id[rid]["record_hash"]} for rid in sorted(reviews)],
-                "valid_until": expiry.isoformat()})
-        if choices:
-            candidates[source] = max(choices, key=lambda row: (timestamp(row["valid_until"]), digest(row)))
-    count = 2 if opportunity["opportunity_priority"] in (1, 2) else 1
-    groups = [list(values) for values in combinations(candidates.values(), count)]
-    if not groups:
+    sources = []
+    for site, refs in _score_sites(records, opportunity).items():
+        originals, reviews = [], set()
+        for ref in refs:
+            platform, captured_at, original = source_evidence(records, ref)
+            if platform != site or original is None or ref not in context["matches"]:
+                raise SafetyError("FUNCTIONAL_MARKET_WITNESS_REFERENCE_INVALID")
+            table = "observations" if ref in records["observations"] else "trends_evidence"
+            originals.append({"table": table, "id": ref, "hash": digest(original), "source": site, "observed_at": captured_at})
+            reviews.add(context["matches"][ref]["scope_review_id"])
+        oldest = min(originals, key=lambda row: timestamp(row["observed_at"]))
+        sources.append({"source": site, "references": originals,
+                        "scope_reviews": [{"id": rid, "hash": by_id[rid]["record_hash"]} for rid in sorted(reviews)],
+                        "valid_until": _expiry(oldest["observed_at"])})
+    at = _presence_at(opportunity)
+    presence = {"at": at, "valid_until": _expiry(at)} if at else None
+    dates = [row["valid_until"] for row in sources] + ([presence["valid_until"]] if presence else [])
+    if not dates:
         raise SafetyError("FUNCTIONAL_MARKET_WITNESS_REQUIRED")
-    chosen = max(groups, key=lambda group: (min(timestamp(row["valid_until"]) for row in group),
-                                            tuple(sorted(row["source"] for row in group))))
-    chosen.sort(key=lambda row: row["source"])
-    witness = {"contract": PRIORITY_SUPPORT_CONTRACT, "meaning_hash": context["meaning_hash"],
-               "priority": opportunity["opportunity_priority"], "sources": chosen,
-               "valid_until": min(timestamp(row["valid_until"]) for row in chosen).isoformat()}
-    validate_priority_support(witness, opportunity=opportunity, meaning_hash=context["meaning_hash"], as_of=as_of)
-    return {"opportunity": opportunity, "priority_support": witness,
-            "priority_support_refs": sorted({ref["id"] for row in chosen for ref in row["references"]}),
+    witness = {"contract": SCORE_SUPPORT_CONTRACT, "meaning_hash": context["meaning_hash"],
+               "score": opportunity["opportunity_score"], "sources": sources, "presence": presence,
+               "valid_until": min(dates, key=timestamp)}
+    validate_score_support(witness, opportunity=opportunity, meaning_hash=context["meaning_hash"], as_of=as_of)
+    return {"score_support": witness,
+            "score_support_refs": sorted({ref["id"] for row in sources for ref in row["references"]}),
             "support_valid_until": witness["valid_until"]}
 
 
-def validate_priority_support(witness, *, opportunity, meaning_hash, as_of=None):
-    """Validate frozen witness shape, exact dates and sufficient distinct sites.
+def validate_score_support(witness, *, opportunity, meaning_hash, as_of=None):
+    """Validate the frozen support's shape, exact dates and completeness.
 
     Original hash/currentness is rechecked by the selection's source revisions;
     this pure validator is also usable without mutable research storage.
     """
-    from .opportunity_policy import CURRENT_OPPORTUNITY_POLICY_ID, opportunity_counts
+    from .opportunity_score import POLICY_ID, QUICK_COMMERCE, market_evidence
     try:
-        if (not isinstance(witness, dict) or set(witness) != {"contract", "meaning_hash", "priority", "sources", "valid_until"}
-                or witness["contract"] != PRIORITY_SUPPORT_CONTRACT or witness["meaning_hash"] != meaning_hash
-                or opportunity["opportunity_policy_id"] != CURRENT_OPPORTUNITY_POLICY_ID
-                or witness["priority"] != opportunity["opportunity_priority"]):
+        if (not isinstance(witness, dict) or set(witness) != {"contract", "meaning_hash", "score", "sources", "presence", "valid_until"}
+                or witness["contract"] != SCORE_SUPPORT_CONTRACT or witness["meaning_hash"] != meaning_hash
+                or opportunity["opportunity_policy_id"] != POLICY_ID or opportunity["opportunity_basis"]["eligible"] is not True
+                or type(witness["score"]) is not int or witness["score"] != opportunity["opportunity_score"]):
             raise SafetyError("FUNCTIONAL_MARKET_WITNESS_INVALID")
-        opportunity_counts(opportunity)
-        needed = 2 if witness["priority"] in (1, 2) else 1 if witness["priority"] in (3, 4) else 0
-        sources, seen, seen_refs = witness["sources"], [], set()
-        if not needed or not isinstance(sources, list) or len(sources) != needed:
+        expected = market_evidence(opportunity)
+        sources, seen, cited, dates = witness["sources"], [], {}, []
+        if not isinstance(sources, list):
             raise SafetyError("FUNCTIONAL_MARKET_WITNESS_INVALID")
         for row in sources:
-            if (set(row) != {"source", "kind", "references", "scope_reviews", "valid_until"}
-                    or row["source"] not in opportunity["opportunity_basis"]["source_ids"]
-                    or row["kind"] != ("available" if needed == 2 else "positive")
-                    or needed == 1 and row["source"] not in opportunity["opportunity_basis"]["positive_source_ids"]
+            if (set(row) != {"source", "references", "scope_reviews", "valid_until"}
                     or not row["references"] or not row["scope_reviews"]):
                 raise SafetyError("FUNCTIONAL_MARKET_WITNESS_INVALID")
+            site = "quick-commerce" if row["source"] in QUICK_COMMERCE else row["source"]
             refs = []
             for ref in row["references"]:
                 if (set(ref) != {"table", "id", "hash", "source", "observed_at"}
                         or ref["table"] not in ("observations", "trends_evidence") or ref["source"] != row["source"]
-                        or ref["id"] not in opportunity["opportunity_basis"]["evidence_by_source"][row["source"]]
-                        or ref["id"] in seen_refs or not re.fullmatch(r"[0-9a-f]{64}", ref["hash"])):
+                        or ref["id"] not in expected.get(site, []) or ref["id"] in {i for ids in cited.values() for i in ids}
+                        or not re.fullmatch(r"[0-9a-f]{64}", ref["hash"])):
                     raise SafetyError("FUNCTIONAL_MARKET_WITNESS_REFERENCE_INVALID")
-                identifier(ref["id"]); refs.append(timestamp(ref["observed_at"])); seen_refs.add(ref["id"])
+                identifier(ref["id"]); refs.append(timestamp(ref["observed_at"]))
+                cited.setdefault(site, []).append(ref["id"])
             for proof in row["scope_reviews"]:
                 if set(proof) != {"id", "hash"} or not re.fullmatch(r"[0-9a-f]{64}", proof["hash"]):
                     raise SafetyError("FUNCTIONAL_MARKET_WITNESS_REFERENCE_INVALID")
                 identifier(proof["id"])
             if timestamp(row["valid_until"]) != min(refs) + timedelta(days=7):
                 raise SafetyError("FUNCTIONAL_MARKET_WITNESS_DATE_INVALID")
-            seen.append(row["source"])
-        if seen != sorted(set(seen)) or timestamp(witness["valid_until"]) != min(timestamp(row["valid_until"]) for row in sources):
+            seen.append(row["source"]); dates.append(row["valid_until"])
+        if seen != sorted(set(seen)) or {site: sorted(ids) for site, ids in cited.items()} != expected:
+            raise SafetyError("FUNCTIONAL_MARKET_WITNESS_INVALID")
+        at, presence = _presence_at(opportunity), witness["presence"]
+        if (presence != ({"at": at, "valid_until": _expiry(at)} if at else None)
+                or presence is not None and timestamp(presence["valid_until"]) != timestamp(at) + timedelta(days=7)):
+            raise SafetyError("FUNCTIONAL_MARKET_WITNESS_INVALID")
+        if presence:
+            dates.append(presence["valid_until"])
+        if not dates or timestamp(witness["valid_until"]) != min(timestamp(value) for value in dates):
             raise SafetyError("FUNCTIONAL_MARKET_WITNESS_INVALID")
         if as_of is not None and (timestamp(as_of) > timestamp(witness["valid_until"])
-                or any(timestamp(ref["observed_at"]) > timestamp(as_of) for row in sources for ref in row["references"])):
+                or any(timestamp(ref["observed_at"]) > timestamp(as_of) for row in sources for ref in row["references"])
+                or presence is not None and timestamp(presence["at"]) > timestamp(as_of)):
             raise SafetyError("FUNCTIONAL_MARKET_WITNESS_STALE")
     except (KeyError, TypeError, ValueError, AttributeError):
         raise SafetyError("FUNCTIONAL_MARKET_WITNESS_INVALID") from None
@@ -348,9 +246,51 @@ def validate_priority_support(witness, *, opportunity, meaning_hash, as_of=None)
 
 
 def _signal_projection(market):
-    return {source: {field: deepcopy(row[field]) for field in
-            ("available", "positive", "used_ids", "evidence_support") if field in row}
+    return {source: {field: deepcopy(row[field]) for field in ("available", "positive", "used_ids")}
             for source, row in market["sources"].items()}
+
+
+def freeze_score_facts(state, concept_id):
+    """The saved platform presence and crowding facts the score read, frozen
+    with their hashes: a report copy re-runs those sub-points from them."""
+    from .crowding import crowding_for, fact_id
+    from .frozen_records import freeze_original_json
+    from .platform_roles import current_platform_presence, presence_record_id
+    presence = current_platform_presence(state, concept_id)
+    return {"presence": None if presence is None else {"id": presence_record_id(presence),
+                                                       "record": freeze_original_json(presence)},
+            "crowding": {"id": fact_id(concept_id), "record": freeze_original_json(crowding_for(state, concept_id))}}
+
+
+def score_fact_inputs(proof, concept_id, meaning_hash):
+    """(presence, crowding) score inputs from the frozen facts, each checked
+    against its own kind, type, meaning, id and saved hashes."""
+    from .crowding import fact_id, validate_crowding_fact
+    from .frozen_records import read_original_json
+    from .opportunity_score import _utc_at, crowding_input, presence_input
+    from .platform_roles import presence_record_id, validate_presence_fact
+    try:
+        facts = proof["score_facts"]
+        if (not isinstance(facts, dict) or set(facts) != {"presence", "crowding"} or facts["crowding"] is None
+                or any(row is not None and (not isinstance(row, dict) or set(row) != {"id", "record"}) for row in facts.values())):
+            raise SafetyError("FUNCTIONAL_MARKET_SCORE_FACTS_INVALID")
+        presence = None
+        if facts["presence"] is not None:
+            record = validate_presence_fact(read_original_json(facts["presence"]["record"]), concept_id, meaning_hash)
+            if (facts["presence"]["id"] != presence_record_id(record) or timestamp(_utc_at(record["at"])) > timestamp(proof["as_of"])):
+                raise SafetyError("FUNCTIONAL_MARKET_SCORE_FACTS_INVALID")
+            presence = presence_input(record, as_of=proof["as_of"])
+        crowding = validate_crowding_fact(read_original_json(facts["crowding"]["record"]), concept_id, meaning_hash)
+        if facts["crowding"]["id"] != fact_id(concept_id):
+            raise SafetyError("FUNCTIONAL_MARKET_SCORE_FACTS_INVALID")
+        return presence, crowding_input(crowding)
+    except SafetyError as error:
+        if str(error) in ("DROPSHIP_PRESENCE_RECORD_INVALID", "CROWDING_FACT_INVALID", "INVALID_TIME", "INVALID_IDENTIFIER",
+                          "OPPORTUNITY_BASIS_INVALID"):
+            raise SafetyError("FUNCTIONAL_MARKET_SCORE_FACTS_INVALID") from None
+        raise
+    except (KeyError, TypeError, AttributeError):
+        raise SafetyError("FUNCTIONAL_MARKET_SCORE_FACTS_INVALID") from None
 
 
 def freeze_functional_market(state, context, *, as_of):
@@ -366,11 +306,11 @@ def freeze_functional_market(state, context, *, as_of):
             "meaning_hash": context["meaning_hash"], "as_of": as_of, "scope_hash": context["scope_hash"],
             "scoped_records": scoped, "records": records, "matches": deepcopy(context["matches"]),
             "source_signals": _signal_projection(context["market"]),
-            "source_support": deepcopy(context["market"].get("source_support", []))}
+            "score_facts": freeze_score_facts(state, context["concept_id"])}
 
 
 def validate_frozen_functional_market(product):
-    """Recompute frozen scoped facts, seven-site counts and complete witness.
+    """Recompute frozen scoped facts, the market signals, the score and its support.
 
     This authenticates the packet's internal proof. Canonical latest-head and
     release authority remain the live selection/root checks, not this offline
@@ -380,7 +320,7 @@ def validate_frozen_functional_market(product):
                                  _evidence_contract, _route_source)
     from .research_records import SCOPED_EVIDENCE_KIND
     from .discovery import compute_market_signals
-    from .opportunity_policy import evaluate_opportunity, opportunity_fields
+    from .opportunity_score import evaluate_opportunity, opportunity_fields
     from .fit_policy import FIT_POLICY_ID, evaluate_fit
     from .fit_description import FUNCTIONAL_INFERENCE_KIND
     from .frozen_records import read_original_json
@@ -388,7 +328,8 @@ def validate_frozen_functional_market(product):
         proof = product["functional_market_proof"]
         meaning = product["functional_definition"]["meaning_hash"]
         if (product.get("functional_market_contract") != FUNCTIONAL_MARKET_CONTRACT
-                or set(proof) != {"contract", "concept_id", "meaning_hash", "as_of", "scope_hash", "scoped_records", "records", "matches", "source_signals", "source_support"}
+                or set(proof) != {"contract", "concept_id", "meaning_hash", "as_of", "scope_hash", "scoped_records", "records",
+                                  "matches", "source_signals", "score_facts"}
                 or proof["contract"] != FUNCTIONAL_MARKET_CONTRACT or proof["concept_id"] != product["concept_id"]
                 or proof["meaning_hash"] != meaning or not re.fullmatch(r"[0-9a-f]{64}", proof["scope_hash"])):
             raise SafetyError("FUNCTIONAL_MARKET_PROOF_INVALID")
@@ -442,15 +383,7 @@ def validate_frozen_functional_market(product):
         observations = {ref: records["observations"][ref] for ref in matches if ref in records["observations"]}
         relevance = {value["semantic_id"]: matches[ref]["relationship"] for ref, value in observations.items()}
         charts = [dict(id=ref, **records["trends_evidence"][ref]) for ref in matches if ref in records["trends_evidence"]]
-        for support in proof["source_support"]:
-            row = rows[support["review_id"]]
-            opinion = _functional_support(row)
-            expected = dict(opinion or {}, review_id=row["id"], reviewed_at=row["reviewed_at"])
-            if support != expected or not set(support["references"]) <= set(matches):
-                raise SafetyError("FUNCTIONAL_MARKET_SUPPORT_INVALID")
-            if any(not 0 <= (at - timestamp(source_evidence(records, ref)[1])).total_seconds() <= 7 * 86400 for ref in support["references"]):
-                raise SafetyError("FUNCTIONAL_MARKET_SUPPORT_STALE")
-        market = compute_market_signals(observations, relevance, proof["as_of"], charts, source_support=proof["source_support"])
+        market = compute_market_signals(observations, relevance, proof["as_of"], charts)
         if _signal_projection(market) != proof["source_signals"]:
             raise SafetyError("FUNCTIONAL_MARKET_SIGNALS_CHANGED")
         expected_checks = [{"source": source, "state": "Available" if signal["available"] else "Insufficient",
@@ -460,12 +393,21 @@ def validate_frozen_functional_market(product):
             raise SafetyError("FUNCTIONAL_MARKET_DISPLAY_CHANGED")
         fit = evaluate_fit(product["criteria"], FIT_POLICY_ID, description=product["fit_description"],
                            description_contract=FUNCTIONAL_INFERENCE_KIND)
-        opportunity = evaluate_opportunity(fit, market)
-        if opportunity_fields(opportunity) != {key: product[key] for key in opportunity_fields(opportunity)}:
-            raise SafetyError("FUNCTIONAL_MARKET_PRIORITY_CHANGED")
+        # The market sub-points are recomputed from the frozen originals. Presence
+        # and crowding are re-run from their frozen saved facts: each must be
+        # internally consistent (kind, type, meaning, id; presence's own change
+        # hash; crowding's level and rule re-derived from its stored counts under
+        # the current thresholds), so the score cannot disagree with them. What
+        # is NOT proven here: that those facts' item ids and counts match the
+        # listings behind them (they are not frozen), or that they are still the
+        # current answer; reserve and release compare crowding with the store.
+        presence, crowding = score_fact_inputs(proof, product["concept_id"], meaning)
+        opportunity = evaluate_opportunity(fit, market, presence=presence, crowding=crowding)
+        if digest(opportunity_fields(opportunity)) != digest({key: product[key] for key in opportunity_fields(opportunity)}):
+            raise SafetyError("FUNCTIONAL_MARKET_SCORE_CHANGED")
         context = {"meaning_hash": meaning, "market": market, "matches": matches, "scoped_evidence": list(rows.values())}
-        expected = functional_priority_support(records, context, fit, as_of=proof["as_of"])
-        for field in ("priority_support", "priority_support_refs", "support_valid_until"):
+        expected = functional_score_support(records, context, opportunity, as_of=proof["as_of"])
+        for field in ("score_support", "score_support_refs", "support_valid_until"):
             if product.get(field) != expected[field]:
                 raise SafetyError("FUNCTIONAL_MARKET_WITNESS_CHANGED")
     except (KeyError, TypeError, ValueError, AttributeError):

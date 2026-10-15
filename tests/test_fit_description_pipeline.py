@@ -33,6 +33,7 @@ from product_radar.report_selection import build_report_pool
 from product_radar.research_flow import current_assessment_fit
 from product_radar.research_memory import ResearchMemory, change
 from product_radar.storage import Journal
+from test_fit_pipeline import older_format_scores
 
 
 def description_fixture(count=10):
@@ -51,6 +52,7 @@ def description_fixture(count=10):
     return memory
 
 
+@older_format_scores
 class DescriptionPipelineTests(unittest.TestCase):
     def test_current_assessment_counts_estimates_without_creating_a_market_observation(self):
         memory = description_fixture(1); before = deepcopy(memory.state)
@@ -60,8 +62,10 @@ class DescriptionPipelineTests(unittest.TestCase):
         pool = build_report_pool(memory, NOW, fit_policy_id=FIT_POLICY_ID)
         self.assertEqual(len(pool["eligible"]), 1)
         row = pool["eligible"][0]
-        self.assertEqual(row["opportunity_basis"]["source_ids"], ["amazon", "meta"])
-        self.assertEqual(row["opportunity_basis"]["available_sources"], 2)
+        # The relevant ad earns want points; the Amazon listing gives none (crowding only).
+        from product_radar.opportunity_score import market_evidence
+        self.assertEqual(market_evidence(row), {"meta": ["meta000"]})
+        self.assertEqual(row["opportunity_label"], "sweet_spot")
         self.assertEqual(memory.state, before)
 
     def test_declared_contract_and_exact_description_are_required(self):

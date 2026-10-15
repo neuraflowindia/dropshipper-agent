@@ -22,6 +22,7 @@ from product_radar.storage import Journal, atomic_bytes, atomic_json, load_json
 from test_live_outputs import fixture
 from test_report_narration import NarrationRunner
 from test_delivery_package import DeliveryPackageTests
+from test_fit_pipeline import older_format_scores
 
 
 def inspect(raw):
@@ -31,6 +32,7 @@ def inspect(raw):
         return {"pages": len(doc), "portrait": True, "bytes": len(raw)}
 
 
+@older_format_scores
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

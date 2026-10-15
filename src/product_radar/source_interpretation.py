@@ -8,9 +8,9 @@ meanings are reused before the bounded model step.
 
 from copy import deepcopy
 
-from .market_validation import REVIEW_VERSION, SOURCE_SUPPORT_VERSION, current_source_support, source_evidence
+from .market_validation import REVIEW_VERSION, source_evidence
 from .models import SafetyError, digest, timestamp, utc_now
-from .research_ai import Jobs, MODEL, SOURCE_RELEVANCE_PROMPT_VERSION, SOURCE_SUPPORT_PROMPT_VERSION
+from .research_ai import Jobs, MODEL, SOURCE_RELEVANCE_PROMPT_VERSION
 from .model_recovery import run_current_model_job
 from .research_flow import QUALITY_FAILURES
 from .research_memory import change, key
@@ -19,7 +19,6 @@ from .suppliers import _interpretation_failure
 
 
 FUNCTIONAL_MATCH_METHOD = "functional_source_match_v4"
-FUNCTIONAL_SUPPORT_METHOD = "functional_source_support_v4"
 
 
 def _functional_context(state, concept_id):
@@ -121,8 +120,16 @@ def functional_source_questions(state, *, run_id=None, as_of, concept_ids=None, 
         actual_ids.update(row[1] for identity, row in latest_charts.items() if identity in chart_identities)
         completed = {}
         scoped = validated_scoped_evidence(state, cid, as_of=as_of)
-        applied_jobs = {(row["job_proof"]["job_id"], row["job_proof"]["accepted_item_hash"])
-                        for row in scoped if row["method"] == FUNCTIONAL_SUPPORT_METHOD and row.get("job_proof")}
+        # A saved answer is applied once every record it judged has its own
+        # match row; a partial application resumes the same saved job first.
+        saved_refs, answered = {}, {}
+        for row in scoped:
+            proof = row.get("job_proof") or {}
+            if row["method"] == FUNCTIONAL_MATCH_METHOD and isinstance(proof.get("accepted_item"), dict):
+                job = (proof.get("job_id"), proof.get("accepted_item_hash"))
+                answered[job] = {value.get("id") for value in proof["accepted_item"].get("relevance", [])}
+                saved_refs.setdefault(job, set()).update(ref["id"] for ref in row["references"])
+        applied_jobs = {job for job, ids in answered.items() if ids and ids <= saved_refs.get(job, set())}
         for row in scoped:
             if row["method"] != FUNCTIONAL_MATCH_METHOD:
                 continue
@@ -228,80 +235,12 @@ def _questions(state, *, run_id=None, as_of=None, task_ids=None, concept_ids=Non
                               "observation_ids": observations, "relevant_ids": relevant,
                               "uncertain_ids": uncertain, "unknown_ids": unknown})
     at = as_of or utc_now()
-    return questions + _support_questions(state, run_id=run_id, as_of=at, task_ids=task_ids, concept_ids=concept_ids) + [
-        row for row in functional_source_questions(state, run_id=run_id, as_of=at, task_ids=task_ids,
-                                                  concept_ids=concept_ids) if row["unknown_ids"]]
-
-
-def _support_questions(state, *, run_id, as_of, task_ids=None, concept_ids=None):
-    """Interpret one usable saved site once; do not fabricate acquisition tasks."""
-    from types import SimpleNamespace
-    from .fit_policy import FIT_POLICY_ID
-    from .research_flow import candidate_summary
-    if not state["assessments"]:
-        return []
-    selected_tasks = _review_task_scope(state, task_ids, run_id)
-    selected_originals = None
-    if selected_tasks is not None:
-        selected_originals = {ref for tid in selected_tasks for receipt_id in state["query_tasks"][tid]["receipt_refs"]
-            for ref in state["source_checks"][receipt_id]["envelope"]["observation_ids"]}
-    scoped_ids = None
-    if run_id is not None or selected_tasks is not None:
-        scoped_ids = set()
-        for tid, task in state["query_tasks"].items():
-            if (task.get("kind") != TASK_KIND or run_id is not None and task.get("run_id") != run_id
-                    or selected_tasks is not None and tid not in selected_tasks):
-                continue
-            # concept_ids belongs to the collector invocation. The durable
-            # task owns targets, each bound to the description it was asked
-            # to check. Old work must not nominate a changed product.
-            targets = task.get("targets")
-            if (not isinstance(targets, dict) or any(not isinstance(cid, str)
-                    or not isinstance(expected, str) for cid, expected in targets.items())):
-                raise SafetyError("SOURCE_REVIEW_TASK_BINDING_INVALID")
-            scoped_ids.update(cid for cid, expected in targets.items()
-                              if cid in state["concepts"]
-                              and digest(state["concepts"][cid]["description"]) == expected)
-    concepts = {cid: row for cid, row in state["concepts"].items()
-                if cid in state["assessments"] and (scoped_ids is None or cid in scoped_ids)
-                and (concept_ids is None or cid in concept_ids)}
-    if not concepts:
-        return []
-    view = dict(state, concepts=concepts)
-    summary = candidate_summary(SimpleNamespace(snapshot=lambda: view, evidence_type="captured"), as_of=as_of)
-    questions = []
-    for product in summary["products"]:
-        if _functional_context(state, product["id"]) is not None:
-            continue
-        if (product.get("fit_policy_id") != FIT_POLICY_ID or not (product.get("fit") or {}).get("eligible") or product["status"] in
-                ("excluded_established_brand", "decision_binding_pending")):
-            continue
-        usable = [(source, signal) for source, signal in product["market"]["sources"].items()
-                  if signal["available"] is True]
-        if len(usable) != 1:
-            continue
-        source, signal = usable[0]
-        if signal["positive"] is True or signal.get("evidence_support") == "reasonably_positive":
-            continue
-        ids = sorted(signal["used_ids"])
-        if selected_originals is not None and not set(ids) <= selected_originals:
-            continue  # A narrow repair cannot interpret another original's rows.
-        support = current_source_support(state, product["id"], as_of=as_of)
-        # A saved neutral/weak/unclear judgment is completed work, not an
-        # invitation to ask again until a desired answer appears.
-        if any(row["source"] == source and set(ids) <= set(row["scope_ids"]) for row in support):
-            continue
-        description_hash = digest(state["concepts"][product["id"]]["description"])
-        task_id = key("source-support", [product["id"], description_hash, source,
-            [(ref, digest(source_evidence(state, ref)[2])) for ref in ids]])
-        questions.append({"kind": "saved_source_support", "task_id": task_id,
-            "source": source, "concept_id": product["id"], "description_hash": description_hash,
-            "observation_ids": ids, "relevant_ids": ids, "uncertain_ids": [], "unknown_ids": ids})
-    return questions
+    return questions + [row for row in functional_source_questions(state, run_id=run_id, as_of=at, task_ids=task_ids,
+                                                                  concept_ids=concept_ids) if row["unknown_ids"]]
 
 
 def _bind(memory, question, *, as_of):
-    if question.get("kind") in ("saved_source_support", "functional_source_scope"):
+    if question.get("kind") == "functional_source_scope":
         return None  # This is interpretation of existing proof, not collection.
     if question["relevant_ids"]:
         state, refs, reason = "completed_relevant", question["relevant_ids"], "The captured source contains a reviewed matching product type. This is not a sales guarantee."
@@ -349,10 +288,6 @@ def _item(state, question, per_product):
                                          "id": ref, "hash": expected} for ref, expected in question["evidence_hashes"].items()],
                         "captured_context_count": len(question["observation_ids"]),
                         "omitted_context_count": len(question["unknown_ids"]) - len(observations)})
-    if question.get("kind") == "saved_source_support":
-        item["source_scope"] = {"source": question["source"], "captured_context_count": len(question["observation_ids"]),
-            "omitted_context_count": max(0, len(question["observation_ids"]) - len(observations)),
-            "evidence_scope_hash": digest([(ref, digest(source_evidence(state, ref)[2])) for ref in question["observation_ids"]])}
     return item
 
 
@@ -360,8 +295,8 @@ def _bound_job(state, payload, item, runner_identity):
     """Bind application to the actual model request, not a reshaped batch ID."""
     context = {field: value for field, value in payload.items() if field != "items"}
     from .research_ai import FUNCTIONAL_SOURCE_PROMPT_VERSION, FUNCTIONAL_SOURCE_STYLE
-    version = (FUNCTIONAL_SOURCE_PROMPT_VERSION if payload.get("relevance_style") == FUNCTIONAL_SOURCE_STYLE else
-               SOURCE_SUPPORT_PROMPT_VERSION if payload.get("relevance_style") == "short-references-support-v3" else SOURCE_RELEVANCE_PROMPT_VERSION)
+    version = (FUNCTIONAL_SOURCE_PROMPT_VERSION if payload.get("relevance_style") == FUNCTIONAL_SOURCE_STYLE
+               else SOURCE_RELEVANCE_PROMPT_VERSION)
     binding = digest(["E", item, context, MODEL, version, runner_identity])
     owners = []
     for job_id, job in state["jobs"].items():
@@ -381,33 +316,8 @@ def _bound_job(state, payload, item, runner_identity):
     return owners[0]
 
 
-def _market_fields(state, refs):
-    """Select actual demand/context fields, not physical specs or price alone."""
-    fields = []
-    allowed = {"meta": ("ad_id", "advertiser_id", "advertiser_url", "active", "start_date", "end_date"),
-        "amazon": ("list_type", "list_url", "rank", "position", "availability", "rating", "reviews", "query", "country"),
-        "flipkart": ("list_type", "availability", "rating", "reviews", "query", "country"),
-        "blinkit": ("availability", "query", "location", "list_type"),
-        "zepto": ("availability", "query", "location", "list_type"),
-        "instamart": ("availability", "query", "location", "list_type")}
-    for ref in refs:
-        if ref["table"] == "trends_evidence":
-            fields.append({"reference": {"table": ref["table"], "id": ref["id"]}, "path": ["parsed", "series"]})
-        else:
-            row = state["observations"][ref["id"]]
-            for name in allowed.get(row["source"], ()):
-                if name in row["facts"] and row["facts"][name] not in (None, "", [], {}):
-                    fields.append({"reference": {"table": "observations", "id": ref["id"]}, "path": ["facts", name]})
-    # Bound the selected market projection without replacing it with unrelated
-    # full physical specs/prices. An actual context path still exists per row.
-    if len(fields) > 80:
-        fields = fields[:80]
-    return fields
-
-
 def _accept_functional_answer(memory, question, item, answer, *, job_id, as_of):
-    from .research_scope import _field_values, _references, _support_fields, accept_scoped_evidence
-    state = memory.snapshot()
+    from .research_scope import accept_scoped_evidence
     refs = {row["id"]: row["reference"] for row in item["observations"]}
     rows = {row["id"]: row for row in answer["relevance"]}
     saved = []
@@ -420,38 +330,8 @@ def _accept_functional_answer(memory, question, item, answer, *, job_id, as_of):
         saved.append(accept_scoped_evidence(memory, item["id"], route=question["route"],
             scope=relation["scope"], relationship=relation["relationship"], support="insufficient",
             references=[original], usable_fields=fields, limitations=relation["limitations"],
-            reason=relation["reason"], reviewer="source-e-v4", as_of=as_of, expected_meaning_hash=item["meaning_hash"],
+            reason=relation["reason"], reviewer="source-e-v5", as_of=as_of, expected_meaning_hash=item["meaning_hash"],
             method=FUNCTIONAL_MATCH_METHOD, job_id=job_id, job_item_id=item["id"])["id"])
-    states = {"reasonably_positive": "positive", "neutral": "neutral", "weak": "not_positive", "unclear": "insufficient"}
-    for opinion in answer["source_support"]:
-        cited = opinion["references"]
-        selected = [refs[ref] for ref in cited] if cited else list(refs.values())
-        narrow = bool(cited) and all(rows[ref]["scope"] == "narrow_type" and rows[ref]["relationship"] in
-                                      ("exact_product", "relevant_family") for ref in cited)
-        fields = _market_fields(state, selected)
-        support = states[opinion["judgment"]] if fields else "insufficient"
-        limitations = sorted({limitation for row in rows.values() for limitation in row["limitations"]})
-        # Retained captures sometimes lack a complete original request. Their
-        # rows can still be reviewed without inventing that missing provenance
-        # or retrying toward a desired opinion. Preserve the completed opinion
-        # but do not adopt it as supported market evidence.
-        bound, contexts, _, requests = _references(state, selected, as_of=as_of, route=question["route"])
-        try:
-            _support_fields(support, _field_values(state, fields, bound), contexts, requests,
-                source_requests=[row["capture_context"]["request"] for row in item["observations"]
-                    if row["id"] in {ref["id"] for ref in selected}
-                    and row.get("capture_context", {}).get("state") == "verified"])
-        except SafetyError as error:
-            if str(error) not in {"RESEARCH_SCOPE_REQUEST_CONTEXT_REQUIRED", "RESEARCH_SCOPE_SUBSTANTIVE_FIELDS_REQUIRED"}:
-                raise
-            support = "insufficient"
-            limitations.append("The original capture lacks usable market/request context; its interpretation is retained, not confirmed demand.")
-        saved.append(accept_scoped_evidence(memory, item["id"], route=question["route"], scope="narrow_type",
-            relationship="relevant_family" if narrow else "unclear", support=support,
-            references=selected, usable_fields=fields, limitations=limitations,
-            reason=opinion["reason"], reviewer="source-e-v4", as_of=as_of,
-            expected_meaning_hash=item["meaning_hash"], method=FUNCTIONAL_SUPPORT_METHOD,
-            job_id=job_id, job_item_id=item["id"])["id"])
     return saved
 
 
@@ -488,10 +368,7 @@ def _review_functional_source_results(memory, runner, *, run_id, limit, per_prod
                     failure = result["failures"][item["id"]]
                     if runner is not None and failure in QUALITY_FAILURES | {
                         "AI_RELEVANCE_RESULT_MISSING", "AI_FIT_REFERENCE_ALIASES_INVALID",
-                        "AI_SOURCE_SUPPORT_SOURCES_INVALID", "AI_SOURCE_SUPPORT_REFERENCE_INVALID",
-                        "AI_SOURCE_SUPPORT_UNSUPPORTED", "AI_SOURCE_SUPPORT_RESULT_MISSING",
-                        "AI_FUNCTIONAL_SOURCE_SCOPE_INVALID", "AI_FUNCTIONAL_SOURCE_LIMITATIONS_INVALID",
-                        "AI_FUNCTIONAL_SOURCE_SUPPORT_SCOPE_INVALID"}:
+                        "AI_FUNCTIONAL_SOURCE_SCOPE_INVALID", "AI_FUNCTIONAL_SOURCE_LIMITATIONS_INVALID"}:
                         from .checklist_repair import _run_repair
                         repaired = dict(payload, items=[item], checklist_repair={
                             "scope": "one-source-relevance-contract-repair-v1", "original_job_id": original,
@@ -547,7 +424,7 @@ def review_source_results(memory, runner=None, *, run_id=None, limit=5, per_prod
     questions.sort(key=lambda row: row["concept_id"] not in priority)
     reused, outcomes, selected, chosen = [], functional_outcomes, [], set()
     for question in questions:
-        if question.get("kind") != "saved_source_support" and (question["relevant_ids"] or not question["unknown_ids"]):
+        if question["relevant_ids"] or not question["unknown_ids"]:
             try:
                 receipt_id = _bind(memory, question, as_of=at)
                 reused.append({"task_id": question["task_id"], "concept_id": question["concept_id"], "receipt_id": receipt_id})
@@ -559,11 +436,11 @@ def review_source_results(memory, runner=None, *, run_id=None, limit=5, per_prod
             selected.append((question, _item(state, question, per_product))); chosen.add(question["concept_id"])
     for offset in range(0, len(selected), 5):
         chunk = selected[offset:offset + 5]
-        payload = {"mode": "marketplace_relevance_only", "relevance_style": "short-references-support-v3", "criteria": [],
+        payload = {"mode": "marketplace_relevance_only", "relevance_style": "short-references-v2", "criteria": [],
                    "items": [item for _, item in chunk]}
         try:
             job_id, result = run_current_model_job(memory, runner, "E", payload,
-                declared_version=SOURCE_SUPPORT_PROMPT_VERSION, current_items=[item for _, item in selected])
+                declared_version=SOURCE_RELEVANCE_PROMPT_VERSION, current_items=[item for _, item in selected])
         except (SafetyError, OSError) as error:
             failure = _interpretation_failure(error, local_code="SOURCE_REVIEW_LOCAL_FILE_FAILED")
             outcomes.extend({"task_id": question["task_id"], "concept_id": item["id"], "state": "waiting", "reason": failure} for question, item in chunk)
@@ -580,16 +457,14 @@ def review_source_results(memory, runner=None, *, run_id=None, limit=5, per_prod
             answer_job = original_job
             if answer is None:
                 failure = result["failures"][concept_id]
-                if runner is not None and failure in QUALITY_FAILURES | {"AI_RELEVANCE_RESULT_MISSING", "AI_FIT_REFERENCE_ALIASES_INVALID",
-                    "AI_SOURCE_SUPPORT_SOURCES_INVALID", "AI_SOURCE_SUPPORT_REFERENCE_INVALID",
-                    "AI_SOURCE_SUPPORT_UNSUPPORTED", "AI_SOURCE_SUPPORT_RESULT_MISSING"}:
+                if runner is not None and failure in QUALITY_FAILURES | {"AI_RELEVANCE_RESULT_MISSING", "AI_FIT_REFERENCE_ALIASES_INVALID"}:
                     from .checklist_repair import _run_repair
                     repaired = dict(payload, items=[item], checklist_repair={
                         "scope": "one-source-relevance-contract-repair-v1", "original_job_id": original_job,
                         "concept_id": concept_id, "input_hash": digest(item), "failure_code": failure,
                         "rules": "Correct only missing or invalid supplied reference aliases and output shape. Use these same facts; do not target positive relevance."})
                     try:
-                        answer_job, correction = _run_repair(memory, runner, repaired, memory.snapshot(), SOURCE_SUPPORT_PROMPT_VERSION)
+                        answer_job, correction = _run_repair(memory, runner, repaired, memory.snapshot(), SOURCE_RELEVANCE_PROMPT_VERSION)
                         answer = correction["accepted"].get(concept_id)
                         if answer is None: failure = correction["failures"][concept_id]
                     except (SafetyError, OSError) as error:
@@ -597,9 +472,9 @@ def review_source_results(memory, runner=None, *, run_id=None, limit=5, per_prod
                 if answer is None:
                     outcomes.append({"task_id": question["task_id"], "concept_id": concept_id, "state": "waiting", "reason": failure, "job_id": answer_job})
                     continue
-            record_id = key("market-review", [concept_id, digest(item), REVIEW_VERSION, MODEL, SOURCE_SUPPORT_PROMPT_VERSION])
+            record_id = key("market-review", [concept_id, digest(item), REVIEW_VERSION, MODEL, SOURCE_RELEVANCE_PROMPT_VERSION])
             evidence_hashes = {row["id"]: digest(source_evidence(state, row["id"])[2]) for row in item["observations"]}
-            scope_hashes = {ref: digest(source_evidence(state, ref)[2]) for ref in question["observation_ids"]} if question.get("kind") == "saved_source_support" else evidence_hashes
+            scope_hashes = evidence_hashes
             record = {"concept_id": concept_id, "description_hash": question["description_hash"], "input_hash": digest(item),
                       "job_id": answer_job, "reviewed_at": at,
                       "observation_ids": [row["id"] for row in item["observations"] if row["id"] in state["observations"]],
@@ -607,16 +482,15 @@ def review_source_results(memory, runner=None, *, run_id=None, limit=5, per_prod
                       "observed_at": {row["id"]: row["observed_at"] for row in item["observations"]},
                       "input": deepcopy(item), "evidence_hashes": evidence_hashes,
                       "scope_evidence_hashes": scope_hashes,
-                      "support_version": SOURCE_SUPPORT_VERSION, "source_support": answer["source_support"],
                       "relevance": answer["relevance"], "assessment_unchanged": True, "review_version": REVIEW_VERSION,
-                      "model": MODEL, "prompt_version": SOURCE_SUPPORT_PROMPT_VERSION,
+                      "model": MODEL, "prompt_version": SOURCE_RELEVANCE_PROMPT_VERSION,
                       "retrieval": {"reviewed": len(item["observations"]), "omitted": max(0, len(question["unknown_ids"]) - len(item["observations"])),
                                     "method": "captured-source-rows-no-title-equality-gate"}}
             def unchanged(current, cid=concept_id, expected=question["description_hash"], hashes=scope_hashes):
                 if digest(current["concepts"][cid]["description"]) != expected:
                     raise SafetyError("SOURCE_TARGET_DESCRIPTION_CHANGED")
                 if any(digest(source_evidence(current, ref)[2]) != value for ref, value in hashes.items()):
-                    raise SafetyError("SOURCE_SUPPORT_EVIDENCE_CHANGED")
+                    raise SafetyError("SOURCE_REVIEW_EVIDENCE_CHANGED")
             try:
                 previous = memory.snapshot()["market_reviews"].get(record_id)
                 if previous is None:
@@ -631,7 +505,7 @@ def review_source_results(memory, runner=None, *, run_id=None, limit=5, per_prod
     final = [row for row in _questions(memory.snapshot(), run_id=run_id, as_of=at, task_ids=task_ids, concept_ids=concept_ids)
              if row.get("kind") != "functional_source_scope"]
     for question in final:
-        if question.get("kind") != "saved_source_support" and (question["relevant_ids"] or not question["unknown_ids"]):
+        if question["relevant_ids"] or not question["unknown_ids"]:
             try: _bind(memory, question, as_of=at)
             except (SafetyError, OSError) as error:
                 outcomes.append({"task_id": question["task_id"], "concept_id": question["concept_id"], "state": "waiting",

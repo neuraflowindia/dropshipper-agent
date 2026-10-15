@@ -1,5 +1,6 @@
 // Actual saved Python constructors and portable producer, synthetic data only.
 import {spawnSync} from 'node:child_process';
+import { PYTHON } from './python.test-helper.mjs';
 let cached;
 export function actualLineageFixtures(){
   if(cached)return structuredClone(cached);
@@ -25,7 +26,7 @@ for mode,pairs in {'one':[('bear','bird')],'chain':[('bird','cat'),('bear','bird
  finally:t.doCleanups()
 print(json.dumps(out,ensure_ascii=False,separators=(',',':')))
 `;
-  const result=spawnSync('.venv/bin/python',['-c',script],{cwd:new URL('..',import.meta.url),env:{...process.env,PYTHONPATH:'src:tests'},maxBuffer:8*1024*1024,timeout:30000});
+  const result=spawnSync(PYTHON,['-c',script],{cwd:new URL('..',import.meta.url),env:{...process.env,PYTHONPATH:'src:tests'},maxBuffer:8*1024*1024,timeout:30000});
   if(result.status!==0||!result.stdout?.length)throw new Error('Offline lineage fixture failed: '+(result.stderr?.toString()??result.error?.message??''));
   cached=JSON.parse(result.stdout.toString());return structuredClone(cached);
 }

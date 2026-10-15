@@ -71,26 +71,30 @@ class AllocationTests(unittest.TestCase):
                          {p["concept_id"] for p in holds[0]["products"]})
         self.assertEqual(len({p["concept_id"] for i in result["issues"] for p in i["products"]}), 25)
 
-    def test_own_hold_order_retains_priority_within_held_and_shared_choices(self):
+    def test_own_hold_order_retains_score_order_within_held_and_shared_choices(self):
+        from product_radar.discovery import MARKET_SITES
         from product_radar.fit_policy import ACTIVE_CRITERION_IDS, FIT_POLICY_ID
-        from product_radar.opportunity_policy import OPPORTUNITY_POLICY_ID
+        from product_radar.opportunity_score import evaluate_opportunity, opportunity_fields
         values = products(12)
-        priorities = [1] * 10 + [4, 3]
-        for value, priority in zip(values, priorities):
-            matches = 5 if priority in (2, 4) else 6
-            available = 2 if priority in (1, 2) else 1
+        meets = [10] * 10 + [5, 6]
+        for n, (value, matches) in enumerate(zip(values, meets)):
+            sources = {site: {"available": site == "meta", "positive": True if site == "meta" else None,
+                              "used_ids": [f"obs{n}"] if site == "meta" else []} for site in MARKET_SITES}
+            sources["meta"]["depth"] = {"advertisers": 3, "recent_start_advertisers": 0}
+            record = evaluate_opportunity({"fit_policy_id": FIT_POLICY_ID, "kpi_matches": matches, "kpi_total": 10},
+                {"sources": sources}, presence=None, crowding={"level": "low", "rule": "few_listings",
+                "thresholds_version": "crowding-thresholds-v1", "counts": None, "evidence_ids": []})
             value.update(category=CATEGORIES[0], fit_policy_id=FIT_POLICY_ID,
                          criterion_ids=list(ACTIVE_CRITERION_IDS), kpi_total=10,
                          kpi_states=["Meets"] * matches + ["Unclear"] * (10 - matches),
-                         kpi_matches=matches, fit_tier="good" if matches >= 6 else "decent",
-                         opportunity_policy_id=OPPORTUNITY_POLICY_ID, opportunity_priority=priority,
-                         opportunity_basis={"available_families": available, "positive_families": 1})
+                         kpi_matches=matches, fit_tier="good" if matches >= 6 else "decent", **opportunity_fields(record))
         holds = [{"issue_id": "issue-" + DATES[0], "state": "reserved",
                   "client_id": "default", "date": DATES[0], "products": values[10:]}]
         baseline = allocate_issues(values, [DATES[0]], [], [])["issues"][0]
         held = allocate_issues(values, [DATES[0]], [], holds)["issues"][0]
-        self.assertEqual([p["opportunity_priority"] for p in baseline["products"]], [1] * 10 + [3, 4])
-        self.assertEqual([p["opportunity_priority"] for p in held["products"]], [3, 4] + [1] * 10)
+        # Highest score first (56 = 6 want + 25 room + 25 product; 44 and 41 below).
+        self.assertEqual([p["opportunity_score"] for p in baseline["products"]], [56] * 10 + [44, 41])
+        self.assertEqual([p["opportunity_score"] for p in held["products"]], [44, 41] + [56] * 10)
         self.assertEqual(held["counts"], {"products": 12, "new": 12, "updates": 0})
 
     def test_own_holds_never_force_stale_or_ineligible_members(self):

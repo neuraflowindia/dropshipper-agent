@@ -23,8 +23,8 @@ from product_radar.fit_policy import ACTIVE_CRITERION_IDS, FIT_POLICY_ID
 from product_radar.issue_allocation import (allocate_issues, allocation_snapshot_hash,
     draft_ordinal, record_publication_receipt, reserve_issue, selection_fingerprint, _fingerprint)
 from product_radar.models import digest, timestamp
-from product_radar.opportunity_policy import (CURRENT_OPPORTUNITY_POLICY_ID, SOURCE_PLATFORMS,
-    evaluate_opportunity, opportunity_fields)
+from product_radar.discovery import MARKET_SITES
+from product_radar.opportunity_score import evaluate_opportunity, opportunity_fields
 from product_radar.programme import release_slots
 from product_radar.research_memory import ResearchMemory, change, key
 from product_radar.service import CATEGORIES, calendar_plan, load_policy
@@ -64,9 +64,13 @@ def fictional_types(offset, count):
         evidence = [f"scale-meta-{number:05d}", f"scale-amazon-{number:05d}"]
         fit = {"fit_policy_id": FIT_POLICY_ID, "kpi_matches": 6, "kpi_total": 10}
         sources = {source: {"available": source in ("meta", "amazon"),
-            "positive": source == "meta", "used_ids": [evidence[0 if source == "meta" else 1]]}
-            for source in SOURCE_PLATFORMS}
-        priority = evaluate_opportunity(fit, {"source_policy_id": CURRENT_OPPORTUNITY_POLICY_ID, "sources": sources})
+            "positive": source == "meta", "used_ids": [evidence[0 if source == "meta" else 1]] if source in ("meta", "amazon") else []}
+            for source in MARKET_SITES}
+        sources["meta"]["depth"] = {"advertisers": 3, "recent_start_advertisers": 0}
+        # Meta positive (6 want points) and a Low crowding answer: an eligible scored type.
+        priority = evaluate_opportunity(fit, {"sources": sources}, presence=None, crowding={
+            "level": "low", "rule": "few_listings", "thresholds_version": "crowding-thresholds-v1",
+            "counts": None, "evidence_ids": [evidence[1]]})
         output.append({"concept_id": cid, "category": CATEGORIES[number % len(CATEGORIES)],
             "identity_reviewed": True, "fit_policy_id": FIT_POLICY_ID,
             "criterion_ids": list(ACTIVE_CRITERION_IDS), "kpi_total": 10,

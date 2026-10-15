@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process';
+import { PYTHON } from './python.test-helper.mjs';
 
 let saved;
 export function actualExampleFixtures(){
   if(saved)return structuredClone(saved);
-  const result=spawnSync('.venv/bin/python',['-c',`
+  const result=spawnSync(PYTHON,['-c',`
 import json,tempfile,copy
 from pathlib import Path
 from unittest.mock import patch

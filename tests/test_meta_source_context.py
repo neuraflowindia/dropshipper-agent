@@ -51,7 +51,7 @@ class MetaSourceContextTests(unittest.TestCase):
     def payload(self):
         state = self.memory.snapshot()
         question = functional_source_questions(state, run_id="original-meta", as_of=NOW)[0]
-        return {"mode": "marketplace_relevance_only", "relevance_style": "functional-source-scope-v4",
+        return {"mode": "marketplace_relevance_only", "relevance_style": "functional-source-scope-v5",
             "criteria": [], "items": [_item(state, question, 20)]}
 
     def review(self, runner=None):

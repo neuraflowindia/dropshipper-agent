@@ -15,6 +15,7 @@ from product_radar.research_memory import ResearchMemory
 from product_radar.storage import Journal, atomic_json, load_json
 from test_live_outputs import fixture
 from test_report_narration import NarrationRunner
+from test_fit_pipeline import older_format_scores
 
 
 class ContractCorrectionRunner(NarrationRunner):
@@ -42,6 +43,7 @@ class ContractCorrectionRunner(NarrationRunner):
         return response, usage
 
 
+@older_format_scores
 class ReportContractCorrectionTests(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()

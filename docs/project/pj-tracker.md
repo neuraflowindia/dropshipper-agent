@@ -1,31 +1,29 @@
 # Project tracker
 
-Latest state: **14 October 2026, 10:37 UTC** — research running on commit `0a71c9c` (restarted 09:00 UTC). Fresh start was 13 October 2026 at 18:38:54 UTC (owner decision). This is the sole current progress summary. Requirements belong to the [product contract](../product/india_dropshipping_product_opportunity_radar_product_brief.md); technical changes and receipts belong to the [implementation record](../operations/implementation_2026-10-11.md) (fresh start: R08).
+Latest state: **15 October 2026, 12:30 UTC** — live research still runs the older code on `main` (commit `0a71c9c` code, restarted 14 October 09:00 UTC). Plan R10 is fully built on branch `r10` (a separate build copy of the code) and waits for the W13 switch-over. Fresh start was 13 October 2026 at 18:38:54 UTC (owner decision). This is the sole current progress summary. Requirements belong to the [product contract](../product/india_dropshipping_product_opportunity_radar_product_brief.md); technical changes and receipts belong to the [implementation record](../operations/implementation_2026-10-11.md) (fresh start: R08; Plan R10: R10).
 
-## Current position — 14 October 2026
+## Current position — 15 October 2026
 
-| Measure (owner meter, 10:37 UTC; about 16 hours after the fresh start) | Count |
+| Measure (owner meter, 15 October 10:16 UTC; live research on the old code) | Count |
 |---|---:|
-| Candidates | 30 |
-| Accepted narrow product types | 24 |
-| Checklist-assessed types | 24 |
-| Passing the checklist (≥5 Meets) | 18 |
-| **Report-eligible types** (need 20 across the two sets) | **6** |
+| Candidates | 33 |
+| Accepted narrow product types | 30 |
+| Checklist-assessed types | 27 |
+| Passing the checklist (≥5 Meets) | 22 |
+| **Report-eligible types** under the old rules (need 20 across the two sets) | **11** |
 | Report sets produced | 0 / 2 |
-| AI jobs | 227 |
+| AI jobs | 348 |
 | Provider (Apify) money since the fresh start | USD 0 |
-| Quick-commerce credits left (free sign-up credits) | 44 of 100 |
 
 Counts move both ways: new evidence correctly sends a type back for re-checking.
 
-What happened on 13–14 October:
-- A power cut stopped research at about 21:59 UTC on 13 October; it restarted by itself and recovered cleanly.
-- Repairs (implementation record [R09](../operations/implementation_2026-10-11.md#r09-source-routes-access-waits-and-report-pool-speed-1314-october)): Google Maps browser read restored; Google web supplier search retired; IndiaMART's login wall and Google gates recorded as blocked; escalating waits; Meta completeness fixed; supplier outcome wording fixed; report pool rebuilt about 6–8× faster. Rounds now start every 1–8 minutes instead of about every 70.
-- The owner answered the proposal's questions on 14 October. The agreed work is written up as **[Plan R10](plan-2026-10-14-speed-sources-and-selection.md)**: signed-in research browser (Google Trends, IndiaMART, Dropship India, Dropdash), the four dropshipping platforms as sources, quick commerce switched on, Amazon/Flipkart turned into a crowding check, a new market-site set, practical AI judgments and finishing nearly-ready products first, a product map of about 1,200 headings with AI expansion on, Apify's free monthly allowance for deeper Meta reads, Google Maps straight to the browser, and a spend and allowance watch with 50/75/90% flags. **Not built yet; waiting for the owner's approval of the whole plan (its question A1) and the plan's other short questions.**
+**Plan R10** ([plan](plan-2026-10-14-speed-sources-and-selection.md), approved 14 October): W1–W12 built, reviewed and saved on branch `r10` — signed-in research browser (Google Trends, IndiaMART, Dropship India, Dropdash), the four dropshipping platforms, quick commerce through the paid API, Amazon/Flipkart as a crowding check, the **opportunity score out of 100** with the owner's weights (want 20, early 30, room 25, product 25; `opportunity-score-v3`), wider discovery, the product map with AI expansion, Apify depth reads, and the spend watch. The GitHub history now carries only the GitHub no-reply author address (owner-approved rewrite, 15 October).
 
-**Plan R10 building (14 October, evening):** approved by the owner (A1). Work happens on branch `r10` in the build copy `/home/anan/dropshipper-r10`; the live research keeps running the old code on `main` until the W13 switch-over. **Wave 1 done and saved** (commit `bb4db37`): W1 signed-in browser and sign-in button, W3 IndiaMART signed in and Maps straight to the browser, W9 labelled estimates and finishing nearly-ready types first, W12 spend watch with the paid-credits money guard. Each package was reviewed independently and its findings fixed; the whole local Python suite ran (5,451 tests): the only failures are the ten already-failing modules listed in W14, all failing identically on `main`. **Wave 2 done and saved** (commit `6089f42`): W2 Trends signed in with a proof gate, W4 four dropshipping platforms (presence facts, supplier leads, category-gated discovery), W6 crowding fact and gate (selection change waits), W11 Apify Meta depth with automatic monthly renewal; all reviewed, integration-reviewed and fixed; whole Python suite 5,689 tests with only the ten known modules failing, portal 297/297. **Wave 3 done and saved** (commit `548e054`): W5 quick commerce through the paid API only (admission and balance re-checked before every paid call, Mumbai first, 30-day no-repeat, 7-day refresh for issue types), W8 wider discovery (advertisers' other ads, Trends rising queries, new IndiaMART/TradeIndia listings); round reads 16 until W13 measures (plan said 20). Whole suite 5,751 tests, only the known modules fail; portal 297/297. **Wave 4 done and saved:** W10 product map (48 sub-areas toward about 1,200 headings from platform collections, Trends rising queries, advertisers and supplier listings; one AI build call per round; heading order never-served → fresh signals → least recent, High-crowding last; AI expansion renewal on; the old Amazon-page seed lane retired). Whole suite 5,760 tests, only the known modules fail; portal 297/297. **Waiting on the owner:** ranking design (W6 selection step and W7). **Waiting on the owner:** the new ranking design (weighted opportunity score; W6 selection and W7 wait for it) and permission for the GitHub author rewrite (the computer's safety check blocked it).
+**Expected at switch-over:** report-eligible types drop to 0 at first. Every type is re-judged under the new checklist (v5) and every saved listing under the new relevance review (v5); the store copy shows 29 types and 145 review batches waiting, about 10 rounds. Eligibility then rebuilds as Trends, the platforms and quick commerce come online (accepted in advance, A2).
 
-Next actions, in order: (1) owner approves Plan R10 and answers its questions; (2) build it package by package (W1 first, so the owner can sign in early); (3) cut over and prove each new source live; (4) finish the two report sets, deploy the portal update (approved) and verify private delivery.
+**Known gaps:** the saved Apify key is a restricted key and cannot read Apify's monthly usage (checked 15 October, HTTP 403), so the automatic monthly renewal of the deeper Meta read needs the owner to lift the key's limit before 2 November. Brand names show on only about 12% of Amazon result cards and none on Flipkart, so the "many brands" crowding rule rarely decides; bestseller lists and ratings decide most High levels.
+
+Next actions, in order: (1) W13 switch-over and live proof, including the owner's one-time sign-in; (2) W14 remaining documents, the single-process test leak and both whole test suites; (3) research to 20 eligible types, the two bilingual report sets, the portal deploy and private-delivery checks.
 
 ## Fresh start — 13 October 2026
 

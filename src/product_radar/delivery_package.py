@@ -24,7 +24,7 @@ from .live_outputs import (LEGACY_PRICE_DISPLAY_VERSION, PRICE_DISPLAY_VERSION, 
 from .report_source_facts import CONTRACTS as SOURCE_ROUTE_CONTRACTS
 from .report_examples import RECOMMENDATION_CONTRACT, WORKBOOK_HEADERS as EXAMPLE_WORKBOOK_HEADERS, example_workbook_rows
 from .models import SafetyError, canonical, digest, identifier
-from .opportunity_policy import opportunity_workbook_headers, opportunity_workbook_values
+from .opportunity_score import workbook_headers as opportunity_workbook_headers, workbook_values as opportunity_workbook_values
 from .runtime_storage import runtime_path
 from .storage import load_json, safe_path
 
@@ -119,7 +119,7 @@ def _workbook(raw, dataset, *, price_display_version=PRICE_DISPLAY_VERSION):
                 raise SafetyError("DELIVERY_WORKBOOK_MISMATCH")
             expected_headers = ("Rank", "Product", "Category", "Status", "Checklist", "Market", "Retail prices", "Supplier quotes", "Concept ID", "Supplier search")
             if "opportunity_policy_id" in dataset:
-                expected_headers += opportunity_workbook_headers(dataset["opportunity_policy_id"])
+                expected_headers += opportunity_workbook_headers()
             if tuple(next(book["Shortlist"].iter_rows(min_row=6, max_row=6, values_only=True))) != expected_headers:
                 raise SafetyError("DELIVERY_WORKBOOK_MISMATCH")
             rows = list(book["Shortlist"].iter_rows(min_row=7, values_only=True))

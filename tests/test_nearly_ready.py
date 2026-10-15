@@ -301,7 +301,7 @@ class NearlyReadyStagePlanTests(unittest.TestCase):
             value = self.plan()
         # Admitted earlier, but now gated again (its crowding check is pending): finished, not skipped.
         decision = next(row for row in pools[0]["decisions"] if row["concept_id"] == self.cid)
-        self.assertIn("crowding_check_pending", decision["codes"])
+        self.assertIn("crowding_pending", decision["codes"])
         self.assertEqual(value["priority_concept_ids"], {stage: [self.cid] for stage in FINISHING})
         self.assertEqual(self.pools, 1)  # built once per plan, from the plan's own state
         eligible = dict(pools[0], eligible=[{"concept_id": self.cid}])

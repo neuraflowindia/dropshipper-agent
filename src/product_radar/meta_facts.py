@@ -169,7 +169,8 @@ def depth_facts(ads):
         own = [ad for ad in ads if {ad["page_id"], ad["page_address"]} & group]
         if any(ad["started_at"] is None for ad in own):
             continue
-        first = min(own, key=lambda ad: timestamp(ad["started_at"]))
+        # Ties (the same start) go to the earliest observation, then the id: the portal mirrors this.
+        first = min(own, key=lambda ad: (timestamp(ad["started_at"]), timestamp(ad["observed_at"]), ad["id"]))
         age = timestamp(first["observed_at"]) - timestamp(first["started_at"])
         recent = (recent or 0) + int(timedelta(0) <= age <= timedelta(days=RECENT_START_DAYS))
     dated = [ad["started_at"] for ad in ads if ad["started_at"] is not None]

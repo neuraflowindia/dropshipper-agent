@@ -79,6 +79,7 @@ namespace NeuraFlow.Dropshipper {
         public bool window_open { get; set; }
         public string line { get; set; }
         public string trends_line { get; set; }
+        public string score_line { get; set; }
         public List<string> platform_lines { get; set; }
         public string notice { get; set; }
         public List<SignInNeed> needs { get; set; }
@@ -300,11 +301,13 @@ namespace NeuraFlow.Dropshipper {
         private void ApplySignIn(SignInStatus signIn) {
             // A busy/error notice stays until the owner's next action.
             // The sign-in needs, one line per dropshipping platform needing attention,
-            // then the signed-in Google Trends check, each on its own line.
+            // then the signed-in Google Trends check, then the opportunity score
+            // tally (and its one-time calibration alert), each on its own line.
             SetSignInText(signInNotice ?? (signIn == null ? "" : (signIn.line ?? "")
                 + (signIn.platform_lines == null ? "" : String.Concat(signIn.platform_lines.FindAll(
                     line => !String.IsNullOrEmpty(line)).ConvertAll(line => "\n" + line).ToArray()))
-                + (String.IsNullOrEmpty(signIn.trends_line) ? "" : "\n" + signIn.trends_line)));
+                + (String.IsNullOrEmpty(signIn.trends_line) ? "" : "\n" + signIn.trends_line)
+                + (String.IsNullOrEmpty(signIn.score_line) ? "" : "\n" + signIn.score_line)));
             SignInButton.Enabled = !signingIn && (signIn == null || !signIn.window_open);
             if (signIn == null || signIn.needs == null) return;
             var fresh = new List<SignInNeed>();
@@ -466,6 +469,7 @@ namespace NeuraFlow.Dropshipper {
             new SignInNeed { id = "indiamart:expired:2026-10-14T10:00:00+00:00", site = "indiamart", label = "IndiaMART", state = "expired" },
             new SignInNeed { id = "dropdash:sign_in_needed:never", site = "dropdash", label = "Dropdash", state = "sign_in_needed" } };
         internal List<string> PlatformLines = new List<string>();
+        internal string ScoreLine;
         public Task<ResearchStatus> Call(string action) {
             if (Fail) throw new IOException("Controlled connection failure.");
             if (action == "start") { Enabled = true; Active = true; Starts++; }
@@ -477,7 +481,7 @@ namespace NeuraFlow.Dropshipper {
                 sign_in = new SignInStatus { window_open = SignInWindowOpen, needs = Needs,
                     notice = action == "sign-in" && Busy ? "A research read is using the browser. Try again in a minute." : null,
                     line = SignInWindowOpen ? "The sign-in window is open." : "Sign-in expired: IndiaMART. Click Sign in to research sites.",
-                    platform_lines = PlatformLines,
+                    platform_lines = PlatformLines, score_line = ScoreLine,
                     trends_line = "Google Trends check: 1 of 3 signed-in reads saved complete results." } });
         }
         public void LaunchWorker() { Workers++; }
@@ -530,6 +534,12 @@ namespace NeuraFlow.Dropshipper {
                         window.Controls["SignInNeeds"].Height > linesBefore &&
                         window.Controls["SpendLines"].Top >= window.Controls["SignInNeeds"].Bottom;
                     controls.PlatformLines.Clear();
+                    controls.ScoreLine = "Opportunity score: 3 types scored (1 sweet spot, 1 early bet, 0 proven but crowded, 1 too quiet).";
+                    await window.RefreshStatus();
+                    checks["score_line_after_trends_line"] = window.Controls["SignInNeeds"].Text.EndsWith(
+                        "\nGoogle Trends check: 1 of 3 signed-in reads saved complete results.\n" + controls.ScoreLine) &&
+                        window.Controls["SpendLines"].Top >= window.Controls["SignInNeeds"].Bottom;
+                    controls.ScoreLine = null;
                     await window.RefreshStatus();
                     window.StartButton.PerformClick();
                     checks["start_button_action"] = controls.Starts == 1 && controls.Workers == 1;

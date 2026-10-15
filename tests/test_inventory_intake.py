@@ -222,8 +222,7 @@ class InventoryIntakeTests(unittest.TestCase):
 class InventoryDueIntegrationTests(unittest.TestCase):
     def setUp(self):
         import test_functional_source_interpretation as source_fixture
-        from product_radar.market_validation import functional_market_context, functional_priority_support
-        from product_radar.fit_policy import FIT_POLICY_ID
+        from product_radar.market_validation import SCORE_SUPPORT_CONTRACT, functional_market_context
         self.fixture = source_fixture.FunctionalSourceInterpretationTests(); self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
         self.memory = self.fixture.memory
@@ -231,9 +230,17 @@ class InventoryDueIntegrationTests(unittest.TestCase):
         self.fixture.review(source_fixture.Runner(judgment="reasonably_positive"))
         state = self.memory.snapshot()
         context = functional_market_context(state, "first", as_of=self.now)
-        support = functional_priority_support(state, context, {"fit_policy_id": FIT_POLICY_ID,
-            "kpi_total": 10, "kpi_matches": 6}, as_of=self.now)
-        self.due = support["support_valid_until"]
+        # Inventory intake reads only the originals a frozen score support cites
+        # and their dates; here it cites the fixture's reviewed saved listings.
+        refs = sorted(context["matches"])
+        self.due = (timestamp(min(state["observations"][ref]["observed_at"] for ref in refs)) + timedelta(days=7)).isoformat()
+        site = {"source": "amazon", "valid_until": self.due,
+                "references": [{"table": "observations", "id": ref, "hash": digest(state["observations"][ref]), "source": "amazon",
+                                "observed_at": state["observations"][ref]["observed_at"]} for ref in refs],
+                "scope_reviews": [{"id": rid, "hash": "a" * 64} for rid in sorted({context["matches"][ref]["scope_review_id"] for ref in refs})]}
+        support = {"score_support": {"contract": SCORE_SUPPORT_CONTRACT, "meaning_hash": context["meaning_hash"], "score": 40,
+                                     "sources": [site], "presence": None, "valid_until": self.due},
+                   "score_support_refs": refs, "support_valid_until": self.due}
         self.product = product("first", usable_until=self.due, **support)
         self.pool = {"eligible": [self.product], "needed_fact_work": [], "needed_market_work": [], "needed_supplier_work": []}
         self.origin = prepare_programme(self.memory, "origin", concept_ids=["first"], source_run_id="full-list", as_of=self.now)

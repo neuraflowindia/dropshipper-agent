@@ -24,6 +24,7 @@ from product_radar.programme import (STAGES, _save, advance_programme, load_prog
 from product_radar.research_memory import ResearchMemory, change
 from product_radar.service import load_policy
 from product_radar.storage import Journal, atomic_bytes, atomic_json, load_json
+from test_fit_pipeline import older_format_scores
 
 
 def inspect(raw):
@@ -33,6 +34,7 @@ def inspect(raw):
         return {"pages": len(pdf), "portrait": True, "bytes": len(raw)}
 
 
+@older_format_scores
 class ProgrammeReportsTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
@@ -141,6 +143,19 @@ class ProgrammeReportsTests(unittest.TestCase):
         self.assertEqual(manifest["languages"], ["en", "hi-Latn"])
         self.assertIs(manifest["approved"], False)
         self.assertIs(manifest["release_ready"], False)
+        # The reports stage saves the owner's score tally for the desktop line.
+        from product_radar.opportunity_score import score_line
+        self.assertTrue(score_line(self.memory.root).startswith(
+            "Opportunity score: 10 types scored (10 sweet spot, 0 early bet, 0 proven but crowded, 0 too quiet)"))
+
+    def test_score_tally_failure_never_stops_the_reports_stage(self):
+        self.seed()
+        with patch("product_radar.opportunity_score.record_score_summary", side_effect=OSError("disk full")):
+            self.advance(max_cycles=1)
+        self.assertIs(self.saved()["drafts"][self.slots[0]["issue_id"]]["complete"], True)
+        with patch("product_radar.opportunity_score.record_score_summary", side_effect=SafetyError("RESEARCH_EVENTS_INVALID")), \
+                self.assertRaises(SafetyError):
+            self.advance(max_cycles=1)
 
     def test_later_missing_issue_fills_without_duplicating_or_rewriting_first(self):
         self.seed(20, ready=10)

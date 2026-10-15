@@ -65,7 +65,7 @@ _SCRIPTS = ("run_programme.py", "run_source_coverage.py", "benchmark_providers.p
             "windows/Build-Dropshipper.ps1", "windows/Install-Dropshipper.ps1", "windows/Test-Dropshipper.ps1")
 _PORTAL = ("worker.mjs", "release-admin.mjs", "admin-status.mjs", "access-service-assertion.mjs",
            "functional-packet.mjs", "supplier-scoped.mjs", "release-pages.mjs", "release-history.mjs", "alias-proof.mjs",
-           "lineage-proof.mjs", "definition-proof.mjs", "example-proof.mjs")
+           "lineage-proof.mjs", "definition-proof.mjs", "example-proof.mjs", "opportunity-score.mjs")
 _TESTS = ("tests/test_source_exhausted_preparation.py", "tests/test_source_preparation_independent_review.py",
           "tests/test_operation_records.py", "tests/test_research_projection_batch.py",
           "tests/test_report_print_layout.py", "tests/test_live_outputs.py")
@@ -73,6 +73,7 @@ _PUBLIC_SETTINGS = ("config/service.json", "config/research/catalogue.json", "co
                     "config/operations/backup.json", "config/research/collection_cost_baseline.json",
                     "config/research/spend_watch.json", "config/research/signed_in_reads.json",
                     "config/research/dropship_platforms.json", "config/research/crowding.json",
+                    "config/research/opportunity_score.json",
                     "config/research/apify_allocation.json", "config/benchmarks/meta_first.json",
                     "config/research/quickcommerce_locations.json", "config/research/wider_discovery.json",
                     "config/research/round_limits.json", "config/research/product_map.json")
@@ -1166,6 +1167,9 @@ class _Selection:
             elif relative == "config/research/crowding.json":
                 from .crowding import validate_thresholds
                 validate_thresholds(value)
+            elif relative == "config/research/opportunity_score.json":
+                from .opportunity_score import validate_settings as validate_score_settings
+                validate_score_settings(value)
             elif relative == "config/research/apify_allocation.json":
                 from .meta_depth_money import validate_allocation
                 validate_allocation(value)

@@ -1,6 +1,7 @@
 // Genuine saved A/B -> bounded B definition -> optional portable acceptance.
 // The runner is fictional; no provider, cloud, publication or real model calls.
 import { spawnSync } from 'node:child_process';
+import { PYTHON } from './python.test-helper.mjs';
 let cached;
 export function actualDefinitionFixtures() {
   if(cached)return structuredClone(cached);
@@ -68,7 +69,7 @@ for mode in ('normal','normalized','fractional'):
  finally:t.doCleanups()
 print(json.dumps(out,ensure_ascii=False,separators=(',',':')))
 `;
-  const r=spawnSync('.venv/bin/python',['-c',script],{cwd:new URL('..',import.meta.url),env:{...process.env,PYTHONPATH:'src:tests'},maxBuffer:8*1024*1024,timeout:30000});
+  const r=spawnSync(PYTHON,['-c',script],{cwd:new URL('..',import.meta.url),env:{...process.env,PYTHONPATH:'src:tests'},maxBuffer:8*1024*1024,timeout:30000});
   if(r.status!==0||!r.stdout?.length)throw new Error('Offline definition fixture failed: '+(r.stderr?.toString()??r.error?.message??''));
   cached=JSON.parse(r.stdout.toString());return structuredClone(cached);
 }

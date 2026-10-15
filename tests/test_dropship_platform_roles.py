@@ -145,8 +145,9 @@ class MatchingTests(RolesCase):
             self.assertEqual((ROUTE_LABELS[route], _SITES[route], CAPTURE_SOURCES[route], _SOURCES[route]),
                              (platforms.LABELS[route], platforms.LABELS[route], route, "dropship-platforms"))
             self.assertIn(route, CLIENT_ROUTES)
-        from product_radar.opportunity_policy import SOURCE_PLATFORMS
-        self.assertFalse(set(platforms.ROUTES) & set(SOURCE_PLATFORMS))  # never a market vote yet
+        from product_radar.discovery import MARKET_SITES
+        # Not market sites: their presence fact feeds the opportunity score directly.
+        self.assertFalse(set(platforms.ROUTES) & set(MARKET_SITES))
         from product_radar.operational_backup_selection import _PUBLIC_SETTINGS
         self.assertIn("config/research/dropship_platforms.json", _PUBLIC_SETTINGS)
 
@@ -355,12 +356,33 @@ class PresenceTests(RolesCase):
         count = len(state["source_checks"])
         self.assertEqual(roles.record_platform_presence(self.memory, self.cid, root=self.memory.root, as_of=later(AT, 3600)), saved)
         self.assertEqual(len(self.memory.snapshot()["source_checks"]), count)
-        renewed = roles.record_platform_presence(self.memory, self.cid, root=self.memory.root, as_of=later(AT, 8 * 86400))
-        self.assertEqual(renewed["at"], later(AT, 8 * 86400))
+        # Renewed at five days, while the score still counts it until seven: no gap in the points.
+        self.assertEqual(roles.record_platform_presence(self.memory, self.cid, root=self.memory.root,
+                                                        as_of=later(AT, 5 * 86400 - 1)), saved)
+        renewed = roles.record_platform_presence(self.memory, self.cid, root=self.memory.root, as_of=later(AT, 5 * 86400))
+        self.assertEqual(renewed["at"], later(AT, 5 * 86400))
+        from product_radar.opportunity_score import PRESENCE_DAYS
+        self.assertLess(roles.PRESENCE_RENEW_DAYS, PRESENCE_DAYS)
         self.assertEqual(roles.current_platform_presence(self.memory.snapshot(), self.cid)["at"], renewed["at"])
         broken = dict(saved, platforms={})
         with self.assertRaisesRegex(SafetyError, "DROPSHIP_PRESENCE_RECORD_INVALID"):
             roles._valid_presence(broken)
+
+    def test_saved_presence_earns_score_points_for_a_week(self):
+        from product_radar.opportunity_score import score_type
+        from product_radar.discovery import MARKET_SITES
+        self.review(self.matched("777"))
+        saved = roles.record_platform_presence(self.memory, self.cid, root=self.memory.root, as_of=AT)
+        item = saved["platforms"]["deodap"]["items"][0]
+        market = {"sources": {site: {"available": False, "positive": None, "used_ids": []} for site in MARKET_SITES}}
+        fit = {"fit_policy_id": "fit-10-v1", "kpi_matches": 6, "kpi_total": 10}
+        state = self.memory.snapshot()
+        record = score_type(state, self.cid, fit, market, as_of=later(AT, 3600))
+        lists = record["opportunity_basis"]["parts"]["want"]["items"]["platform_lists"]
+        self.assertEqual((lists["points"], lists["evidence_ids"]), (4, [item["observation_id"]]))  # one platform's bestseller list
+        self.assertEqual(lists["facts"]["presence_at"], AT)
+        stale = score_type(state, self.cid, fit, market, as_of=later(AT, 8 * 86400))
+        self.assertEqual(stale["opportunity_basis"]["parts"]["want"]["items"]["platform_lists"]["points"], 0)
 
     def test_relevant_listing_is_one_stable_lead_with_effort_from_a_kept_copy_of_its_read(self):
         self.review(self.matched("777"))

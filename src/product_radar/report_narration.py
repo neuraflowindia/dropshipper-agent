@@ -64,6 +64,9 @@ _NARRATION_INTEGRITY_FAILURES = frozenset({
 })
 _MODEL_ALLOWANCE_WAITS = frozenset({"WORK_TURN_MODEL_LIMIT", "WORK_TURN_PURPOSE_LIMIT", "WORK_TURN_CLOSED"})
 LEGACY_MIGRATION_WAIT = "REPORT_LEGACY_WRITING_DEFERRED_FOR_FUNCTIONAL_MIGRATION"
+SCORE_RULE = ("The opportunity score out of 100 and its four parts (want 20, early 30, room 25, product 25), the label "
+              "and the Amazon/Flipkart crowding level are code-owned and measured from saved facts. Restate them only as "
+              "supplied. Listings, stock and prices are context, not sales proof.")
 
 
 def _narration_failure(error):
@@ -265,9 +268,9 @@ def make_narrative_input(dataset, language, *, english=None, item_ids=None, engl
                "fact_policy": "Supplied facts only; numerical displays, market labels, links and commercial terms remain code-owned."}
     if dataset.get("fit_policy_id") == "fit-10-v1":
         context.update(fit_policy_id="fit-10-v1", criterion_ids=deepcopy(dataset["criterion_ids"]))
-    if dataset.get("opportunity_policy_id") == "opportunity-priority-v2":
-        context.update(opportunity_policy_id=dataset["opportunity_policy_id"],
-                       source_priority_rule="Distinct confirmed platforms count once. Priority and source counts are code-owned. Catalogue presence and prices are context, not sales proof. Two usable platforms do not require growth; one platform needs supported positive context.")
+    from .opportunity_score import POLICY_ID as SCORE_POLICY_ID
+    if dataset.get("opportunity_policy_id") == SCORE_POLICY_ID:
+        context.update(opportunity_policy_id=dataset["opportunity_policy_id"], score_rule=SCORE_RULE)
     if functional:
         if dataset.get("recommendation_contract") != RECOMMENDATION_CONTRACT:
             raise SafetyError("REPORT_WRITING_CONTRACT_INVALID")
@@ -294,13 +297,13 @@ def make_narrative_input(dataset, language, *, english=None, item_ids=None, engl
         facts = [{"id": "title", "text": product["title"], "basis": "observed", "references": []},
                  {"id": "market-label", "text": product["market_label"], "basis": "observed", "references": []}]
         facts.extend({"id": "market-" + str(n), "text": check["source"] + ": " + check["state"] + ". " + check["detail"],
-                      "basis": "inferred" if check.get("interpretation_only") and check.get("basis") != "observed" else "observed",
-                      "references": []} for n, check in enumerate(product["market_checks"]))
-        if dataset.get("opportunity_policy_id") == "opportunity-priority-v2":
-            from .opportunity_policy import SOURCE_LABELS
-            basis = product["opportunity_basis"]
-            facts.append({"id": "confirmed-sources", "text": ", ".join(SOURCE_LABELS[source] for source in basis["source_ids"]),
-                          "basis": "observed", "references": sorted(ref for refs in basis["evidence_by_source"].values() for ref in refs)})
+                      "basis": "observed", "references": []} for n, check in enumerate(product["market_checks"]))
+        if dataset.get("opportunity_policy_id") == SCORE_POLICY_ID:
+            from .opportunity_score import crowding_text, market_evidence, score_text
+            # Code-owned score and crowding sentences in the report's own language.
+            facts.append({"id": "opportunity-score", "text": score_text(product, language), "basis": "observed",
+                          "references": sorted({ref for refs in market_evidence(product).values() for ref in refs})})
+            facts.append({"id": "crowding", "text": crowding_text(product, language), "basis": "observed", "references": []})
         writing = product.get("writing_facts", [])
         known_refs = {ref["id"] for ref in product["source_refs"]}
         description_rows = []

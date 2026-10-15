@@ -25,6 +25,46 @@ from product_radar.models import SafetyError, digest
 from product_radar.research_flow import assessment_item, current_assessment_fit
 
 
+def _older_format_inputs(real):
+    """Older-format (non-functional) fixture types have no accepted product
+    meaning, so production never has a saved crowding answer or platform
+    presence for them and they wait as crowding_pending (see
+    test_older_contract_types_wait_for_the_crowding_check). The packet, report
+    and website code the older-format tests cover is shared with the functional
+    format, so this test double gives each such type a Low crowding answer and
+    two platform bestseller listings (5 of the score's want points), seen with
+    the fixture's own observations and so stale a week later like them. Types
+    with an accepted meaning keep their real saved inputs."""
+    from product_radar.functional_types import effective_functional_definition
+    from product_radar.opportunity_score import presence_input
+    from test_report_selection import OBSERVED
+    def inputs(state, concept_id, *, as_of):
+        if effective_functional_definition(state, concept_id)["accepted"]:
+            return real(state, concept_id, as_of=as_of)
+        item = {"observation_id": "fixture-platform-item-" + concept_id, "listed": True, "on_list": True, "new_arrival": False}
+        saved = {"at": OBSERVED, "platforms_carrying": ["baapstore", "deodap"],
+                 "platforms": {route: {"items": [item]} for route in ("baapstore", "deodap")}}
+        return (presence_input(saved, as_of=as_of),
+                {"level": "low", "rule": "few_listings", "thresholds_version": "crowding-thresholds-v1",
+                 "counts": {"relevant_listings": {"amazon": 1, "flipkart": 0}, "brands_or_sellers": 1, "listings_with_brand": 1,
+                            "brand_not_shown": 0, "max_ratings": 40,
+                            "bestseller_hits": 0}, "evidence_ids": []})
+    return inputs
+
+
+def older_format_scores(cls):
+    """Class decorator: install the older-format score inputs double around each test."""
+    from unittest.mock import patch
+    import product_radar.opportunity_score as score
+    original = cls.setUp
+    def setUp(self):
+        patcher = patch.object(score, "score_inputs", side_effect=_older_format_inputs(score.score_inputs))
+        patcher.start(); self.addCleanup(patcher.stop)
+        original(self)
+    cls.setUp = setUp
+    return cls
+
+
 def current_fixture(count=10, matches=6):
     memory = fixture(count)
     for record in memory.state["assessments"].values():
@@ -60,6 +100,7 @@ class WritingFixture:
         return {"results": result}, {"input_tokens": 0, "output_tokens": 0}
 
 
+@older_format_scores
 class CurrentFitPipelineTests(unittest.TestCase):
     def test_market_only_updates_reuse_exact_practical_fit_without_model_work(self):
         from product_radar.programme import _fit

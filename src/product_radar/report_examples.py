@@ -27,7 +27,7 @@ FIELDS = ("recommendation_contract", "functional_definition", "functional_defini
 FUNCTIONAL_REPORT_FIELDS = FIELDS + (
     "functional_fit_input", "functional_fit_input_hash", "functional_fit_proof", "functional_fit_proof_hash",
     "functional_fit_reference_proofs", "functional_fit_assessment", "fit_description", "functional_market_contract", "functional_market_proof",
-    "priority_support", "priority_support_refs", "support_valid_until", "functional_supplier_proof", "functional_photo_proof",
+    "score_support", "score_support_refs", "support_valid_until", "functional_supplier_proof", "functional_photo_proof",
     "functional_route_proof", "supplier_scoped_terms", "supplier_scope_coverage")
 OPTIONAL_FUNCTIONAL_REPORT_FIELDS = ("example_review_proofs", "example_selection")
 MAX_EXAMPLES = 20

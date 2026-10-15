@@ -13,10 +13,12 @@ from test_functional_source_market import functional_pool_fixture
 from test_functional_report_packet import RecordingWriter
 from test_programme_reports import ProgrammeReportsTests, inspect
 from test_report_source_facts import source_fixture
+from test_fit_pipeline import older_format_scores
 
 NOW = "2026-10-06T10:00:00+00:00"
 
 
+@older_format_scores
 class MixedReportCohortTests(unittest.TestCase):
     def run_mixed(self, functional_count):
         temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)

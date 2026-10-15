@@ -25,8 +25,8 @@ from .models import SafetyError, canonical, digest, identifier, timestamp
 from .public_pages import _public_url
 from .service import validate_issue, policy_for_fit, product_fit, issue_fit_policy
 from .fit_policy import FIT_POLICY_ID, LEGACY_POLICY_ID, evaluate_fit, policy_for
-from .opportunity_policy import (CURRENT_OPPORTUNITY_POLICY_ID, SOURCE_LABELS, opportunity_counts,
-                                 opportunity_workbook_headers, opportunity_workbook_values)
+from .opportunity_score import (OPPORTUNITY_FIELDS, POLICY_ID as SCORE_POLICY_ID, crowding_text, score_text,
+                                workbook_headers as opportunity_workbook_headers, workbook_values as opportunity_workbook_values)
 from .supplier_effort import frozen_supplier_effort_valid
 from .report_source_facts import (CONTRACT as SOURCE_ROUTE_CONTRACT, CONTRACTS as SOURCE_ROUTE_CONTRACTS,
                                  FUNCTIONAL_CONTRACT as FUNCTIONAL_SOURCE_ROUTE_CONTRACT, FIELDS as SOURCE_ROUTE_FIELDS,
@@ -339,7 +339,6 @@ def build_issue_dataset(issue, product_facts, *, narratives=None, evidence_type=
             value.pop(field, None)
             if field in frozen:
                 value[field] = deepcopy(frozen[field])
-        from .opportunity_policy import OPPORTUNITY_FIELDS
         for field in OPPORTUNITY_FIELDS:
             value.pop(field, None)
             if field in frozen:
@@ -347,7 +346,7 @@ def build_issue_dataset(issue, product_facts, *, narratives=None, evidence_type=
         if "image_provenance" in frozen:
             value["image_provenance"] = deepcopy(frozen["image_provenance"])
             value["image_path"] = frozen["image_provenance"]["path"]
-        elif frozen.get("opportunity_policy_id") == CURRENT_OPPORTUNITY_POLICY_ID and (
+        elif frozen.get("opportunity_policy_id") == SCORE_POLICY_ID and (
                 value.get("image_path") is not None or value.get("image_provenance") is not None):
             raise SafetyError("LIVE_PHOTO_BINDING_INVALID")
         for field in SOURCE_ROUTE_FIELDS:
@@ -460,7 +459,7 @@ def validate_dataset(issue, dataset, *, root=None):
             raise SafetyError("LIVE_SUPPLIER_TERMS_BINDING_CHANGED")
         if "supplier_terms_display_version" in value:
             if (value["supplier_terms_display_version"] != SUPPLIER_TERMS_DISPLAY_VERSION
-                    or value.get("opportunity_policy_id") != CURRENT_OPPORTUNITY_POLICY_ID
+                    or value.get("opportunity_policy_id") != SCORE_POLICY_ID
                     or value.get("source_route_contract") not in SOURCE_ROUTE_CONTRACTS):
                 raise SafetyError("LIVE_SUPPLIER_TERMS_DISPLAY_VERSION_INVALID")
         if "fit_description_contract" in value:
@@ -471,11 +470,11 @@ def validate_dataset(issue, dataset, *, root=None):
             if (not isinstance(value.get("criteria"), list)
                     or any(not isinstance(row, dict) or "description_inference" not in row for row in value["criteria"])):
                 raise SafetyError("LIVE_FIT_DESCRIPTION_CONTRACT_INVALID")
-        if frozen.get("opportunity_policy_id") == CURRENT_OPPORTUNITY_POLICY_ID and "image_provenance" not in frozen:
+        if frozen.get("opportunity_policy_id") == SCORE_POLICY_ID and "image_provenance" not in frozen:
             if value.get("image_path") is not None or value.get("image_provenance") is not None:
                 raise SafetyError("LIVE_PHOTO_BINDING_INVALID")
         if any(field in frozen or field in value for field in SOURCE_ROUTE_FIELDS):
-            if (frozen.get("opportunity_policy_id") != CURRENT_OPPORTUNITY_POLICY_ID
+            if (frozen.get("opportunity_policy_id") != SCORE_POLICY_ID
                     or any(value.get(field) != frozen.get(field) for field in SOURCE_ROUTE_FIELDS)):
                 raise SafetyError("LIVE_SOURCE_ROUTE_FACTS_CHANGED")
             validate_route_facts(value)
@@ -502,7 +501,6 @@ def validate_dataset(issue, dataset, *, root=None):
             _url(photo["source_url"]); timestamp(photo["observed_at"])
         if declared == FIT_POLICY_ID:
             product_fit(value, declared)
-            from .opportunity_policy import OPPORTUNITY_FIELDS
             if any(value.get(field) != frozen.get(field) for field in OPPORTUNITY_FIELDS):
                 raise SafetyError("LIVE_PROTECTED_FACT_CHANGED")
             if any(value.get(field) != frozen.get(field) for field in ("fit_policy_id", "criterion_ids", "kpi_total", "fit_tier", "source_revisions", "brand_binding")):
@@ -833,16 +831,11 @@ def render_html(issue, dataset, *, language="en", root=None):
         update = escape(_prose(prose.get("update_sentence", ""), product, dataset, language))
         market_label = product["market_label"] if language == "en" else HI_MARKET_LABELS.get(product["market_label"], product["market_label"])
         checklist = f'{product["kpi_matches"]}/{total} checklist matches' if language == "en" else f'Checklist ke {total} points mein se {product["kpi_matches"]} match hue.'
-        if "opportunity_priority" in product:
-            priority = product["opportunity_priority"]
-            basis = product["opportunity_basis"]
-            available, _ = opportunity_counts(product)
-            unit = "sources" if product["opportunity_policy_id"] == CURRENT_OPPORTUNITY_POLICY_ID else "source groups"
-            checklist += (f' · Priority {priority} · {available} usable independent {unit}'
-                          if language == "en" else
-                          f' · Priority {priority} · {available} alag {unit} se kaam ki jankari')
-            if product["opportunity_policy_id"] == CURRENT_OPPORTUNITY_POLICY_ID:
-                checklist += " · " + ", ".join(SOURCE_LABELS[source] for source in basis["source_ids"])
+        opportunity = ""
+        if product.get("opportunity_policy_id") == SCORE_POLICY_ID:
+            # Code-owned score and crowding lines (the writer never restates them).
+            opportunity = ('<br>' + escape(score_text(product, language)) + '<br>'
+                           + escape(crowding_text(product, language)))
         checklist_panel = ""
         if product.get("fit_policy_id") == FIT_POLICY_ID:
             from .research_ai import CRITERIA_BY_ID
@@ -859,7 +852,7 @@ def render_html(issue, dataset, *, language="en", root=None):
             checklist_panel += '</tbody></table>'
         source_footer = f'<p class="live-source-links"><span class="live-page-footer">NeuraFlow · {escape(dataset["release_date"])} · </span>{labels["links"]}: {links}</p>'
         examples = _example_html(product, language) if functional else ""
-        pages.append(f'<section class="page live-product" id="product-{product["concept_id"]}" data-concept-id="{product["concept_id"]}"><div class="page-top"><span class="folio">{index:02d}</span></div><div class="{hero_class}"><div><p class="product-rank">{product["rank"]:02d}</p><h1>{escape(product["title"])}</h1><p class="live-meta">{escape(product["category"])} · {labels["new" if product["status"] == "New" else "updated"]}</p><p>{escape(market_label)}<br>{escape(checklist)}</p></div>{visual}</div><h2>{labels["why"]}</h2><p class="live-main-copy">{escape(_prose(prose["reason"], product, dataset, language))}</p><ul>{points}</ul><p class="small">{caveat}</p><p class="small">{update}</p>{checklist_panel}<h2>{labels["market"]}</h2><div class="live-checks">{checks}</div>{examples}<div class="live-details"><div><h2>{labels["prices"]}</h2>{prices}</div><div><h2>{labels["suppliers"]}</h2>{suppliers}</div></div>{source_footer}</section>')
+        pages.append(f'<section class="page live-product" id="product-{product["concept_id"]}" data-concept-id="{product["concept_id"]}"><div class="page-top"><span class="folio">{index:02d}</span></div><div class="{hero_class}"><div><p class="product-rank">{product["rank"]:02d}</p><h1>{escape(product["title"])}</h1><p class="live-meta">{escape(product["category"])} · {labels["new" if product["status"] == "New" else "updated"]}</p><p>{escape(market_label)}<br>{escape(checklist)}{opportunity}</p></div>{visual}</div><h2>{labels["why"]}</h2><p class="live-main-copy">{escape(_prose(prose["reason"], product, dataset, language))}</p><ul>{points}</ul><p class="small">{caveat}</p><p class="small">{update}</p>{checklist_panel}<h2>{labels["market"]}</h2><div class="live-checks">{checks}</div>{examples}<div class="live-details"><div><h2>{labels["prices"]}</h2>{prices}</div><div><h2>{labels["suppliers"]}</h2>{suppliers}</div></div>{source_footer}</section>')
     rendered = "".join(pages)
     return '<!doctype html><html lang="' + ("en" if language == "en" else "hi-Latn") + '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' + escape(narrative["title"]) + '</title><style>' + css + '</style></head><body>' + rendered + '</body></html>'
 
@@ -950,9 +943,8 @@ def _workbook_bytes(issue, dataset, *, deterministic=False, root=None):
         definitions["Example products"] = (list(EXAMPLE_WORKBOOK_HEADERS), [])
         widths["Example products"] = [8, 36, 45, 20, 25, 25, 40, 24, 34, 46, 46, 46, 46]
     if "opportunity_policy_id" in dataset:
-        columns = opportunity_workbook_headers(dataset["opportunity_policy_id"])
-        definitions["Shortlist"][0].extend(columns)
-        widths["Shortlist"].extend([12, 20, 20] + ([45] if len(columns) == 4 else []))
+        definitions["Shortlist"][0].extend(opportunity_workbook_headers())
+        widths["Shortlist"].extend([10, 11, 11, 11, 12, 20, 12])
     for product in dataset["products"]:
         prices = product["prices"]
         definitions["Shortlist"][1].append([product["rank"], product["title"], product["category"], product["status"],

@@ -1,13 +1,20 @@
 """Crowding facts read from saved Amazon India and Flipkart first pages (W6).
 
-Parser version 2 re-reads a saved capture's rendered page and page text: per
+Parser version 3 re-reads a saved capture's rendered page and page text: per
 result card on the first results page only, the ratings count, star rating,
-brand/seller text where the card shows one, "bought in past month" (Amazon),
+brand/seller text where the card shows one and whether it shows one
+(``brand_shown``), "bought in past month" (Amazon),
 the sponsored label and Amazon's "Best seller" badge; per page, the total result
 count. Only the cards the capture kept are later counted (the first 30). It never navigates,
 calls a model or changes the immutable capture receipt. Its output is a
 derived side file next to the capture, bound to the hashes of the saved bytes,
 so a newer parser version simply reads the saved page again.
+
+Brands (checked on the saved first pages, 15 October): Amazon shows a brand or
+store only on some cards, as a small heading above the title (about 12% of
+saved cards); Flipkart's search cards show no brand or seller field at all
+(the brand is only the start of the title and is not split off by guesswork).
+A card without one is recorded as "brand not shown", never as no brand.
 """
 
 from hashlib import sha256
@@ -17,7 +24,7 @@ import re
 from .models import SafetyError
 from .storage import atomic_json, load_json, safe_path
 
-CARD_PARSER_VERSION = 2
+CARD_PARSER_VERSION = 3
 SIDE_FILE = "crowding-cards-v" + str(CARD_PARSER_VERSION) + ".json"
 CARD_ROUTES = ("amazon-search", "flipkart-search", "amazon-bestsellers")
 MAX_HTML = 8 * 1024 * 1024
@@ -132,7 +139,7 @@ def _card_facts(route, raw):
     bought = next((match for piece in pieces for match in [_BOUGHT.match(piece)] if match), None)
     rank = next((int(piece[1:]) for piece in pieces if re.fullmatch(r"#[1-9][0-9]{0,4}", piece)), None)
     brand = raw["brand"].strip()[:200] if raw["brand"] and raw["brand"].strip() else None
-    return {"ratings_count": ratings, "star_rating": stars, "brand": brand,
+    return {"ratings_count": ratings, "star_rating": stars, "brand": brand, "brand_shown": brand is not None,
             "bought_past_month": _number(bought[1], bought[2]) if bought else None,
             "bought_text": bought[0][:80] if bought else None,
             "sponsored": (any(piece in ("Sponsored", "Ad") for piece in pieces[:8])
@@ -164,13 +171,14 @@ def merge_card_facts(first, second):
         merged[field] = max(values) if values else None
     for field in ("star_rating", "brand", "bought_text", "list_rank"):
         merged[field] = first.get(field) if first.get(field) is not None else second.get(field)
+    merged["brand_shown"] = merged["brand"] is not None
     merged["sponsored"] = first.get("sponsored") is True or second.get("sponsored") is True
     merged["bestseller_badge"] = first.get("bestseller_badge") is True or second.get("bestseller_badge") is True
     return merged
 
 
 def parse_saved_cards(route, html, text):
-    """Pure parser v2 over one saved first page; no relevance judgment."""
+    """Pure parser v3 over one saved first page; no relevance judgment."""
     if route not in CARD_ROUTES or not isinstance(html, str) or len(html) > MAX_HTML or not isinstance(text, str):
         raise SafetyError("CROWDING_CARD_INPUT_INVALID")
     parser = _Cards(route)

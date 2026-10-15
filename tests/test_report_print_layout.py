@@ -12,6 +12,7 @@ from product_radar import live_outputs as live
 from product_radar.models import SafetyError
 from product_radar.storage import atomic_bytes, atomic_json, load_json
 from test_live_outputs import fixture
+from test_fit_pipeline import older_format_scores
 
 
 class Tables(HTMLParser):
@@ -53,6 +54,7 @@ def current_fit_fixture():
     return issue, dataset
 
 
+@older_format_scores
 class ReportPrintLayoutTests(unittest.TestCase):
     def test_full_bleed_background_keeps_physical_page_content_margins(self):
         issue, dataset = fixture()
@@ -149,6 +151,7 @@ class ReportPrintLayoutTests(unittest.TestCase):
         self.assertEqual(product, before)
 
 
+@older_format_scores
 class ReportPrintVersionTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()

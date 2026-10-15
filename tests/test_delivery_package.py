@@ -20,6 +20,7 @@ from product_radar.issue_allocation import _fingerprint
 from product_radar.models import SafetyError, digest
 from product_radar.storage import atomic_bytes, atomic_json
 from test_live_outputs import fixture
+from test_fit_pipeline import older_format_scores
 
 
 def packet(root, *, ordinal=1, languages=("en", "hi-Latn"), count=10, updates=0, raw_quote=False):
@@ -53,6 +54,7 @@ def packet(root, *, ordinal=1, languages=("en", "hi-Latn"), count=10, updates=0,
     return issue, dataset, drafts, receipts
 
 
+@older_format_scores
 class DeliveryPackageTests(unittest.TestCase):
     def build(self, root, issue, drafts, receipts, **kwargs):
         return build_delivery_manifest(issue, drafts, receipts, root=root, **kwargs)

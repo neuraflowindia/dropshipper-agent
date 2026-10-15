@@ -24,7 +24,7 @@ Requirements, categories, pricing, selection and report rules: [product and serv
 |---|---|
 | Research, judgment, supplier, report and backup logic | `src/product_radar/` |
 | Entry points (programme, launcher, checks) | `scripts/` — main loop `scripts/run_programme.py`; read-only status `--activity`; owner meter since the fresh start (time, money, counts, reports, errors/waits) `--meter` |
-| Tests (Python `unittest`) | `tests/`; portal tests are `portal/*.test.mjs` |
+| Tests (Python `unittest`) | `tests/`; portal tests are `portal/*.test.mjs`, run with `node --test portal/*.test.mjs` from the repository root. Portal tests that build their fixtures with the Python code start the interpreter named by `PRODUCT_RADAR_PYTHON`, else `.venv/bin/python` at the repository root (`portal/python.test-helper.mjs`); set it when the folder has no `.venv` of its own (for example a build copy) |
 | Private portal | `portal/` |
 | Research records, money ledger, receipts, reports (not for version control) | `data/`, `media/live/` inside `/home/anan/neuraflow-dropshipper-data/` on the Linux disk (named in `config/local/runtime_storage.json`); daily backups stay in the project's `data/backups/`; everything before the 13 October 2026 fresh start is in `archive/2026-10-13-before-fresh-start/` |
 | Credentials | ignored `config/local/` only |

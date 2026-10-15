@@ -23,6 +23,7 @@ from test_catalogue_expansion import fixture as catalogue_fixture
 from test_programme_cost_snapshot import baseline
 from test_programme_summary import account_status, financial
 from test_report_source_facts import source_fixture
+from test_fit_pipeline import older_format_scores
 from product_radar.issue_allocation import allocate_issues
 from product_radar.models import SafetyError, digest
 from product_radar.operations import operation_run
@@ -36,6 +37,7 @@ from product_radar.storage import Journal, atomic_json
 NOW = legacy_fixtures.NOW
 
 
+@older_format_scores
 class ProgrammeOwnerFunctionalSummaryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

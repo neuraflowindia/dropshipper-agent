@@ -23,6 +23,7 @@ from product_radar.research_memory import ResearchMemory, change
 from product_radar.storage import Journal
 from product_radar.work_turns import DEFAULT_POLICY, bind_work_turn, close_work_turn, open_work_turn
 from test_report_selection import fixture, NOW
+from test_fit_pipeline import older_format_scores
 
 
 class Runner:
@@ -85,6 +86,7 @@ def question(memory, n=0):
     return next(row for row in pool["needed_material_update_work"] if row["binding"]["concept_id"] == f"c{n:03d}")
 
 
+@older_format_scores
 class MaterialUpdateReviewTests(unittest.TestCase):
     def setUp(self):
         clock = patch("product_radar.research_ai.utc_now", return_value=NOW)
@@ -557,6 +559,7 @@ class MaterialUpdateReviewTests(unittest.TestCase):
             validate_update_result(item, value)
 
 
+@older_format_scores
 class ScopedMaterialSnapshotTests(unittest.TestCase):
     def fact(self):
         return {"concept_id": "actual-type", "recommendation_contract": "functional-type-examples-v1",
@@ -667,6 +670,7 @@ class ScopedMaterialSnapshotTests(unittest.TestCase):
         self.assertEqual(material_snapshot(fact, {"sources": {}}), old)
 
 
+@older_format_scores
 class MaterialIdentityWakeTests(unittest.TestCase):
     def test_only_a_relevant_actual_reviewed_alias_wakes_cooperative_work(self):
         from test_functional_aliases import FunctionalAliasTests

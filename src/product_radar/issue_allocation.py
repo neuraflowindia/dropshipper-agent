@@ -14,7 +14,8 @@ from .material_updates import update_baseline_current
 from .research_memory import change, key
 from .service import CATEGORIES, _validate_policy, load_policy, validate_issue, product_fit, policy_for_fit, issue_fit_policy
 from .storage import Journal
-from .opportunity_policy import OPPORTUNITY_FIELDS, OPPORTUNITY_POLICY_IDS, opportunity_sort_key, validate_opportunity
+from .opportunity_score import (OPPORTUNITY_FIELDS, OPPORTUNITY_POLICY_IDS, POLICY_ID as SCORE_POLICY_ID, crowding_level,
+                                load_settings as load_score_settings, opportunity_sort_key, validate_opportunity)
 from .report_examples import RECOMMENDATION_CONTRACT, FUNCTIONAL_REPORT_FIELDS, validate_functional_examples
 
 ACTIVE_STATES = {"reserved", "uploaded", "published"}
@@ -41,17 +42,34 @@ def selection_fingerprint(issue):
     return digest(selected)
 
 
-def _fresh_at_release(product, issue, *, as_of=None):
+def _crowding_current(state, product):
+    """A score-marked frozen type's crowding answer still holds in ``state``
+    (level, rule, thresholds version and meaning only; ``crowding_unchanged``)."""
+    if product.get("opportunity_policy_id") != SCORE_POLICY_ID:
+        return True
+    from .crowding import crowding_unchanged
+    try:
+        facts = product["opportunity_basis"]["parts"]["room"]["items"]["crowding"]["facts"]
+        return crowding_unchanged(state, product["concept_id"], facts, product["functional_definition"]["meaning_hash"])
+    except (KeyError, TypeError):
+        return False
+
+
+def _fresh_at_release(product, issue, *, as_of=None, state=None):
+    """Support still valid on the release morning; with ``state``, also the
+    type's crowding answer (a type that turned High is not released as Low)."""
+    if state is not None and product.get("recommendation_contract") == RECOMMENDATION_CONTRACT and not _crowding_current(state, product):
+        return False
     if product.get("recommendation_contract") == RECOMMENDATION_CONTRACT:
         from datetime import datetime
         from zoneinfo import ZoneInfo
-        from .market_validation import validate_priority_support
+        from .market_validation import validate_score_support
         release = datetime.combine(date.fromisoformat(issue["date"]), datetime.min.time(),
                                    tzinfo=ZoneInfo("Asia/Kolkata")).replace(hour=9)
         if as_of is not None:
             release = max(release, timestamp(as_of))
         try:
-            validate_priority_support(product["priority_support"], opportunity=product,
+            validate_score_support(product["score_support"], opportunity=product,
                 meaning_hash=product["functional_definition"]["meaning_hash"], as_of=release.isoformat())
         except (SafetyError, KeyError, TypeError):
             return False
@@ -315,6 +333,11 @@ def allocate_issues(eligible, issue_dates, history, reservations, policy=None, *
                 capacity = min(capacity, remaining_slots)
                 new_targets[issue["issue_id"]] = min(minimum, new - (capacity - 1) * required_new)
 
+    high_only_below = load_score_settings()["selection"]["high_crowding_only_below"]
+
+    def high_crowding(product):
+        return product.get("opportunity_policy_id") == SCORE_POLICY_ID and crowding_level(product) == "high"
+
     def choose(issue):
         products = allocations[issue["issue_id"]]
         held = _held(reservations, own_issue_id=issue["issue_id"], client_id=issue["client_id"], aliases=aliases, history=history)
@@ -325,6 +348,10 @@ def allocate_issues(eligible, issue_dates, history, reservations, policy=None, *
                     for product in record.get("products", [])}
         own_held = expand_identities(own_held, aliases)
         published_elsewhere = _published(history, issue["client_id"], exclude_issue_id=issue["issue_id"], aliases=aliases)
+        # Owner rule (A2): High-crowding types fill an issue only while fewer
+        # than ten Low/Medium types are ready for it: already in it, or ones it
+        # can still actually take (New, plus Updated within the update cap).
+        ready_new = ready_updated = 0
         allowed = []
         for candidate in pool:
             product = dict(candidate, status="Updated" if candidate["concept_id"] in published_elsewhere else "New")
@@ -339,6 +366,8 @@ def allocate_issues(eligible, issue_dates, history, reservations, policy=None, *
                 continue
             if products and product.get("recommendation_contract") != products[0].get("recommendation_contract"):
                 continue
+            if not high_crowding(product):
+                ready_new += product["status"] == "New"; ready_updated += product["status"] == "Updated"
             updates = sum(value["status"] == "Updated" for value in products)
             # While filling ten, at most two supported updates can be reserved.
             # Final count rounding is validated again before extras/commit.
@@ -358,6 +387,12 @@ def allocate_issues(eligible, issue_dates, history, reservations, policy=None, *
                             product["concept_id"] not in own_held,
                             *opportunity_sort_key(product),
                             balance, counts[product["category"]], freshness, product["concept_id"], product))
+        updates = sum(value["status"] == "Updated" for value in products)
+        cap = policy["minimum_products"] // 5 if len(products) < policy["minimum_products"] else (len(products) + 1) // 5
+        ready = (sum(not high_crowding(value) for value in products) + ready_new
+                 + min(ready_updated, max(0, cap - updates)))
+        if ready >= high_only_below:
+            allowed = [value for value in allowed if not high_crowding(value[-1])]
         return min(allowed, key=lambda value: value[:-1])[-1] if allowed else None
 
     # Earlier issues get a complete minimum before a partial later issue.
@@ -515,6 +550,8 @@ def reserve_issue(memory, issue, *, expected_input_hash, expected_snapshot_hash,
                 raise SafetyError("ISSUE_FROZEN_REPORT_INPUT_CHANGED")
             dataset = build_issue_dataset(issue, frozen.get("product_facts"), evidence_type=memory.evidence_type)
             validate_dataset(issue, dataset, root=report_root)
+            if any(not _crowding_current(state, product) for product in issue["products"]):
+                raise SafetyError("ISSUE_CROWDING_CHANGED")
             if any(not _fresh_at_release(product, issue, as_of=as_of or utc_now()) for product in issue["products"]):
                 raise SafetyError("ISSUE_SUPPORT_EXPIRED")
         if old and old.get("selection_hash") == issue.get("selection_hash") and old.get("state") in ACTIVE_STATES:

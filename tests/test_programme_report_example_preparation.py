@@ -134,8 +134,8 @@ class ProgrammeReportExamplePreparationTests(unittest.TestCase):
     def test_reports_prepare_all_ten_before_real_frozen_input_and_checked_hold(self):
         before = self.memory.snapshot()
         self.assertTrue(all(not row["example_products"] for row in self.pool["eligible"]))
-        self.assertTrue(all(row["kpi_matches"] == 10 and row["opportunity_priority"] == 1
-                            and len(row["priority_support"]["sources"]) == 2 for row in self.eligible))
+        self.assertTrue(all(row["kpi_matches"] == 10 and row["opportunity_score"] == 31
+                            and [site["source"] for site in row["score_support"]["sources"]] == ["meta"] for row in self.eligible))
         with patch.object(functional_types, "prepare_example_memberships",
                           wraps=functional_types.prepare_example_memberships) as writer:
             result, captured = self.run_reports()

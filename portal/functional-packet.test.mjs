@@ -1,18 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { webcrypto, createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { validateFitPacket, validateFunctionalPacket, canonical, handleAdminRequest } from './release-admin.mjs';
 import { currentSupplierOutcome, deeperMetaNote, foldedRoutes, metaAds, metaAdvertiserCount, retiredSupplierRoutes, supersedingRule, supplierFirstTransport } from './functional-packet.mjs';
+import { assembleScore, crowdingText, marketEvidence, metaRecentStarts, presenceChangeBasis, scoreText } from './opportunity-score.mjs';
 
-// The offline Python producers run from the project folder with its own
-// interpreter: RADAR_PYTHON, else the project's .venv, else the shared one.
-const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const PYTHON = [process.env.RADAR_PYTHON, ROOT + '.venv/bin/python',
-  '/mnt/d/Coding/Business/Ideas and Trials and Forked and Misc/dropshipping-product-and-supplier-finder/.venv/bin/python']
-  .find(path => path && existsSync(path)) ?? 'python3';
+// The offline Python producers run from the project folder (python.test-helper.mjs).
+import { PYTHON, ROOT } from './python.test-helper.mjs';
 const PY_ENV = { ...process.env, PYTHONPATH: ROOT + 'src:' + ROOT + 'tests' };
 
 globalThis.crypto ??= webcrypto;
@@ -42,7 +37,7 @@ from test_functional_definition_review import Runner as DefinitionRunner
 from product_radar.research_scope import accept_scoped_evidence
 from product_radar.research_operations import import_trends_evidence
 from test_functional_fit import FunctionalFitTests,FunctionalFitRunner
-from test_functional_source_market import functional_pool_fixture,NOW
+from test_functional_source_market import functional_pool_fixture,NOW,save_presence
 from test_report_scoped_suppliers import scoped_supplier_fixture,range_supplier_fixture
 from test_report_assets import image_bytes
 from test_functional_source_interpretation import Runner as SourceRunner
@@ -71,6 +66,7 @@ with tempfile.TemporaryDirectory() as path:
  usable_fields=[{'reference':{'table':'trends_evidence','id':chart['id']},'path':['parsed','series']}],
  limitations=['Relative search interest, not sales.'],reason='Explicit synthetic chart comparison.',reviewer='synthetic',
  as_of='2026-10-05T10:00:00+00:00',expected_meaning_hash=effective_functional_definition(memory.snapshot(),cid)['meaning_hash'])
+ save_presence(memory,cid)
  _,_,rich_issue,rich_data=functional_packet_fixture(Path(path)/'rich',memory=memory)
  rich=generate_report_narratives(memory,rich_issue,rich_data,WritingFixture())
  assert not rich['failures'],rich
@@ -328,7 +324,85 @@ test('exact original decimal physical facts and a real parsed Trends series surv
   const {facts,manifest}=structuredClone(fixture.rich);
   await validateFunctionalPacket(facts,manifest,{asOf:'2026-10-07T03:30:00Z'});
   assert.ok(facts.products.some(p=>p.functional_fit_input.canonical_json.includes('0.35')));
-  assert.ok(facts.products.some(p=>p.opportunity_basis.source_ids.includes('google-trends')));
+  assert.ok(facts.products.some(p=>p.opportunity_basis.parts.want.items.google_searches.facts.usable));
+});
+
+test('the frozen score is re-run from the recomputed market facts and its support is complete', async () => {
+  const base=fresh(), product=base.facts.products[0];
+  assert.equal(product.opportunity_policy_id,'opportunity-score-v3');
+  assert.deepEqual(Object.keys(marketEvidence(product)),['meta']);
+  assert.deepEqual(product.score_support.sources.map(s=>s.source),['meta']);
+  // A consistently re-added record with different Facebook facts passes the
+  // arithmetic but not the recomputation from the frozen originals.
+  const f=fresh(),row=f.facts.products[0],parts=row.opportunity_basis.parts;
+  const inputs=Object.fromEntries(Object.entries(parts).flatMap(([,part])=>Object.entries(part.items).map(([name,item])=>[name,[structuredClone(item.facts),item.evidence_ids]])));
+  inputs.facebook_ads[0].advertisers=9;
+  Object.assign(row,assembleScore(inputs));
+  await assert.rejects(validateFunctionalPacket(f.facts,f.manifest,{asOf:'2026-10-07T03:30:00Z'}),/ADMIN_FUNCTIONAL_MARKET_SCORE_CHANGED/);
+  for (const change of [w=>{w.score+=1;},w=>{w.sources=[];},w=>{w.presence={at:'2026-10-05T10:00:00+00:00',valid_until:'2026-10-12T10:00:00+00:00'};},
+    w=>{w.sources[0].references.pop();},w=>{w.contract='functional-priority-support-v1';}]) {
+    const g=fresh();change(g.facts.products[0].score_support);
+    await assert.rejects(validateFunctionalPacket(g.facts,g.manifest,{asOf:'2026-10-07T03:30:00Z'}),/ADMIN_FUNCTIONAL_/);
+  }
+  const g=fresh();g.facts.products[0].opportunity_label='sweet_spot';
+  await assert.rejects(validateFunctionalPacket(g.facts,g.manifest,{asOf:'2026-10-07T03:30:00Z'}),/ADMIN_OPPORTUNITY_LABEL_INVALID|ADMIN_FUNCTIONAL_/);
+});
+
+test('frozen platform presence and crowding facts are checked, not trusted', async () => {
+  const asOf={asOf:'2026-10-07T03:30:00Z'}, at=fixture.rich.facts.products.findIndex(p=>p.functional_market_proof.score_facts.presence!==null);
+  assert.ok(at>=0);
+  const base=structuredClone(fixture.rich);
+  assert.equal(await validateFunctionalPacket(base.facts,base.manifest,asOf),base.facts);
+  assert.equal(base.facts.products[at].opportunity_basis.parts.want.items.platform_lists.points,4);
+  assert.equal(JSON.parse(base.facts.products[at].functional_market_proof.score_facts.crowding.record.canonical_json).level,'high');
+  // A changed frozen fact is re-hashed consistently; a changed score is re-added consistently.
+  const refreeze=(entry,edit)=>{const record=JSON.parse(entry.record.canonical_json);edit(record);const raw=canonical(record);entry.record={contract:'frozen-original-json-v1',canonical_json:raw,sha256:sha(raw)};};
+  const rescore=(p,edit)=>{const inputs=Object.fromEntries(Object.values(p.opportunity_basis.parts).flatMap(part=>Object.entries(part.items).map(([name,item])=>[name,[structuredClone(item.facts),[...item.evidence_ids]]])));edit(inputs);Object.assign(p,assembleScore(inputs));};
+  const facts=p=>p.functional_market_proof.score_facts;
+  for (const [mutate,code] of [
+    [p=>rescore(p,i=>{i.crowding[0].level='low';i.crowding[0].rule='few_listings';}),/ADMIN_FUNCTIONAL_MARKET_SCORE_CHANGED/],
+    [p=>rescore(p,i=>{i.platform_lists[0].listed.dropdash=['invented-item'];}),/ADMIN_FUNCTIONAL_MARKET_SCORE_CHANGED/],
+    [p=>rescore(p,i=>{i.crowding[1]=[...i.crowding[1],'invented-listing'].sort();}),/ADMIN_FUNCTIONAL_MARKET_SCORE_CHANGED/],
+    [p=>refreeze(facts(p).crowding,r=>{r.level='low';r.rule='few_listings';}),/ADMIN_FUNCTIONAL_SCORE_FACTS_INVALID/],
+    [p=>refreeze(facts(p).crowding,r=>{r.rule='few_listings';}),/ADMIN_FUNCTIONAL_SCORE_FACTS_INVALID/],
+    [p=>refreeze(facts(p).crowding,r=>{r.concept_id='another-type';}),/ADMIN_FUNCTIONAL_SCORE_FACTS_INVALID/],
+    // The fact and the score edited together: Low with 12 listings and 5 bestseller hits (the ladder says High).
+    [p=>{let forged;refreeze(facts(p).crowding,r=>{Object.assign(r,{level:'low',rule:'few_listings',evidence_ids:Array.from({length:12},(_,n)=>'listing-'+String(n).padStart(2,'0')),
+      counts:{...r.counts,relevant_listings:{amazon:12,flipkart:0},bestseller_hits:5}});forged=r;});
+      rescore(p,i=>{i.crowding=[{level:forged.level,rule:forged.rule,thresholds_version:forged.thresholds_version,counts:forged.counts},forged.evidence_ids];});},/ADMIN_FUNCTIONAL_SCORE_FACTS_INVALID/],
+    [p=>refreeze(facts(p).crowding,r=>{r.thresholds_version='crowding-thresholds-v0';}),/ADMIN_FUNCTIONAL_SCORE_FACTS_INVALID/],
+    [p=>refreeze(facts(p).presence,r=>{r.platforms.deodap.items[0].observation_id='invented-item';}),/ADMIN_FUNCTIONAL_SCORE_FACTS_INVALID/],
+    [p=>refreeze(facts(p).presence,r=>{r.at='2026-10-05T15:30:00+05:30';}),/ADMIN_FUNCTIONAL_SCORE_FACTS_INVALID/],
+    // A carrying platform with no saved row: the change hash and id are recomputed, so only the item read fails.
+    [p=>{const entry=facts(p).presence,record=JSON.parse(entry.record.canonical_json);record.platforms_carrying=['deodap','missing-route'];
+      record.change_hash=sha(canonical(presenceChangeBasis(Object.fromEntries(Object.entries(record).filter(([k])=>!['change_hash','at'].includes(k))))));
+      entry.id='dropship-presence-'+sha(canonical([p.concept_id,p.functional_definition.meaning_hash,record.change_hash,record.at])).slice(0,40);
+      const raw=canonical(record);entry.record={contract:'frozen-original-json-v1',canonical_json:raw,sha256:sha(raw)};},/ADMIN_FUNCTIONAL_SCORE_FACTS_INVALID/],
+    [p=>refreeze(facts(p).presence,r=>{r.at='2026-10-06T10:00:00+00:00';}),/ADMIN_FUNCTIONAL_SCORE_FACTS_INVALID/],
+    [p=>{facts(p).crowding.id='crowding-fact-other';},/ADMIN_FUNCTIONAL_SCORE_FACTS_INVALID/],
+    [p=>{facts(p).presence.id='dropship-presence-other';},/ADMIN_FUNCTIONAL_SCORE_FACTS_INVALID/],
+    [p=>{facts(p).presence=null;},/ADMIN_FUNCTIONAL_MARKET_SCORE_CHANGED/],
+    [p=>{facts(p).crowding.record.sha256='0'.repeat(64);},/ADMIN_FUNCTIONAL_ORIGINAL_CHANGED/],
+    [p=>{facts(p).extra=null;},/ADMIN_FUNCTIONAL_SCORE_FACTS_INVALID/],
+    [p=>{facts(p).crowding=null;},/ADMIN_FUNCTIONAL_SCORE_FACTS_INVALID/],
+    [p=>{delete p.functional_market_proof.score_facts;},/ADMIN_FUNCTIONAL_PACKET_INVALID/]]) {
+    const f=structuredClone(fixture.rich);mutate(f.facts.products[at]);
+    await assert.rejects(validateFunctionalPacket(f.facts,f.manifest,asOf),code,String(mutate));
+  }
+});
+
+test('the writing context and score facts mirror Python exactly', async () => {
+  const f=fresh(),product=f.facts.products[0];
+  assert.ok(scoreText(product).startsWith('Opportunity score 31/100 · Want 6/20 · Early 0/30 · Room 0/25 · Product 25/25'));
+  assert.ok(scoreText(product,'hi-Latn').startsWith('Mauke ka score 31/100 · Maang 6/20 · Jaldi 0/30 · Jagah 0/25 · Product 25/25'));
+  assert.ok(crowdingText(product,'hi-Latn').startsWith('Amazon/Flipkart par bheed: Zyada'));
+  const shaped=counts=>({opportunity_basis:{parts:{room:{items:{crowding:{facts:{level:'medium',counts:{relevant_listings:{amazon:2,flipkart:1},max_ratings:120,bestseller_hits:0,...counts}}}}}}}});
+  assert.equal(crowdingText(shaped({brands_or_sellers:0,listings_with_brand:0,brand_not_shown:3})),
+    'Amazon/Flipkart crowding: Medium (3 relevant listings: Amazon 2, Flipkart 1; brands not shown; most ratings 120; 0 on a bestseller list)');
+  assert.ok(crowdingText(shaped({brands_or_sellers:0,listings_with_brand:0,brand_not_shown:3}),'hi-Latn').includes('; brand nahi dikhe;'));
+  assert.ok(crowdingText(shaped({brands_or_sellers:2,listings_with_brand:2,brand_not_shown:1})).includes('; 2 brands or sellers (1 show no brand);'));
+  assert.ok(crowdingText(shaped({brands_or_sellers:2,listings_with_brand:2,brand_not_shown:1}),'hi-Latn').includes('; 2 brand ya seller (1 listing par brand nahi dikha);'));
+  assert.equal(await validateFunctionalPacket(f.facts,f.manifest,{asOf:'2026-10-07T03:30:00Z'}),f.facts);
 });
 
 test('accepted prose and both language input references are checked, not merely displayed text shape', async () => {
@@ -540,3 +614,19 @@ print(json.dumps(out))
   assert.deepEqual(expected.map(row=>row.count),[1,1,0,0,0,0,1,2,2,2]);
 });
 
+
+test('recent-start advertiser counts mirror Python meta_facts.depth_facts', () => {
+  const utc = value => Date.parse(value);
+  const ad = (i, pid, addr, started, observed = '2026-10-05T10:00:00+00:00') => ({ id: 'o' + i, advertiser: pid ?? addr, page_id: pid, page_address: addr, active: true, started, observed });
+  const x = 'page-url:https://www.facebook.com/x', y = 'page-url:https://www.facebook.com/y';
+  // Expected values computed by the Python reader for these same rows.
+  for (const [rows, expected] of [
+    [[ad(1, '11', null, '2026-09-20T00:00:00+00:00'), ad(2, '12', null, '2026-08-01T00:00:00+00:00'),
+      ad(3, '13', x, '2026-10-01T00:00:00+00:00'), ad(4, null, x, '2026-09-30T00:00:00+00:00')], 2],
+    [[ad(1, '11', null, null), ad(2, '11', null, '2026-10-01T00:00:00+00:00'), ad(3, '12', null, '2026-10-04T00:00:00+00:00')], 1],
+    [[ad(1, '11', null, '2026-10-01T00:00:00+00:00'), ad(2, null, y, '2026-10-01T00:00:00+00:00')], 1],
+    [[], null],
+    [[ad(1, '11', null, '2026-09-05T10:00:00+00:00'), ad(2, '12', null, '2026-09-05T09:59:59+00:00')], 1]]) {
+    assert.equal(metaRecentStarts(rows, utc), expected);
+  }
+});
