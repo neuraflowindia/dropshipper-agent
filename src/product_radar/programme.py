@@ -4750,8 +4750,14 @@ def programme_turn_readiness(memory, record, *, root, handlers=None, runner=None
     if type(retry_seconds) is not int or retry_seconds < 1:
         raise SafetyError("PROGRAMME_SLICE_INVALID")
     state = memory.snapshot() if state is None else state
+    from .read_memo import pure_read_scope
     from .source_acquisitions import source_readiness_owner_scope
-    with source_readiness_owner_scope(state):
+    # One decision reads one unchanging verified state. Its pure per-type
+    # readers (scoped evidence, accepted meanings, role contexts, review
+    # proofs) share their answers within this call only, as one report-pool
+    # build or stage plan already does. Without it each lane re-derived them
+    # per type, so readiness grew with every saved review (W14 timing).
+    with source_readiness_owner_scope(state), pure_read_scope():
         return _programme_turn_readiness(memory, record, root=root, handlers=handlers, runner=runner,
             discovery_step=discovery_step, steps=steps, private_staging=private_staging,
             media_root=media_root, as_of=at, state=state, retry_seconds=retry_seconds)

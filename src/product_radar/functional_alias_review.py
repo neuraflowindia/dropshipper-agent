@@ -175,6 +175,19 @@ def verify_alias_job(memory, state, prepared, job_id, item_id):
 
 
 def _review_record(state, rid, row):
+    """Validate one saved alias review; reused inside one pure read scope.
+
+    Only the state's own saved row is reused (keyed by its ID and the exact
+    state objects); any other row is validated afresh, exactly as before.
+    """
+    if isinstance(state.get("source_checks"), dict) and state["source_checks"].get(rid) is row:
+        from .read_memo import remember
+        return remember("functional_alias_review_record", state, (rid,),
+                        lambda: _review_record_uncached(state, rid, row), copy=False)
+    return _review_record_uncached(state, rid, row)
+
+
+def _review_record_uncached(state, rid, row):
     fields = {"kind", "input", "item_id", "method", "result", "job_proof", "record_hash"}
     if (not isinstance(row, dict) or set(row) != fields or row["kind"] != REVIEW_KIND
             or row["method"] != "model" or row["record_hash"] != digest({k: v for k, v in row.items() if k != "record_hash"})

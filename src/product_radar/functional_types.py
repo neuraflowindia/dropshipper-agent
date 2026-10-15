@@ -371,6 +371,13 @@ def accept_functional_definition(memory, concept_id, definition, *, basis_refs, 
 
 
 def _membership_records(state, concept_id, *, as_of):
+    """Inside one pure read scope the same answer is reused for the same state."""
+    from .read_memo import remember
+    return remember("functional_membership_records", state, (concept_id, as_of),
+                    lambda: _membership_records_uncached(state, concept_id, as_of=as_of))
+
+
+def _membership_records_uncached(state, concept_id, *, as_of):
     meaning = effective_functional_definition(state, concept_id)
     result, pending = [], []
     legacy_hash = definition_meaning_hash(_legacy_definition(_concept(state, concept_id)))
@@ -528,10 +535,18 @@ def functional_role_context(state, concept_id, *, role="C"):
     of the semantic model input. The proof is provenance, not a model input or
     an assertion of demand. An accepted definition needs no minimum examples.
     Legacy callers retain their original exact input shape.
+    Inside one pure read scope the same answer is reused for the same state;
+    every call still receives its own copy.
     """
     identifier(concept_id)
     if role not in ("C", "E"):
         raise SafetyError("FUNCTIONAL_ROLE_CONTEXT_UNSUPPORTED")
+    from .read_memo import remember
+    return remember("functional_role_context", state, (concept_id, role),
+                    lambda: _functional_role_context(state, concept_id, role))
+
+
+def _functional_role_context(state, concept_id, role):
     from .read_memo import remember
     envelopes, error = remember("functional_definition_envelopes", state, (),
                                 lambda: _definition_envelopes(state), tables=("source_checks",), copy=False)
