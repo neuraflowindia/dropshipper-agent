@@ -14,7 +14,7 @@ import test_programme as fixtures
 
 import product_radar.programme as programme
 from product_radar.models import digest, timestamp
-from product_radar.research_memory import ResearchMemory, key
+from product_radar.research_memory import ResearchMemory, change, key
 from product_radar.source_coverage import (
     _stage_receipt, execute_source_run, prepare_source_tasks, source_access_context,
 )
@@ -502,6 +502,75 @@ class ProgrammeSourceSliceTests(unittest.TestCase):
         self.assertEqual(inspection["ordinary_remaining"], 1)
         self.assertEqual(len(calls), 1)
         self.assertEqual(self.memory.snapshot_with_provenance(), state)
+
+    def add_deleted_route_question(self, status, task_id="deleted-route-question"):
+        """A question saved before Amazon Movers & Shakers was deleted (R10 W6)."""
+        self.prepare_sources(1)
+        state = self.memory.snapshot(); run_key = key("source-run", "existing-source-run")
+        run = state["batch_runs"][run_key]
+        original = state["query_tasks"][run["task_ids"][0]]
+        old = dict(original, route="amazon-movers-and-shakers", request={"department": "kitchen"}, status=status)
+        if status == "retired":
+            old.update(reason="SOURCE_ROUTE_RETIRED", reconcile_required=False, retryable=False,
+                       next_retry_at=None, retired_at=self.now)
+        self.memory.commit("synthetic-deleted-route-question", [
+            change("query_tasks", task_id, old),
+            change("batch_runs", run_key, dict(run, task_ids=run["task_ids"] + [task_id]), previous=run)])
+        return task_id
+
+    def test_open_question_of_a_deleted_route_wakes_local_work_without_raising(self):
+        self.prepare_sources(1)
+        record = programme.load_programme(self.memory, "whole-programme")
+        baseline = programme._source_turn_readiness(self.memory, self.memory.snapshot(), record, {}, self.now)
+        self.assertFalse(baseline["local_ready"])
+        self.add_deleted_route_question("prepared")
+        state = self.memory.snapshot_with_provenance()
+        result = programme._source_turn_readiness(self.memory, state["state"], record, {}, self.now)
+        self.assertTrue(result["local_ready"])
+        self.assertFalse(result["callback_ready"])
+        self.assertFalse(result["fresh_callback_ready"])
+        self.assertEqual(result["waits"], [])
+        # The whole programme decision reads it too (the live KeyError).
+        programme.programme_turn_readiness(self.memory, record, root=self.root, handlers={}, as_of=self.now)
+        self.assertEqual(self.memory.snapshot_with_provenance(), state)
+
+    def test_retired_question_of_a_deleted_route_is_neither_ready_work_nor_a_wait(self):
+        self.prepare_sources(1)
+        record = programme.load_programme(self.memory, "whole-programme")
+        baseline = programme._source_turn_readiness(self.memory, self.memory.snapshot(), record, {}, self.now)
+        self.add_deleted_route_question("retired")
+        state = self.memory.snapshot_with_provenance()
+        result = programme._source_turn_readiness(self.memory, state["state"], record, {}, self.now)
+        self.assertEqual(result, baseline)
+        # A late reply staged for it is never applied, so it must not wake turns.
+        with patch("product_radar.source_coverage._has_unapplied_receipt",
+                   side_effect=lambda _memory, _state, task: task["route"] == "amazon-movers-and-shakers") as staged:
+            late = programme._source_turn_readiness(self.memory, state["state"], record, {}, self.now)
+        self.assertFalse(late["local_ready"])
+        self.assertNotIn("amazon-movers-and-shakers", [call.args[2]["route"] for call in staged.call_args_list])
+        programme.programme_turn_readiness(self.memory, record, root=self.root, handlers={}, as_of=self.now)
+        self.assertEqual(self.memory.snapshot_with_provenance(), state)
+
+    def test_source_pass_closes_a_deleted_route_question_and_readiness_then_settles(self):
+        task_id = self.add_deleted_route_question("dispatching")
+        record = programme.load_programme(self.memory, "whole-programme")
+        self.assertTrue(programme._source_turn_readiness(
+            self.memory, self.memory.snapshot(), record, {}, self.now)["local_ready"])
+        result = execute_source_run(self.memory, "existing-source-run", handlers={}, as_of=self.now)
+        self.assertEqual(result["handler_calls"], 0)
+        self.assertIn({"task_id": task_id, "state": "retired", "actual_attempt": False,
+                       "reason": "SOURCE_ROUTE_RETIRED"}, result["results"])
+        state = self.memory.snapshot()
+        self.assertEqual(state["query_tasks"][task_id]["status"], "retired")
+        settled = programme._source_turn_readiness(self.memory, state, record, {}, self.now)
+        self.assertFalse(settled["local_ready"])
+        self.assertFalse(settled["recovery_pending"])
+        self.assertEqual(settled["waits"], [])
+        # Nothing is left to close: a second pass changes nothing.
+        before = self.memory.snapshot()
+        again = execute_source_run(self.memory, "existing-source-run", handlers={}, as_of=self.now)
+        self.assertFalse([row for row in again["results"] if row["task_id"] == task_id])
+        self.assertEqual(self.memory.snapshot()["query_tasks"], before["query_tasks"])
 
 
 if __name__ == "__main__":

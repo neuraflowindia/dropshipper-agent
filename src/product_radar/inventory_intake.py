@@ -405,8 +405,12 @@ def refresh_inventory_intake(memory, record, *, as_of, pool=None, subject_limit=
             source = None
             collected = False
             if purpose in {"source", "supplier"}:
+                from .source_coverage import CLOSED_ROUTES
+                # A deleted route's question (retired, or open until the next
+                # source pass closes it) is history: never an owner to wait on.
                 tasks = [(ref, task) for ref, task in state["query_tasks"].items()
                     if task.get("kind") == "all_source_task_v1" and cid in task.get("targets", {})
+                    and task.get("route") not in CLOSED_ROUTES and task.get("status") != "retired"
                     and (task.get("status") not in {"acquired", "completed_no_results", "insufficient", "finished"}
                          or task.get("reconcile_required"))
                     and (task.get("source") == "supplier") == (purpose == "supplier")]

@@ -3659,9 +3659,17 @@ def _source_turn_readiness(memory, state, record, handlers, at):
                        and not _target_superseded(state, task, cid)
                        for cid, expected in task.get("targets", {}).items()):
                 continue
+            route = task["route"]
+            if route not in registry:
+                # A deleted route's question (Amazon Movers & Shakers, W6): the
+                # next source pass closes an open one once (SOURCE_ROUTE_RETIRED);
+                # a closed one is history, never a wait or a read. A late reply
+                # staged for it is never applied, so it must not wake a turn.
+                local_ready |= task["status"] != "retired"
+                continue
             staged = _has_unapplied_receipt(memory, state, task)
             local_ready |= staged
-            route = task["route"]; registered = registry[route]
+            registered = registry[route]
             reconciling = task.get("reconcile_required") or task["status"] == "dispatching"
             access = None
             access_hint = (registered.get("source_due_hint") or registered.get("source_access_hint")
@@ -3732,8 +3740,8 @@ def _source_turn_readiness(memory, state, record, handlers, at):
                 or progress.get("source_collected") or progress.get("task_ids") or not due
                 or timestamp(due) > timestamp(at) or retry and timestamp(retry) > timestamp(at)):
             continue
-        registered = registry[source["route"]]
-        if not registered["connected"]:
+        registered = registry.get(source["route"])
+        if registered is None or not registered["connected"]:
             continue
         try:
             task = validate_inventory_source_original(state, source, concept_id=work["binding"]["subject"]["concept_id"])

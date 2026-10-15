@@ -130,6 +130,27 @@ class InventoryIntakeTests(unittest.TestCase):
         self.assertFalse(inventory_work_readiness(state, self.record, as_of=self.now)["ready"])
         self.assertEqual([row["id"] for row in inventory_work_readiness(state, self.record, as_of=future)["ready"]], first_ids)
 
+    def test_deleted_route_question_is_never_an_inventory_source_owner(self):
+        from product_radar.source_coverage import prepare_source_tasks
+        prepared = prepare_source_tasks(self.memory, [{"route": "meta-ads", "request": {
+            "query": "synthetic sink caddy", "country": "IN"}, "concept_ids": ["first"]}],
+            run_id="existing-source-run", as_of=self.now)
+        live_id = prepared["task_ids"][0]; state = self.memory.snapshot()
+        old = dict(state["query_tasks"][live_id], route="amazon-movers-and-shakers", request={"department": "kitchen"})
+        # Both sort before the live question: an open one (closed by the next
+        # source pass) and one already closed as history (R10 W6).
+        self.memory.commit("synthetic-deleted-route-questions", [
+            change("query_tasks", "a-deleted-open", dict(old, status="dispatching", reconcile_required=True)),
+            change("query_tasks", "a-deleted-retired", dict(old, status="retired", reason="SOURCE_ROUTE_RETIRED",
+                   reconcile_required=False, next_retry_at=None))])
+        self.refresh(self.pool(eligible=[], needed_market_work=[{"concept_id": "first",
+            "code": "market_coverage_required", "reason": "Not enough current evidence.", "blocking": True}]))
+        state = self.memory.snapshot()
+        row = validate_inventory_work(state["batch_runs"][self.record["inventory_work_ids"][0]])
+        self.assertEqual(row["binding"]["purpose"], "source")
+        self.assertEqual((row["binding"]["source"]["original_task_id"], row["binding"]["source"]["route"]),
+                         (live_id, "meta-ads"))
+
     def test_canonical_binding_corruption_does_not_become_empty_inventory(self):
         self.refresh(); state = self.memory.snapshot(); ref = self.record["reporting_intake_ids"][0]
         changed = deepcopy(state); changed["batch_runs"][ref]["binding"]["meaning_hash"] = "f" * 64
