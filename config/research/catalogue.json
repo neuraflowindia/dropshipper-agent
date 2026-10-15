@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "revision": "2026-10-06-c0-3",
-  "built_at": "2026-10-06T06:23:00Z",
+  "revision": "2026-10-15-r10-w10",
+  "built_at": "2026-10-15T06:00:00Z",
   "sources": [
     {
       "id": "firstcry-child-safety-locks",
@@ -308,6 +308,36 @@
       "name": "Plant care and seasonal decoration"
     },
     {
+      "id": "branch-hd-bathroom-organisation-and-accessories",
+      "parent_id": "branch-hd",
+      "category": "Home and Decor",
+      "name": "Bathroom organisation and accessories"
+    },
+    {
+      "id": "branch-hd-festive-and-pooja-decoration",
+      "parent_id": "branch-hd",
+      "category": "Home and Decor",
+      "name": "Festive and pooja decoration"
+    },
+    {
+      "id": "branch-hd-bedroom-and-bedding-comfort",
+      "parent_id": "branch-hd",
+      "category": "Home and Decor",
+      "name": "Bedroom and bedding comfort"
+    },
+    {
+      "id": "branch-hd-balcony-and-garden-setup",
+      "parent_id": "branch-hd",
+      "category": "Home and Decor",
+      "name": "Balcony and garden setup"
+    },
+    {
+      "id": "branch-hd-doors-windows-and-home-fittings",
+      "parent_id": "branch-hd",
+      "category": "Home and Decor",
+      "name": "Doors, windows and home fittings"
+    },
+    {
       "id": "branch-bb",
       "parent_id": null,
       "category": "Baby Products",
@@ -354,6 +384,36 @@
       "parent_id": "branch-bb",
       "category": "Baby Products",
       "name": "Early play and childproofing"
+    },
+    {
+      "id": "branch-bb-toys-and-learning-games",
+      "parent_id": "branch-bb",
+      "category": "Baby Products",
+      "name": "Toys and learning games"
+    },
+    {
+      "id": "branch-bb-sleep-and-soothing",
+      "parent_id": "branch-bb",
+      "category": "Baby Products",
+      "name": "Sleep and soothing"
+    },
+    {
+      "id": "branch-bb-health-grooming-and-safety-checks",
+      "parent_id": "branch-bb",
+      "category": "Baby Products",
+      "name": "Health, grooming and safety checks"
+    },
+    {
+      "id": "branch-bb-active-and-outdoor-play",
+      "parent_id": "branch-bb",
+      "category": "Baby Products",
+      "name": "Active and outdoor play"
+    },
+    {
+      "id": "branch-bb-school-going-kids-essentials",
+      "parent_id": "branch-bb",
+      "category": "Baby Products",
+      "name": "School-going kids' essentials"
     },
     {
       "id": "branch-hk",
@@ -404,6 +464,36 @@
       "name": "Cleaning and household maintenance"
     },
     {
+      "id": "branch-hk-small-kitchen-appliances",
+      "parent_id": "branch-hk",
+      "category": "Home and Kitchen",
+      "name": "Small kitchen appliances"
+    },
+    {
+      "id": "branch-hk-baking-and-dessert-making",
+      "parent_id": "branch-hk",
+      "category": "Home and Kitchen",
+      "name": "Baking and dessert making"
+    },
+    {
+      "id": "branch-hk-lunch-and-drinks-on-the-go",
+      "parent_id": "branch-hk",
+      "category": "Home and Kitchen",
+      "name": "Lunch and drinks on the go"
+    },
+    {
+      "id": "branch-hk-laundry-drying-and-ironing",
+      "parent_id": "branch-hk",
+      "category": "Home and Kitchen",
+      "name": "Laundry, drying and ironing"
+    },
+    {
+      "id": "branch-hk-kitchen-linen-and-protection",
+      "parent_id": "branch-hk",
+      "category": "Home and Kitchen",
+      "name": "Kitchen linen and protection"
+    },
+    {
       "id": "branch-to",
       "parent_id": null,
       "category": "Travel and Outdoor",
@@ -450,6 +540,36 @@
       "parent_id": "branch-to",
       "category": "Travel and Outdoor",
       "name": "Outdoor navigation and equipment"
+    },
+    {
+      "id": "branch-to-car-interior-and-in-car-organisation",
+      "parent_id": "branch-to",
+      "category": "Travel and Outdoor",
+      "name": "Car interior and in-car organisation"
+    },
+    {
+      "id": "branch-to-bike-and-cycling-accessories",
+      "parent_id": "branch-to",
+      "category": "Travel and Outdoor",
+      "name": "Bike and cycling accessories"
+    },
+    {
+      "id": "branch-to-fitness-yoga-and-home-workout",
+      "parent_id": "branch-to",
+      "category": "Travel and Outdoor",
+      "name": "Fitness, yoga and home workout"
+    },
+    {
+      "id": "branch-to-picnic-and-day-outings",
+      "parent_id": "branch-to",
+      "category": "Travel and Outdoor",
+      "name": "Picnic and day outings"
+    },
+    {
+      "id": "branch-to-sports-and-outdoor-games",
+      "parent_id": "branch-to",
+      "category": "Travel and Outdoor",
+      "name": "Sports and outdoor games"
     }
   ],
   "families": [
@@ -2974,7 +3094,9 @@
         "book reading lights",
         "Brand names, colour choices and pack quantities are not separate search families."
       ],
-      "aliases": ["bookends"],
+      "aliases": [
+        "bookends"
+      ],
       "overlaps": [],
       "examples": [
         {
@@ -11151,7 +11273,9 @@
         "pet grooming devices",
         "Brand names, colour choices and pack quantities are not separate search families."
       ],
-      "aliases": ["lint remover"],
+      "aliases": [
+        "lint remover"
+      ],
       "overlaps": [],
       "examples": [
         {

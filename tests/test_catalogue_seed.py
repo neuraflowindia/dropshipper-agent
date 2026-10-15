@@ -1,4 +1,4 @@
-"""Upfront public-material admission. Fixtures only; no provider/model calls."""
+"""Seed C admission of staged product-map material. Fixtures only; no provider/model calls."""
 
 from copy import deepcopy
 from pathlib import Path
@@ -6,10 +6,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from test_catalogue_expansion import CATEGORY, NOW, fixture, phrase
+from test_catalogue_expansion import NOW, fixture, phrase
 from product_radar.catalogue_expansion import effective_catalogue
-from product_radar.catalogue_seed import (MODE, PROMPT_VERSION, build_catalogue_branch, stage_page_materials,
-    stage_marketplace_materials, prepare_catalogue_branch_inputs, _cached_seed_result)
+from product_radar import catalogue_seed
+from product_radar.catalogue_seed import (MODE, PROMPT_VERSION, build_catalogue_branch, _cached_seed_result,
+    _load_material, _seed_item)
+from product_radar.map_materials import _row, stage_material
 from product_radar.models import SafetyError, digest
 from product_radar.research_ai import Jobs, c_contract, prompt_version, validate_results
 from product_radar.research_memory import ResearchMemory
@@ -18,10 +20,8 @@ from product_radar.work_turns import bind_work_turn, open_work_turn
 
 
 def public_receipt(text="Magnetic pan lid rack. Collapsible drying basket."):
-    return {"schema_version": 2, "id": "public-material", "requested_url": "https://example.org/kitchen-tools",
-        "final_url": "https://example.org/kitchen-tools", "checked_at": NOW, "title": "Synthetic kitchen catalogue",
-        "text": text, "state": "usable", "reason": "Actual fixture page", "http_status": 200, "body_complete": True,
-        "execution_stage": "response_received", "attempt_started_at": NOW, "execution_ref": "public-fetch-" + "a" * 32}
+    """The saved source text the staged examples are quoted from."""
+    return text
 
 
 class SeedRunner:
@@ -48,35 +48,28 @@ class CatalogueSeedTests(unittest.TestCase):
         self.base = fixture()
 
     def stage(self, examples=None, receipt=None):
-        return stage_page_materials(self.memory, self.base, branch_id="storage", receipt=receipt or public_receipt(),
-            examples=examples or ["Magnetic pan lid rack"], receipt_reference="saved-fixture-page")
+        """Stage examples as product-map material (``map_materials.stage_material``):
+        each keeps the source line that quotes it."""
+        text, branch = receipt or public_receipt(), self.base["branches"][0]
+        materials = []
+        for example in examples or ["Magnetic pan lid rack"]:
+            line = next((row for row in text.splitlines() if example.casefold() in row.casefold()), text)
+            materials.append(stage_material(self.memory, branch, _row(
+                "platform-item", "fixture:" + example, example, "https://example.org/kitchen-tools",
+                "Synthetic kitchen catalogue", NOW, line, "https://example.org/kitchen-tools")))
+        return {"materials": materials}
+
+    def busy_commit(self, *, when=lambda changes: True):
+        """A research-record write refused for the call's admissions."""
+        original = self.memory.commit
+        def commit(event_id, changes, **options):
+            if any(row["table"] == "catalogue_additions" for row in changes) and when(changes):
+                raise SafetyError("RUNNER_ALREADY_ACTIVE")
+            return original(event_id, changes, **options)
+        return patch.object(self.memory, "commit", new=commit)
 
     def build(self, runner=None, **kwargs):
         return build_catalogue_branch(self.memory, self.base, runner, branch_id="storage", as_of=NOW, **kwargs)
-
-    def test_staging_is_public_fact_preparation_not_product_or_assessment_creation(self):
-        before = deepcopy(self.memory.snapshot())
-        staged = self.stage()
-        self.assertEqual((staged["provider_calls"], staged["model_calls"]), (0, 0))
-        self.assertEqual(self.memory.snapshot(), before)
-        self.assertTrue(Path(staged["reference"]).exists())
-
-    def test_invented_excerpt_and_unusable_or_unproved_captured_page_are_rejected(self):
-        with self.assertRaisesRegex(SafetyError, "EXCERPT_NOT_SUPPLIED"):
-            self.stage(["Invented wireless robot tool"])
-        for change in ({"http_status": 429}, {"body_complete": False}, {"state": "unavailable"}):
-            with self.assertRaisesRegex(SafetyError, "PUBLIC_MATERIAL_INVALID"):
-                self.stage(receipt=dict(public_receipt(), **change))
-        captured = ResearchMemory(self.memory.root / "captured", self.memory.journal, evidence_type="captured")
-        with self.assertRaisesRegex(SafetyError, "PUBLIC_MATERIAL_INVALID"):
-            stage_page_materials(captured, self.base, branch_id="storage", examples=["Magnetic pan lid rack"],
-                receipt=dict(public_receipt(), execution_stage="not_dispatched", attempt_started_at=None, execution_ref=None))
-
-    def test_identical_later_page_keeps_original_material_date_and_zero_extra_work(self):
-        first = self.stage()
-        second = self.stage(receipt=dict(public_receipt(), checked_at="2026-10-07T10:00:00+00:00", attempt_started_at="2026-10-07T10:00:00+00:00"))
-        self.assertEqual(first, second)
-        self.assertEqual(second["materials"][0]["source"]["checked_at"], NOW)
 
     def test_observed_admission_and_two_examples_have_conflict_free_source_references(self):
         self.stage(["Magnetic pan lid rack", "Collapsible drying basket"])
@@ -115,12 +108,19 @@ class CatalogueSeedTests(unittest.TestCase):
         self.assertEqual(first["records"][0]["outcome"], "deferred")
         self.assertEqual(len(runner.calls), 1)
 
-    def test_suppliers_can_be_research_direction_without_fabricated_meta_phrase(self):
-        self.stage()
-        def supplier(row, item): row["phrases"][0].update(source="supplier", purpose="discovery")
-        result = self.build(SeedRunner(supplier))
+    def test_a_new_heading_needs_a_meta_discovery_phrase_and_other_sources_are_extras(self):
+        self.stage(["Magnetic pan lid rack", "Collapsible drying basket"])
+        def phrases(row, item):
+            if item["material"]["label"] == "Magnetic pan lid rack":
+                row["phrases"][0].update(source="supplier", purpose="discovery")  # no Meta phrase: never searched
+            else:
+                row["phrases"].append(dict(row["phrases"][0], source="dropship", purpose="validation"))
+        result = self.build(SeedRunner(phrases))
+        outcomes = {row["input"]["material"]["label"]: row for row in result["records"]}
+        self.assertEqual(outcomes["Magnetic pan lid rack"]["outcome"], "rejected")
+        self.assertIn("CATALOGUE_SEED_DISCOVERY_PHRASE_REQUIRED", outcomes["Magnetic pan lid rack"]["reason"])
         family = effective_catalogue(self.base, self.memory.snapshot())["families"][-1]
-        self.assertEqual(family["phrases"][0]["source"], "supplier")
+        self.assertEqual([phrase["source"] for phrase in family["phrases"]], ["meta", "dropship"])
         self.assertEqual(result["provider_calls"], 0)
 
     def test_same_retired_family_revisit_preserves_identity_and_history(self):
@@ -151,14 +151,10 @@ class CatalogueSeedTests(unittest.TestCase):
     def test_saved_original_result_survives_local_commit_failure_and_changed_nearby_catalogue(self):
         self.stage(["Magnetic pan lid rack", "Collapsible drying basket"])
         runner = SeedRunner()
-        original = self.memory.put
-        def busy(table, record_id, value, **kwargs):
-            if table == "catalogue_additions" and value["input"]["material"]["label"] == "Magnetic pan lid rack":
-                raise SafetyError("RUNNER_ALREADY_ACTIVE")
-            return original(table, record_id, value, **kwargs)
-        with patch.object(self.memory, "put", side_effect=busy):
+        with self.busy_commit():
             first = self.build(runner)
-        self.assertEqual(len(first["pending"]), 1)
+        # The call's admissions are saved together: a refused write leaves them all pending.
+        self.assertEqual((len(first["pending"]), first["records"]), (2, []))
         second = self.build(runner)
         self.assertEqual(len(runner.calls), 1)
         self.assertEqual(second["pending"], [])
@@ -167,13 +163,8 @@ class CatalogueSeedTests(unittest.TestCase):
     def _unadmitted_original(self, labels, runner=None):
         staged = self.stage(labels, public_receipt(". ".join(labels)))
         runner = runner or SeedRunner()
-        original_put = self.memory.put
-        def busy(table, record_id, value, **options):
-            if table == "catalogue_additions":
-                raise SafetyError("RUNNER_ALREADY_ACTIVE")
-            return original_put(table, record_id, value, **options)
         ids = [row["id"] for row in staged["materials"]]
-        with patch.object(self.memory, "put", new=busy):
+        with self.busy_commit():
             result = self.build(runner, material_ids=ids)
         self.assertEqual(len(result["pending"]), len(labels))
         return runner, ids, result["job_ids"][0]
@@ -182,30 +173,31 @@ class CatalogueSeedTests(unittest.TestCase):
         runner, ids, job_id = self._unadmitted_original(
             ["Magnetic pan lid rack " + str(number) for number in range(10)])
         original_run = Jobs.run
-        original_put = self.memory.put
+        original_commit = self.memory.commit
         with patch.object(Jobs, "run", autospec=True, side_effect=original_run) as jobs, \
-                patch.object(self.memory, "put", wraps=original_put) as puts:
+                patch.object(self.memory, "commit", wraps=original_commit) as commits:
             result = self.build(runner, material_ids=ids)
         self.assertEqual(jobs.call_count, 1)
         self.assertEqual(len(result["records"]), 10)
         self.assertEqual(result["pending"], [])
         self.assertEqual(result["job_ids"], [job_id])
-        self.assertEqual(sum(call.args[0] == "catalogue_additions" for call in puts.call_args_list), 10)
+        # Ten individual admissions, saved in one write of the research records.
+        self.assertEqual([len(call.args[1]) for call in commits.call_args_list], [10])
         self.assertEqual(len(runner.calls), 1)
 
     def test_replay_reuse_does_not_hide_material_changes_between_siblings(self):
         runner, ids, job_id = self._unadmitted_original(["Magnetic pan lid rack", "Collapsible drying basket"])
-        original_put = self.memory.put
-        def change_next_material(table, record_id, value, **options):
-            result = original_put(table, record_id, value, **options)
-            if table == "catalogue_additions" and value["material_id"] == ids[0]:
+        original_admit = catalogue_seed._admit
+        def change_next_material(catalogue, item, proposal, at):
+            result = original_admit(catalogue, item, proposal, at)
+            if item["id"] == ids[0]:
                 path = self.memory.root / "catalogue_materials/items" / ids[1] / "material.json"
                 saved = load_json(path); saved["receipt_hash"] = "0" * 64
                 atomic_json(path, saved)
             return result
         original_run = Jobs.run
         with patch.object(Jobs, "run", autospec=True, side_effect=original_run) as jobs, \
-                patch.object(self.memory, "put", new=change_next_material):
+                patch.object(catalogue_seed, "_admit", new=change_next_material):
             result = self.build(runner, material_ids=ids)
         self.assertEqual(jobs.call_count, 1)
         self.assertEqual(len(result["records"]), 1)
@@ -215,16 +207,16 @@ class CatalogueSeedTests(unittest.TestCase):
     def test_replay_reuse_does_not_hide_changed_or_foreign_saved_answer_between_siblings(self):
         runner, ids, job_id = self._unadmitted_original(["Magnetic pan lid rack", "Collapsible drying basket"])
         path = self.memory.root / "ai_jobs" / job_id / "result.json"
-        original_put = self.memory.put
-        def change_answer(table, record_id, value, **options):
-            result = original_put(table, record_id, value, **options)
-            if table == "catalogue_additions" and value["material_id"] == ids[0]:
+        original_admit = catalogue_seed._admit
+        def change_answer(catalogue, item, proposal, at):
+            result = original_admit(catalogue, item, proposal, at)
+            if item["id"] == ids[0]:
                 saved = load_json(path); saved["request_hash"] = "0" * 64
                 atomic_json(path, saved)
             return result
         original_run = Jobs.run
         with patch.object(Jobs, "run", autospec=True, side_effect=original_run) as jobs, \
-                patch.object(self.memory, "put", new=change_answer):
+                patch.object(catalogue_seed, "_admit", new=change_answer):
             result = self.build(runner, material_ids=ids)
         self.assertEqual(jobs.call_count, 2)
         self.assertEqual(len(result["records"]), 1)
@@ -283,13 +275,7 @@ class CatalogueSeedTests(unittest.TestCase):
     def test_successful_replay_reuse_does_not_survive_a_build_invocation(self):
         runner, ids, job_id = self._unadmitted_original(["Magnetic pan lid rack", "Collapsible drying basket"])
         original_run = Jobs.run
-        original_put = self.memory.put
-        def still_busy(table, record_id, value, **options):
-            if table == "catalogue_additions":
-                raise SafetyError("RUNNER_ALREADY_ACTIVE")
-            return original_put(table, record_id, value, **options)
-        with patch.object(Jobs, "run", autospec=True, side_effect=original_run) as jobs, \
-                patch.object(self.memory, "put", new=still_busy):
+        with patch.object(Jobs, "run", autospec=True, side_effect=original_run) as jobs, self.busy_commit():
             for _ in range(2):
                 self.assertEqual(set(self.build(runner, material_ids=ids)["pending"]), set(ids))
         self.assertEqual(jobs.call_count, 2)
@@ -322,15 +308,9 @@ class CatalogueSeedTests(unittest.TestCase):
     def test_original_seed_result_without_optional_context_is_replayed_without_another_model(self):
         self.stage(["Magnetic pan lid rack"])
         runner = SeedRunner()
-        original = self.memory.put
-        def busy(table, record_id, value, **kwargs):
-            if table == "catalogue_additions":
-                raise SafetyError("RUNNER_ALREADY_ACTIVE")
-            return original(table, record_id, value, **kwargs)
         def legacy_material(material):
             return {name: material[name] for name in ("id", "label", "category", "branch_id", "basis")}
-        with patch("product_radar.catalogue_seed._input_material", side_effect=legacy_material), \
-                patch.object(self.memory, "put", side_effect=busy):
+        with patch("product_radar.catalogue_seed._input_material", side_effect=legacy_material), self.busy_commit():
             first = self.build(runner)
         self.assertEqual(len(first["pending"]), 1)
         self.assertNotIn("context_excerpt", runner.calls[0]["items"][0]["material"])
@@ -352,84 +332,43 @@ class CatalogueSeedTests(unittest.TestCase):
         self.assertEqual(len(runner.calls[0]["items"]), 1)
 
     def test_seed_contract_does_not_reinterpret_legacy_c_or_product_query_jobs(self):
-        self.assertEqual(prompt_version("C", {"items": []}), "research-c-v1")
+        self.assertEqual(prompt_version("C", {"items": []}), "research-c-v2")
         self.assertEqual(prompt_version("C", {"mode": "product_query_profile", "items": []}, "research-c-query-profile-v1"), "research-c-query-profile-v1")
         payload = {"mode": MODE, "seed_version": "catalogue-branch-seed-v1", "items": []}
         self.assertEqual(c_contract(payload)["version"], PROMPT_VERSION)
         with self.assertRaisesRegex(SafetyError, "AI_C_CONTRACT_INVALID"):
             c_contract(payload, "research-c-v1")
 
-    def test_preparing_grounded_seed_inputs_during_writer_work_does_not_create_a_job_or_canonical_entry(self):
-        staged = self.stage(["Magnetic pan lid rack", "Collapsible drying basket"]); before = self.memory.snapshot()
-        result = prepare_catalogue_branch_inputs(self.memory, self.base, branch_id="storage",
-            material_ids=[row["id"] for row in staged["materials"]])
-        self.assertEqual(result["prompt_version"], PROMPT_VERSION)
-        self.assertEqual(len(result["payload"]["items"]), 2)
-        self.assertEqual(result["canonical_writes"], 0)
-        self.assertEqual(result["model_calls"], 0)
-        self.assertEqual(before, self.memory.snapshot())
-
     def test_short_quote_keeps_the_actual_product_line_as_context_not_as_a_search_phrase(self):
         source = public_receipt("A supplier advertisement.\nBottle cleanser with rotating nipple cleaning head.\nAnother unrelated row.")
-        self.stage(["rotating nipple cleaning head"], source)
-        result = prepare_catalogue_branch_inputs(self.memory, self.base, branch_id="storage")
-        item = result["payload"]["items"][0]
+        staged = self.stage(["rotating nipple cleaning head"], source)
+        material = _load_material(self.memory, staged["materials"][0]["id"])
+        item = _seed_item(self.base, self.base["branches"][0], material)
         self.assertEqual(item["material"]["label"], "rotating nipple cleaning head")
         self.assertEqual(item["material"]["context_excerpt"], "Bottle cleanser with rotating nipple cleaning head.")
         self.assertFalse(item["material"]["context_truncated"])
-        self.assertEqual(result["model_calls"], 0)
 
     def test_short_adjective_retrieves_existing_family_from_actual_source_context(self):
         known = deepcopy(self.base["families"][0])
         known.update(id="pillow", label="Sleeping pillow", aliases=[],
             definition="Supports the head comfortably while sleeping.", problem="Uncomfortable sleep support.")
         self.base["families"].append(known)
-        self.stage(["Adjustable Height"], public_receipt("Standard Sleeping Pillow with Adjustable Height and removable filling."))
-        prepared = prepare_catalogue_branch_inputs(self.memory, self.base, branch_id="storage")
-        item = prepared["payload"]["items"][0]
+        staged = self.stage(["Adjustable Height"], public_receipt("Standard Sleeping Pillow with Adjustable Height and removable filling."))
+        item = _seed_item(self.base, self.base["branches"][0], _load_material(self.memory, staged["materials"][0]["id"]))
         self.assertEqual(item["material"]["label"], "Adjustable Height")
         self.assertEqual(item["candidates"][0]["id"], "pillow")
-        self.assertEqual(prepared["model_calls"], 0)
 
-    def test_equivalent_repeated_excerpt_keeps_first_actual_wording_without_duplicate_material(self):
-        receipt = public_receipt("Magnetic pan lid rack.")
-        first = self.stage(["Magnetic pan lid rack"], receipt)
-        second = self.stage(["MAGNETIC  PAN LID RACK"], receipt)
-        self.assertEqual(second, first)
-
-    def test_verified_marketplace_page_can_be_staged_without_import_or_another_browser(self):
-        from product_radar.marketplace_browser import build_marketplace_request, capture_marketplace
-        from test_marketplace_browser import snapshot, transport
-        request = build_marketplace_request("amazon-bestsellers", department="kitchen")
-        snap = snapshot(request, text="Sink caddy pack of 2", text_truncated=False)
-        capture_root = self.memory.root / "public-fixture"
-        capture_marketplace(request, "saved-fixture", data_root=capture_root,
-            snapshot_reader=lambda _request: transport(snap))
-        folder = capture_root / "saved-fixture"; before = self.memory.snapshot()
-        staged = stage_marketplace_materials(self.memory, self.base, branch_id="storage", folder=folder)
-        self.assertEqual(len(staged["materials"]), 1)
-        self.assertEqual(staged["model_calls"], 0)
-        prepared = prepare_catalogue_branch_inputs(self.memory, self.base, branch_id="storage",
-            material_ids=[staged["materials"][0]["id"]])
-        self.assertEqual(len(prepared["payload"]["items"]), 1)
-        self.assertEqual(before, self.memory.snapshot())
-
-    def test_changed_original_marketplace_artifact_defers_material_instead_of_model_use(self):
-        from product_radar.marketplace_browser import build_marketplace_request, capture_marketplace
-        from test_marketplace_browser import snapshot, transport
-        request = build_marketplace_request("amazon-bestsellers", department="kitchen")
-        snap = snapshot(request, text="Sink caddy pack of 2", text_truncated=False)
-        folder = self.memory.root / "public-fixture" / "saved-fixture"
-        capture_marketplace(request, "saved-fixture", data_root=folder.parent,
-            snapshot_reader=lambda _request: transport(snap))
-        staged = stage_marketplace_materials(self.memory, self.base, branch_id="storage", folder=folder)
-        changed = load_json(folder / "snapshot.json"); changed["text"] = "Unrelated page"
-        atomic_json(folder / "snapshot.json", changed)
-        result = prepare_catalogue_branch_inputs(self.memory, self.base, branch_id="storage",
-            material_ids=[staged["materials"][0]["id"]])
-        self.assertEqual(result["payload"]["items"], [])
-        self.assertEqual(len(result["pending"]), 1)
-        self.assertEqual(self.memory.snapshot()["jobs"], {})
-
+    def test_material_from_a_retired_page_kind_is_not_built(self):
+        staged = self.stage()
+        material = staged["materials"][0]
+        page = load_json(material["page_reference"])
+        receipt = dict(page["receipt"], origin={"kind": "verified_marketplace"})
+        from product_radar.models import digest
+        atomic_json(material["page_reference"], dict(page, receipt=receipt, hash=digest(receipt)))
+        atomic_json(self.memory.root / "catalogue_materials/items" / material["id"] / "material.json",
+                    dict(material, receipt_hash=digest(receipt)))
+        with self.assertRaisesRegex(SafetyError, "CATALOGUE_SEED_MATERIAL_CHANGED"):
+            _load_material(self.memory, material["id"])
+        self.assertEqual(self.build(SeedRunner())["failures"][0]["reason"], "CATALOGUE_SEED_MATERIAL_CHANGED")
 
 if __name__ == "__main__": unittest.main()

@@ -199,30 +199,12 @@ class ProgrammeTests(unittest.TestCase):
         self.assertEqual(self.advance(steps=steps)["cycles_this_tick"], 1)
         self.assertEqual(len(calls), 1)
 
-    def test_seed_branch_progress_counts_but_clock_only_changes_do_not(self):
+    def test_map_admissions_count_as_progress(self):
         from copy import deepcopy
-        from product_radar.catalogue_discovery import SEED_CYCLE_VERSION
-        record = self.prepare(); state = self.memory.snapshot()
+        record = self.prepare(); state = deepcopy(self.memory.snapshot())
         before = _signature(state, record)
-        state = deepcopy(state)
-        cycle = {"kind": SEED_CYCLE_VERSION, "programme_id": record["programme_id"],
-                 "planned_branches": [{"branch_id": "first-branch"}, {"branch_id": "healthy-branch"}],
-                 "branches": {}}
-        state["batch_runs"]["seed-cycle"] = cycle
-        prepared = _signature(state, record)
-        self.assertNotEqual(prepared, before)
-        cycle["branches"]["first-branch"] = {"state": "input_failed", "addition_ids": [],
-            "eligible_material_ids": [], "pending_material_ids": ["original-material"],
-            "considered_at": self.now, "next_retry_at": self.now}
-        first_visited = _signature(state, record)
-        self.assertNotEqual(first_visited, prepared)
-        cycle["branches"]["first-branch"].update(considered_at="2026-10-08T20:00:00+00:00",
-                                                 next_retry_at="2026-10-08T20:05:00+00:00")
-        self.assertEqual(_signature(state, record), first_visited)
-        state["batch_runs"]["unrelated-seed"] = dict(cycle, programme_id="different-programme")
-        self.assertEqual(_signature(state, record), first_visited)
-        state["catalogue_additions"]["local-merge"] = {"material_id": "original-material", "outcome": "merged"}
-        self.assertNotEqual(_signature(state, record), first_visited)
+        state["catalogue_additions"]["local-merge"] = {"material_id": "map-material", "outcome": "merged"}
+        self.assertNotEqual(_signature(state, record), before)
 
     def test_filled_reports_do_not_stop_other_pending_source_acquisitions(self):
         self.prepare(); calls = []
@@ -1168,17 +1150,15 @@ class ProgrammeCliTests(unittest.TestCase):
             self.assertEqual(cli.main(["--programme-id", "whole-programme"], memory=self.memory, root=self.root), 0)
         self.assertEqual(self.memory.snapshot(), before)
 
-    def test_cli_injects_repository_seed_inventory_without_calling_seed_or_source(self):
+    def test_cli_installs_discovery_without_the_retired_seed_lane_or_any_call(self):
         self.prepare(); cli = self.cli(); callback = lambda *_args: {"state": "nothing_new"}
         with patch("sys.stdout", new=StringIO()), \
              patch("product_radar.catalogue_discovery.create_catalogue_discovery_step", return_value=callback) as factory, \
              patch.object(cli, "advance_programme", return_value={}) as advance:
             self.assertEqual(cli.main(["--programme-id", "whole-programme", "--execute"], memory=self.memory,
                 handlers={}, steps=self.noops(), private_staging=lambda *_args: {}, root=self.root), 0)
-        # The repository inventory and this store's root; the store prepares
-        # its own seed manifest later, inside the ordinary seed lane.
-        from product_radar.catalogue_seed import load_seed_inventory
-        factory.assert_called_once_with(seed_inventory=load_seed_inventory(), seed_source_root=self.root)
+        # The old seed lane fed by saved Amazon pages is retired (W10): no seed options.
+        factory.assert_called_once_with()
         self.assertIs(advance.call_args.kwargs["discovery_step"], callback)
         state = self.memory.snapshot()
         self.assertEqual(state["jobs"], {}); self.assertEqual(state["captures"], {})
@@ -1208,22 +1188,18 @@ class ProgrammeCliTests(unittest.TestCase):
                      steps=self.noops(), private_staging=lambda *_args: {}, root=self.root, discovery_step=callback)
         self.assertIsNone(advance.call_args.kwargs["platform_step"])
 
-    def test_cli_missing_grounded_sources_keeps_healthy_stages_running_with_named_seed_wait(self):
+    def test_cli_execution_runs_healthy_stages_without_a_seed_lane(self):
         self.prepare(); cli = self.cli()
         with patch("sys.stdout", new=StringIO()):
             self.assertEqual(cli.main(["--programme-id", "whole-programme", "--execute"], memory=self.memory,
                 handlers={}, steps=self.noops(), private_staging=lambda *_args: {}, root=self.root), 0)
         record = load_programme(self.memory, "whole-programme")
         self.assertTrue(set(STAGES) <= set(record["last_results"]))
-        seed = record["last_results"]["discovery"]["seed"]
-        self.assertEqual(seed["state"], "waiting")
-        self.assertEqual(seed["failures"][0]["reason"], "CATALOGUE_SEED_SOURCES_UNAVAILABLE")
-        self.assertTrue(seed["missing_sources"])
+        self.assertNotIn("seed", record["last_results"]["discovery"])
         self.assertNotIn("catalogue_seed", record["setup_failures"])
         state = self.memory.snapshot()
         self.assertEqual(state["jobs"], {}); self.assertEqual(state["captures"], {})
-        self.assertFalse(any(row.get("kind") == "catalogue-discovery-seed-cycle-v1" for row in state["batch_runs"].values()))
-        self.assertEqual(list((self.memory.root / "catalogue_materials/preparations").glob("seed-manifest-*.json")), [])
+        self.assertFalse((self.memory.root / "catalogue_materials/preparations").exists())
 
     def test_cli_prepare_uses_an_existing_source_identity_without_execution(self):
         cli = self.cli()

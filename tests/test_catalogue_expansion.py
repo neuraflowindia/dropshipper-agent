@@ -148,7 +148,7 @@ class ExpansionTests(unittest.TestCase):
         for table in ("concepts", "observations", "associations", "assessments", "supplier_assessments", "market_reviews"):
             self.assertEqual(after[table], before[table])
         request = next(iter(after["jobs"].values()))["request"]
-        self.assertEqual(request["prompt_version"], "research-c-v1")
+        self.assertEqual(request["prompt_version"], "research-c-v2")
         self.assertEqual(set(request["payload"]), {"items"})
         self.assertEqual(set(request["payload"]["items"][0]), {"id", "description", "evidence", "candidates", "branches"})
 
@@ -227,7 +227,7 @@ class ExpansionTests(unittest.TestCase):
         runner = Runner()
         first = run_expansion(self.memory, self.base, runner, concept_ids=["concept2", "concept1"], as_of=NOW)
         before = self.memory.snapshot()
-        self.assertEqual(next(iter(before["jobs"].values()))["request"]["prompt_version"], "research-c-v1")
+        self.assertEqual(next(iter(before["jobs"].values()))["request"]["prompt_version"], "research-c-v2")
         # A later malformed/old recommendation answer cannot change a C question.
         self.memory.put("assessments", "concept1", {"result": {"criteria": []}})
         second = run_expansion(self.memory, self.base, None, concept_ids=["concept1", "concept2"], as_of=NOW)
@@ -275,7 +275,7 @@ class ExpansionTests(unittest.TestCase):
         self.assertEqual(prompt_version("B"), "research-b-functional-v2")
         self.assertEqual(prompt_version("E"), "research-abe-v1")
         self.assertEqual(prompt_version("F"), SUPPLIER_PROMPT_VERSION)
-        self.assertEqual(prompt_version("C"), "research-c-v1")
+        self.assertEqual(prompt_version("C"), "research-c-v2")
         with self.assertRaisesRegex(SafetyError, "INPUT_INVALID"):
             Jobs(self.memory, Runner()).run("C", {"items": [{"id": "c" + str(n)} for n in range(6)]})
 

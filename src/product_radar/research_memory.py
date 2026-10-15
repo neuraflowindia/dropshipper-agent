@@ -81,6 +81,10 @@ class ResearchMemory:
         self.last_checkpoint_diagnostic = None
         self._projection_defer_depth = 0
         self._projection_dirty = False
+        # A lookup copy known to be too large: its size, the chain position it
+        # was measured at, and how much this instance's later events could
+        # have shrunk it at most (replaced records). Speed only, never evidence.
+        self._index_oversize = None
 
     @contextmanager
     def defer_lookup_projection(self, *, flush_if=None):
@@ -330,6 +334,13 @@ class ResearchMemory:
                 # An exact already-committed event above remains a replay even
                 # when its former dependencies have since been superseded.
                 validate(deepcopy(state))
+            oversize = self._index_oversize
+            if oversize is not None and oversize["sequence"] == sequence:
+                # A replaced record can shrink the copy by at most its old size.
+                shrink = sum(len(canonical(state[row["table"]][row["id"]])) for row in changes
+                             if isinstance(row, dict) and row.get("table") in state
+                             and isinstance(row.get("id"), str) and row["id"] in state[row["table"]])
+                oversize = dict(oversize, sequence=sequence + 1, shrink=oversize["shrink"] + shrink)
             self._apply(state, changes)
             event = {"seq": sequence + 1, "id": event_id, "at": utc_now(),
                      "evidence_type": self.evidence_type, "previous": head, "changes": changes}
@@ -352,6 +363,7 @@ class ResearchMemory:
             self._verified = {"manifest": self._verified["manifest"] + ((event_path, self._fingerprint(event_path)),),
                               "state": deepcopy(state), "head": event["hash"],
                               "sequence": sequence + 1, "ids": dict(ids), "evidence_type": self.evidence_type}
+            self._index_oversize = oversize if oversize is not None and oversize["sequence"] == sequence + 1 else None
         # The optional multi-megabyte index is never read as authority. Write
         # it outside the short canonical/financial lock so copying a dashboard
         # cache cannot block a model answer, product capture or billing guard.
@@ -375,10 +387,19 @@ class ResearchMemory:
                 # erases it, resets novelty, or repeats provider/model work.
                 self.last_commit_diagnostic = str(error) if isinstance(error, SafetyError) else "RESEARCH_CHECKPOINT_WRITE_UNAVAILABLE"
                 return False
-        index = {"head": head, "state": state}
-        if len(canonical(index)) > INDEX_LIMIT:
+        sequence = self._verified["sequence"]
+        known = self._index_oversize
+        if known is not None and known["sequence"] == sequence and known["bytes"] - known["shrink"] > INDEX_LIMIT:
+            # Still certainly too large: skip building the whole text only to refuse it.
             self.last_commit_diagnostic = "RESEARCH_INDEX_SIZE_LIMIT"
             return False
+        index = {"head": head, "state": state}
+        size = len(canonical(index))
+        if size > INDEX_LIMIT:
+            self._index_oversize = {"bytes": size, "sequence": sequence, "shrink": 0}
+            self.last_commit_diagnostic = "RESEARCH_INDEX_SIZE_LIMIT"
+            return False
+        self._index_oversize = None
         try:
             atomic_json(self.root / "index.json", index)
         except (OSError, SafetyError) as error:

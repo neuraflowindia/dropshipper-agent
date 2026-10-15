@@ -26,7 +26,7 @@ CONFIG_FILES = ("config/research/signed_in_reads.json", "config/research/dropshi
                 "config/research/crowding.json", "config/research/spend_watch.json",
                 "config/research/apify_allocation.json", "config/research/quickcommerce_locations.json",
                 "config/research/round_limits.json", "config/research/wider_discovery.json",
-                "config/benchmarks/meta_first.json")
+                "config/research/product_map.json", "config/benchmarks/meta_first.json")
 ACCOUNT_LIST = "config/local/apify_accounts.json"
 
 

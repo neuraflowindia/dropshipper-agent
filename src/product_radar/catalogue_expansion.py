@@ -131,7 +131,7 @@ def _concept_evidence(state, concept_id):
             if row["semantic_id"] in semantics]
 
 
-def _exploration_description(state, concept_id):
+def exploration_description(state, concept_id):
     """Worth exploring is independent of recommendation fit or market proof.
 
     Canonical A/identity work supplies the meaning. This is only a small shape,
@@ -171,7 +171,7 @@ def _nearby(catalogue, description):
 
 
 def _expansion_item(state, catalogue, concept_id):
-    description = _exploration_description(state, concept_id)
+    description = exploration_description(state, concept_id)
     if description is None: return None
     evidence = _concept_evidence(state, concept_id)
     selected = sorted(evidence, key=lambda row: (timestamp(row["observed_at"]), row["id"]), reverse=True)[:MAX_EVIDENCE]
@@ -236,13 +236,22 @@ def _admit(catalogue, item, proposal, at):
     return {"outcome": "accepted", "family_id": family_id, "family": family, "sources": sources, "reason": proposal["reason"]}
 
 
+def _save(memory, records):
+    """One event for a call's new records (replays reach the same record IDs)."""
+    from .research_memory import change
+    if records:
+        memory.commit(key("additions", [row["id"] for row in records]),
+                      [change("catalogue_additions", row["id"], row) for row in records])
+
+
 def run_expansion(memory, base_catalogue, runner=None, *, concept_ids=None, limit=5, as_of=None):
     """Admit at most five saved ideas, preserving every previous outcome.
 
     Explicit IDs retain the caller's order and unchanged saved C decisions.
     Otherwise coherent active in-scope concepts are considered before fit,
     market or supplier assessment. Neither route performs proof searches or
-    releases client recommendations.
+    releases client recommendations. The call's new records are saved together
+    in one event; a failed save leaves them for the saved job's replay.
     """
     if type(limit) is not int or not 1 <= limit <= MAX_CONCEPTS:
         raise SafetyError("CATALOGUE_EXPANSION_LIMIT_INVALID")
@@ -260,14 +269,14 @@ def run_expansion(memory, base_catalogue, runner=None, *, concept_ids=None, limi
             identifier(concept_id)
         if len(set(concept_ids)) != len(concept_ids):
             raise SafetyError("CATALOGUE_EXPANSION_CONCEPTS_INVALID")
-        pending, reused, inputs = [], [], {}
+        pending, reused, inputs, saved = [], [], {}, []
         processed = 0
         for concept_id in concept_ids:
             if processed >= limit:
                 break
             if concept_id not in state["concepts"]:
                 raise SafetyError("CATALOGUE_EXPANSION_CONCEPT_UNKNOWN")
-            description = _exploration_description(state, concept_id)
+            description = exploration_description(state, concept_id)
             if description is None:
                 continue
             evidence = _concept_evidence(state, concept_id)
@@ -292,7 +301,7 @@ def run_expansion(memory, base_catalogue, runner=None, *, concept_ids=None, limi
                           "job_id": None, "at": at, "outcome": "merged", "family_id": exact["id"],
                           "aliases": [], "phrases": [], "reason": "Exact existing family label or accepted alias.", "proposal": None,
                           "input": item}
-                memory.put("catalogue_additions", record_id, record)
+                saved.append(record)
                 reused.append(record)
             else:
                 pending.append(item)
@@ -326,21 +335,27 @@ def run_expansion(memory, base_catalogue, runner=None, *, concept_ids=None, limi
                     record = {"id": record_id, "concept_id": item["id"], "input_hash": inputs[item["id"]],
                               "job_id": None, "at": at, "outcome": "deferred", "reason": str(error),
                               "resumable": True, "proposal": None, "input": item}
-                    if record_id not in memory.snapshot()["catalogue_additions"]:
-                        memory.put("catalogue_additions", record_id, record)
+                    if record_id not in state["catalogue_additions"]:
+                        saved.append(record)
                     records.append(record)
+                _save(memory, saved)
                 return {"records": records, "pending": [item["id"] for item in pending],
                         "problem": str(error), "effective_families": len(catalogue["families"])}
+            # Each admission sees this call's earlier ones without another full read.
+            view = dict(state, catalogue_additions=dict(state["catalogue_additions"], **{row["id"]: row for row in saved}))
             for item in pending:
                 concept_id = item["id"]
                 proposal = result["accepted"].get(concept_id)
-                outcome = (_admit(effective_catalogue(base_catalogue, memory.snapshot()), item, proposal, at)
+                outcome = (_admit(effective_catalogue(base_catalogue, view), item, proposal, at)
                            if proposal is not None else {"outcome": "rejected", "reason": result["failures"][concept_id]})
                 record_id = key("addition", [job_id, concept_id, inputs[concept_id]])
                 record = dict(outcome, id=record_id, concept_id=concept_id, input_hash=inputs[concept_id],
                               job_id=job_id, proposal=proposal, at=at, input=item)
-                if record_id not in memory.snapshot()["catalogue_additions"]:
-                    memory.put("catalogue_additions", record_id, record)
+                if record_id not in view["catalogue_additions"]:
+                    saved.append(record)
+                    view["catalogue_additions"][record_id] = record
                 records.append(record)
+        _save(memory, saved)
+        view = dict(state, catalogue_additions=dict(state["catalogue_additions"], **{row["id"]: row for row in saved}))
         return {"records": records, "pending": [], "problem": None,
-                "effective_families": len(effective_catalogue(base_catalogue, memory.snapshot())["families"])}
+                "effective_families": len(effective_catalogue(base_catalogue, view)["families"])}

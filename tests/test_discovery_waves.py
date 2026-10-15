@@ -21,8 +21,6 @@ from test_catalogue_expansion import Runner as ExpansionRunner, fixture, phrase
 import test_catalogue_expansion as expansion_fixtures
 from test_research_flow import FakeRunner
 import test_programme as programme_fixtures
-import test_catalogue_seed_discovery as seed_fixtures
-from test_catalogue_seed import SeedRunner
 
 
 NOW = "2026-10-09T10:00:00+00:00"
@@ -589,15 +587,6 @@ class ProgrammeDiscoveryWaveTests(unittest.TestCase):
             programme_id="whole-programme", as_of=self.sources.now, handlers=self.handlers,
             steps=self.fixture.noops(), discovery_step=self.step, **options)
 
-    def seed(self):
-        seed = seed_fixtures.SeedDiscoveryTests(); seed.setUp(); self.addCleanup(seed.doCleanups)
-        seed.memory = self.fixture.memory; seed.root = self.fixture.root; seed.base = self.sources.catalogue
-        row = seed.prepared(); manifest = seed.manifest(row)
-        from product_radar.catalogue_discovery import create_catalogue_discovery_step
-        self.step = create_catalogue_discovery_step(seed.base, seed_manifest=manifest,
-            admission=self.sources.no_admission, shared_marketplace=True, renewable_waves=True)
-        return row, manifest
-
     def test_existing_programme_continues_past_initial_wave_then_waits_without_empty_turns(self):
         results = []
         for _ in range(20):
@@ -623,44 +612,6 @@ class ProgrammeDiscoveryWaveTests(unittest.TestCase):
         self.assertEqual(len(self.sources.calls), 6)
         self.assertEqual({row["counters"]["model_executions"] for row in self.fixture.memory.snapshot()["batch_runs"].values()
                           if row.get("kind") == "work-turn-v1"}, {0})
-
-    def test_original_seed_preparation_file_arrival_wakes_and_applies_before_retry_deadline(self):
-        row, _manifest = self.seed()
-        original = Path(row["prepared_reference"]); held = original.with_suffix(".held")
-        original.rename(held)
-        runner = SeedRunner()
-        for _ in range(15):
-            result = self.advance(runner=runner)
-            if not result["round_completed"]:
-                break
-        self.assertEqual(result["state"], "all_waiting")
-        self.assertEqual(len(runner.calls), 0)
-        self.assertIsNotNone(result["next_retry_at"])
-        before = self.fixture.memory.snapshot()
-        held.rename(original)
-        self.assertEqual(before, self.fixture.memory.snapshot())
-        resumed = self.advance(runner=runner)
-        self.assertTrue(resumed["round_completed"])
-        self.assertEqual(len(runner.calls), 1)
-        seed = programme.load_programme(self.fixture.memory, "whole-programme")["last_results"]["discovery"]["seed"]
-        self.assertEqual(seed["counts"]["completed_examples"], 1)
-        self.assertEqual(resumed["work_turn"]["counters"]["model_executions"], 1)
-
-    def test_seed_deadline_wakes_without_file_or_canonical_change_and_wait_settles_again(self):
-        row, _manifest = self.seed()
-        Path(row["prepared_reference"]).rename(Path(row["prepared_reference"]).with_suffix(".held"))
-        for _ in range(15):
-            result = self.advance()
-            if not result["round_completed"]:
-                break
-        before = self.fixture.memory.snapshot()
-        self.sources.now = result["next_retry_at"]
-        self.assertEqual(before, self.fixture.memory.snapshot())
-        resumed = self.advance()
-        self.assertTrue(resumed["round_completed"])
-        self.assertEqual(resumed["work_turn"]["counters"]["model_executions"], 0)
-        waiting = self.advance()
-        self.assertFalse(waiting["round_completed"])
 
 
 if __name__ == "__main__":

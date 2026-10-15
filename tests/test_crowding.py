@@ -355,7 +355,7 @@ class RefreshTests(TypeFixture):
         original = self.memory.snapshot
         def stale():
             state = original()
-            record_id = crowding._fact_id(ids[0])
+            record_id = crowding.fact_id(ids[0])
             state["batch_runs"][record_id] = dict(state["batch_runs"][record_id], level="stale")
             return state
         with patch.object(self.memory, "snapshot", side_effect=[stale()] + [original() for _ in range(5)]):

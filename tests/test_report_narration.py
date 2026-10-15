@@ -631,7 +631,7 @@ class ReportNarrationTests(unittest.TestCase):
     def test_existing_role_prompt_versions_remain_unchanged(self):
         self.assertEqual({r: prompt_version(r) for r in ("A", "B", "E", "F", "C", "G")}, {
             "A": "research-abe-v1", "B": "research-b-functional-v2", "E": "research-abe-v1",
-            "F": SUPPLIER_PROMPT_VERSION, "C": "research-c-v1", "G": "research-g-v2"})
+            "F": SUPPLIER_PROMPT_VERSION, "C": "research-c-v2", "G": "research-g-v2"})
 
 
 class NarrationRecoveryTests(unittest.TestCase):

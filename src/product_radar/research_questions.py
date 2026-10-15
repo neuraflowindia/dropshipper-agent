@@ -214,7 +214,8 @@ def _catalogue_direction_scope(state, catalogue, current):
     ``current`` is the caller's effective_catalogue result, not the base with
     durable additions applied a second time. Return family copies to callers.
     """
-    token = _DIRECTION_SCOPE.set((state, catalogue, {row["id"]: row for row in current["families"]}))
+    # The fourth member keeps each heading's frozen subject for this enumeration only.
+    token = _DIRECTION_SCOPE.set((state, catalogue, {row["id"]: row for row in current["families"]}, {}))
     try:
         yield
     finally:
@@ -238,14 +239,34 @@ def _accepted_family(state, family_id, catalogue):
     return family
 
 
+_SCOPE_FIELDS = ("category", "definition", "included", "excluded")
+
+
 def catalogue_direction_subject(state, family_id, *, catalogue=None, qualifiers=None):
-    """Freeze a real accepted discovery direction without creating a concept."""
-    family = _accepted_family(state, family_id, catalogue)
-    scope = {field: deepcopy(family[field]) for field in ("category", "definition", "included", "excluded")}
+    """Freeze a real accepted discovery direction without creating a concept.
+
+    Inside one candidate enumeration (``_catalogue_direction_scope``) each
+    heading's subject is built once, from only the fields it freezes."""
+    scope_view = _DIRECTION_SCOPE.get()
+    cache_key = None
+    if scope_view is not None and scope_view[0] is state and scope_view[1] is catalogue:
+        identifier(family_id)
+        cache_key = (family_id, canonical({} if qualifiers is None else qualifiers))
+        if cache_key in scope_view[3]:
+            return deepcopy(scope_view[3][cache_key])
+        family = scope_view[2].get(family_id)
+        if family is None or family["disposition"] != "usable":
+            raise SafetyError("RESEARCH_DIRECTION_NOT_ACCEPTED")
+    else:
+        family = _accepted_family(state, family_id, catalogue)
+    scope = {field: deepcopy(family[field]) for field in _SCOPE_FIELDS}
     scope["qualifiers"] = _object({} if qualifiers is None else qualifiers)
     if len(canonical(scope)) > MAX_REQUEST_BYTES:
         raise SafetyError("RESEARCH_DIRECTION_SCOPE_INVALID")
-    return {"kind": "catalogue_direction", "family_id": family_id, "scope": scope, "scope_hash": digest(scope)}
+    subject = {"kind": "catalogue_direction", "family_id": family_id, "scope": scope, "scope_hash": digest(scope)}
+    if cache_key is not None:
+        scope_view[3][cache_key] = deepcopy(subject)
+    return subject
 
 
 def validate_subject(state, subject, *, catalogue=None):

@@ -337,11 +337,9 @@ class SpecificModelLaneReadinessTests(unittest.TestCase):
         self.assertEqual(len(runner.payloads), calls)
         self.assertEqual(different.payloads, [])
 
-    def test_actual_saved_discovery_description_and_original_seed_questions_continue(self):
+    def test_actual_saved_discovery_description_questions_continue(self):
         import test_catalogue_discovery as discovery_fixtures
-        import test_catalogue_seed_discovery as seed_fixtures
-        from product_radar.catalogue_discovery import create_catalogue_discovery_step, prepare_catalogue_seed_cycle
-        from test_catalogue_seed import SeedRunner
+        from product_radar.catalogue_discovery import create_catalogue_discovery_step
         fixture = discovery_fixtures.DiscoveryTests(); fixture.setUp(); self.addCleanup(fixture.doCleanups)
         handlers = {"meta-ads": fixture.handler()}
         cycle = fixture.prepare(handlers=handlers); fixture.advance(cycle, handlers)
@@ -349,13 +347,6 @@ class SpecificModelLaneReadinessTests(unittest.TestCase):
         self.spend(fixture.memory, record["programme_id"], discovery_fixtures.NOW)
         step = create_catalogue_discovery_step(fixture.catalogue)
         self.assertEqual(self.hint(fixture.memory, record, discovery_fixtures.NOW, object(), discovery_step=step)["purpose"], "A")
-        seed = seed_fixtures.SeedDiscoveryTests(); seed.setUp(); self.addCleanup(seed.doCleanups)
-        manifest = seed.manifest(seed.prepared())
-        record = programme.prepare_programme(seed.memory, seed.owner["programme_id"], concept_ids=[], as_of=seed_fixtures.NOW)
-        prepare_catalogue_seed_cycle(seed.memory, record["programme_id"], manifest, as_of=seed_fixtures.NOW)
-        self.spend(seed.memory, record["programme_id"], seed_fixtures.NOW)
-        self.assertEqual(self.hint(seed.memory, record, seed_fixtures.NOW, SeedRunner(),
-            discovery_step=seed.step(manifest, renewable_waves=True, shared_marketplace=True))["purpose"], "C")
 
     def test_malformed_saved_correction_receipt_is_not_fresh_model_authority(self):
         from test_functional_report_packet import functional_packet_fixture, RecordingWriter

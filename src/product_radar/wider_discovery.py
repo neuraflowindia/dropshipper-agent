@@ -45,8 +45,8 @@ from .models import SafetyError, digest, timestamp, utc_now
 from .research_memory import change, key
 from .storage import atomic_json, load_json, safe_path
 from .wider_access import abandon, access_scope, close, open_read, physical_request, probe_changes, read, read_root
-from .wider_candidates import (LANES, READ_KIND, SUPPLIER_ROUTES, advertiser_targets, gate, known_words, latest_reads,
-                               reads, rising_targets, settings, supplier_targets)
+from .wider_candidates import (LANES, READ_KIND, SUPPLIER_ROUTES, advertiser_targets, covers, gate, known_words, latest_reads,
+                               reads, rising_targets, settings, supplier_targets, word_index)
 
 NOMINATION_VERSION = "wider-discovery-nomination-v1"
 SUPPLIER_MAPPER = "wider-discovery-supplier-v1"
@@ -127,7 +127,7 @@ def _round_facts(state, catalogue):
     """What is already known, once per round: ads seen, listings captured and
     their titles, and the word sets of known phrases and types."""
     from .platform_matching import words
-    facts = {"ads": set(), "listings": set(), "titles": set(), "known": known_words(state, catalogue)}
+    facts = {"ads": set(), "listings": set(), "titles": set(), "known": word_index(known_words(state, catalogue))}
     for row in state["observations"].values():
         if row["source"] == "meta":
             facts["ads"].add(row["facts"].get("ad_id"))
@@ -165,7 +165,7 @@ def _listing_choice(record, outcome, facts, config):
         found = frozenset(words(title))
         if (not isinstance(url, str) or not urlsplit(url).path.casefold().startswith(_LISTING_PATHS[route])
                 or (route, url) in facts["listings"] or not found or found in facts["titles"]
-                or any(known <= found for known in facts["known"]) or gate(title) is None):
+                or covers(found, facts["known"]) or gate(title) is None):
             continue
         facts["listings"].add((route, url))
         facts["titles"].add(found)
@@ -177,7 +177,7 @@ def _listing_choice(record, outcome, facts, config):
     return rows
 
 
-def _nomination_path(record):
+def nomination_path(record):
     return Path(record["nomination_folder"]) / ("receipt.json" if record["lane"] == "supplier-listings" else "nomination.json")
 
 
@@ -186,7 +186,7 @@ def _nominate(memory, record, outcome, facts, config):
     then import; returns (capture id or None, candidate count)."""
     from .platform_matching import import_platform_capture
     from .research_memory import import_capture
-    path = _nomination_path(record)
+    path = nomination_path(record)
     if path.is_file():
         saved = load_json(path, 8 * 1024 * 1024)
         if not isinstance(saved, dict) or saved.get("version") != NOMINATION_VERSION or saved.get("acquisition_id") != record["acquisition_id"]:
@@ -338,7 +338,7 @@ def _admit(memory, runner, at, config, flow_limit):
         # run without it would record them as failed descriptions.
         return {"state": "waiting", "reason": "WIDER_DISCOVERY_MODEL_WAITING", "pending_reads": len(pending),
                 "new_concept_ids": []}
-    paths = {row["acquisition_id"]: _nomination_path(row) for row in pending}
+    paths = {row["acquisition_id"]: nomination_path(row) for row in pending}
     new = admit(memory, runner, list(paths), as_of=at, flow_limit=flow_limit,
                 baseline=lambda aid: load_json(paths[aid], 8 * 1024 * 1024)["baseline_concepts"])
     return {"pending_reads": len(pending), "new_concept_ids": new}

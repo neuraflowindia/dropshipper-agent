@@ -121,7 +121,7 @@ class OperationRecordTests(unittest.TestCase):
         with operation_run(self.root) as recorder, operation_writer():
             record_event("stage_started", stage="discovery")
             with self.assertRaisesRegex(RuntimeError, "private-cookie"):
-                with preparation_step("catalogue_seed"):
+                with preparation_step("product_map"):
                     raise RuntimeError("private-cookie")
             record_event("ignored_detail", detail={"secret": "private-cookie"})
             with preparation_step("private-cookie"):

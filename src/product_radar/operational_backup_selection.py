@@ -69,14 +69,13 @@ _PORTAL = ("worker.mjs", "release-admin.mjs", "admin-status.mjs", "access-servic
 _TESTS = ("tests/test_source_exhausted_preparation.py", "tests/test_source_preparation_independent_review.py",
           "tests/test_operation_records.py", "tests/test_research_projection_batch.py",
           "tests/test_report_print_layout.py", "tests/test_live_outputs.py")
-_PUBLIC_SETTINGS = ("config/service.json", "config/research/catalogue.json",
-                    "config/research/catalogue_branch_inventory_2026-10-08.json", "config/ai/codex_luna.json",
+_PUBLIC_SETTINGS = ("config/service.json", "config/research/catalogue.json", "config/ai/codex_luna.json",
                     "config/operations/backup.json", "config/research/collection_cost_baseline.json",
                     "config/research/spend_watch.json", "config/research/signed_in_reads.json",
                     "config/research/dropship_platforms.json", "config/research/crowding.json",
                     "config/research/apify_allocation.json", "config/benchmarks/meta_first.json",
                     "config/research/quickcommerce_locations.json", "config/research/wider_discovery.json",
-                    "config/research/round_limits.json")
+                    "config/research/round_limits.json", "config/research/product_map.json")
 _DEPENDENCIES = ("requirements-research.txt", "requirements-preview.txt")
 _ASSETS = ("media/NeuraFlow/long_maroon_path_transparent_1024.png",
            "assets/windows/neuraflow-dropshipper.ico", "assets/windows/neuraflow-dropshipper.png")
@@ -1179,6 +1178,9 @@ class _Selection:
             elif relative == "config/research/round_limits.json":
                 from .round_limits import validate_round_limits
                 validate_round_limits(value)
+            elif relative == "config/research/product_map.json":
+                from .map_materials import validate_settings
+                validate_settings(value)
             elif relative == "config/research/quickcommerce_locations.json":
                 from .quickcommerce_plan import validate_settings
                 validate_settings(value)
@@ -1188,23 +1190,6 @@ class _Selection:
                         or value["attempt_id"] != path.parent.name or not _HASH.fullmatch(value["config_hash"])
                         or any(not isinstance(value[field], str) for field in ("account_id", "namespace", "generation"))):
                     raise SafetyError("BACKUP_PUBLIC_SETTINGS_INVALID")
-            elif relative.endswith("catalogue_branch_inventory_2026-10-08.json"):
-                if (set(value) != {"schema_version", "id", "purpose", "entries"}
-                        or type(value.get("schema_version")) is not int or value["schema_version"] != 1
-                        or not isinstance(value.get("entries"), list) or len(value["entries"]) > 1000
-                        or any(not isinstance(entry, dict) or set(entry) != {"branch_id", "source_folder", "examples", "reason"}
-                               for entry in value["entries"])):
-                    raise SafetyError("BACKUP_PUBLIC_SETTINGS_INVALID")
-                identifier(value["id"])
-                for entry in value["entries"]:
-                    identifier(entry["branch_id"])
-                    folder = entry["source_folder"]
-                    if (not isinstance(folder, str) or not folder.startswith("data/research/catalogue-public/")
-                            or ".." in folder.split("/") or ":" in folder or "\\" in folder
-                            or not isinstance(entry["examples"], list) or len(entry["examples"]) > 100
-                            or any(not isinstance(example, str) or len(example) > 2000 for example in entry["examples"])
-                            or not isinstance(entry["reason"], str) or not isinstance(value["purpose"], str)):
-                        raise SafetyError("BACKUP_PUBLIC_SETTINGS_INVALID")
         except (SafetyError, KeyError, TypeError, ValueError) as error:
             self.files.pop(str(path), None)
             self.total = sum(row["bytes"] for row in self.files.values())

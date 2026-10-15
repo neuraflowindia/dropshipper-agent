@@ -314,7 +314,7 @@ def _collapse_variants(listings):
     return result
 
 
-def _fact_id(concept_id):
+def fact_id(concept_id):
     return key("crowding-fact", identifier(concept_id))
 
 
@@ -337,7 +337,7 @@ def crowding_for(state, concept_id, *, thresholds=None):
     from .functional_types import effective_functional_definition
     thresholds = thresholds or load_thresholds()
     meaning = effective_functional_definition(state, concept_id)
-    saved = state["batch_runs"].get(_fact_id(concept_id))
+    saved = state["batch_runs"].get(fact_id(concept_id))
     if _current(saved, meaning["meaning_hash"] if meaning["accepted"] else None, thresholds):
         return deepcopy(saved)
     return {"kind": FACT_KIND, "version": VERSION, "concept_id": concept_id, "level": NOT_CHECKED,
@@ -355,7 +355,7 @@ def _due_inputs(state, concept_id, *, as_of, thresholds):
     inputs = crowding_inputs(state, concept_id, as_of=as_of)
     if inputs is None:
         return None  # No accepted meaning: nothing can be checked or saved.
-    saved = state["batch_runs"].get(_fact_id(concept_id))
+    saved = state["batch_runs"].get(fact_id(concept_id))
     current = _current(saved, inputs["meaning_hash"], thresholds) and saved.get("basis_hash") == digest(inputs)
     return None if current else inputs
 
@@ -462,7 +462,7 @@ def refresh_crowding(memory, concept_ids, *, as_of=None, priority=(), limit=REFR
     changes = []
     for cid, fact in results.items():
         levels[fact["level"]] = levels.get(fact["level"], 0) + 1
-        record_id = _fact_id(cid)
+        record_id = fact_id(cid)
         old = state["batch_runs"].get(record_id)
         if isinstance(old, dict) and {field: value for field, value in old.items() if field != "assessed_at"} == fact:
             continue

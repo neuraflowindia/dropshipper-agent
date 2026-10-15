@@ -100,7 +100,7 @@ def validate_catalogue(catalogue):
             for phrase in family["phrases"]:
                 _text(phrase["text"])
                 _text(phrase["reason"])
-                if (phrase["source"] not in ("meta", "marketplace", "trends", "supplier", "quickcommerce") or phrase["purpose"] not in ("discovery", "validation")
+                if (phrase["source"] not in ("meta", "marketplace", "trends", "supplier", "quickcommerce", "dropship") or phrase["purpose"] not in ("discovery", "validation")
                         or phrase["language"] not in ("en", "hi-Latn") or phrase["country"] != "IN"):
                     raise SafetyError("CATALOGUE_PHRASE_INVALID")
             season = family["season"]

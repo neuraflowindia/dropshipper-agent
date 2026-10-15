@@ -241,6 +241,8 @@ class SettingsTests(Case):
                 self.assertEqual(cli.main(["--programme-id", "whole-programme", "--execute", "--cooperative-turns", *arguments],
                     memory=self.memory, root=self.project, private_staging=lambda *_args: {}, backup_step=lambda *_args: {}), 0)
                 self.assertIs(factory.call_args.kwargs["wider_step"], wider.wider_step)
+                from product_radar.product_map import map_step
+                self.assertIs(factory.call_args.kwargs["map_step"], map_step)  # W10: the product-map lane
                 policy = turn.call_args.kwargs["turn_policy"]
                 self.assertEqual((turn.call_args.kwargs["source_limit"], policy["source_callbacks"], policy["model_executions"]),
                                  (reads, reads, 10))
@@ -620,23 +622,23 @@ class RisingTests(Case):
 
     def test_saved_lists_are_read_again_only_when_they_change(self):
         self.save_rising([("wooden spice rack for kitchen", "Breakout")])
-        rows = candidates._rising_rows(self.memory.root, AT, 14)
+        rows = candidates.rising_rows(self.memory.root, AT, 14)
         self.assertEqual([row[1]["queries"][0]["query"] for row in rows], ["wooden spice rack for kitchen"])
         self.assertTrue((self.memory.root / "wider_discovery" / candidates.RISING_INDEX).is_file())
         with patch.object(candidates, "_rising_record", side_effect=AssertionError("not read again")):
-            self.assertEqual(len(candidates._rising_rows(self.memory.root, AT, 14)), 1)
+            self.assertEqual(len(candidates.rising_rows(self.memory.root, AT, 14)), 1)
         self.save_rising([("steel spice rack organiser", "Breakout"), ("wooden spice rack for kitchen", "+50%")])
         with patch.object(candidates, "_rising_record", wraps=candidates._rising_record) as reread:
-            rows = candidates._rising_rows(self.memory.root, AT, 14)
+            rows = candidates.rising_rows(self.memory.root, AT, 14)
         self.assertEqual(reread.call_count, 1)
         self.assertEqual(rows[0][1]["queries"][0]["query"], "steel spice rack organiser")
         # An unreadable or unwritable index is only slower.
         (self.memory.root / "wider_discovery" / candidates.RISING_INDEX).write_text("{broken")
-        self.assertEqual(len(candidates._rising_rows(self.memory.root, AT, 14)), 1)
+        self.assertEqual(len(candidates.rising_rows(self.memory.root, AT, 14)), 1)
         (self.memory.root / "wider_discovery" / candidates.RISING_INDEX).unlink()
         with patch.object(candidates, "atomic_json", side_effect=OSError("disk")):
-            self.assertEqual(len(candidates._rising_rows(self.memory.root, AT, 14)), 1)
-        self.assertEqual(candidates._rising_rows(self.project / "nowhere", AT, 14), [])
+            self.assertEqual(len(candidates.rising_rows(self.memory.root, AT, 14)), 1)
+        self.assertEqual(candidates.rising_rows(self.project / "nowhere", AT, 14), [])
 
     def test_without_the_ai_no_new_read_starts(self):
         self.save_rising([("wooden spice rack for kitchen", "Breakout")])
@@ -997,8 +999,7 @@ class DiscoveryStepTests(Case):
             self.assertEqual(context["discovery_catalogue"]["families"], step.discovery_catalogue["families"])
             return {"state": "checked", "new_concept_ids": ["b", "a"]}
         step = self.step(lane)
-        with patch.object(discovery, "advance_discovery_waves", side_effect=waves), \
-                patch.object(discovery, "_seed_inventory_manifest", return_value=(None, None)):
+        with patch.object(discovery, "advance_discovery_waves", side_effect=waves):
             result = step(self.memory, {"programme_id": "p"}, {"at": AT, "handlers": {}})
         self.assertEqual(order, ["headings", "wider"])
         self.assertEqual((result["new_concept_ids"], result["new_products_need_full_source_review"]), (["a", "b"], ["a", "b"]))

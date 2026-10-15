@@ -40,7 +40,7 @@ class IdentityRecommendationTests(unittest.TestCase):
         self.assertEqual(prompt_version("E"), PROMPT_VERSION)
         self.assertEqual(PROMPT_VERSION, "research-abe-v1")
         self.assertEqual(prompt_version("F"), SUPPLIER_PROMPT_VERSION)
-        self.assertEqual(prompt_version("C"), "research-c-v1")
+        self.assertEqual(prompt_version("C"), "research-c-v2")
         self.assertEqual(prompt_version("G"), NARRATION_PROMPT_VERSION)
 
     def test_identity_instruction_covers_design_splits_and_real_differences(self):

@@ -94,7 +94,7 @@ def settings():
 _CATEGORY_WORDS = {}
 
 
-def _category_words():
+def category_words():
     """W4's category words, read again only when its settings file changes."""
     from .dropship_platforms import SETTINGS as PLATFORM_SETTINGS, settings as platform_settings
     info = PLATFORM_SETTINGS.stat()
@@ -110,7 +110,7 @@ def gate(text):
     from .platform_roles import item_category
     if not isinstance(text, str) or not text.strip():
         return None
-    return item_category({"title": text}, _category_words())
+    return item_category({"title": text}, category_words())
 
 
 def reads(state):
@@ -140,6 +140,21 @@ def due(row, at, config, recheck_days):
     if row["state"] in CLOSED or row["state"] == "uncertain" or row.get("reason") in PARKED_REASONS:
         return recheck_days is not None and age >= timedelta(days=recheck_days)
     return age >= timedelta(hours=config["retry_after_hours"])
+
+
+def word_index(sets):
+    """Index word sets by their smallest word, for ``covers``."""
+    index = {}
+    for found in sets:
+        if found:
+            index.setdefault(min(found), []).append(found)
+    return index
+
+
+def covers(found, index):
+    """Whether a text's words include all the words of one indexed set (a known
+    phrase, heading or type): the text is then a variant of it, not new."""
+    return any(known <= found for word in found for known in index.get(word, ()))
 
 
 def known_words(state, catalogue):
@@ -216,7 +231,7 @@ def _rising_record(path):
     return {name: record.get(name) for name in ("term", "acquisition_id", "observed_at", "queries")}
 
 
-def _rising_rows(root, at, max_age_days):
+def rising_rows(root, at, max_age_days):
     """Saved rising-query lists of recent Trends reads. A small index of each
     file's size and change time (a local speed aid: an unreadable index is
     rebuilt) means only new or changed lists are read again."""
@@ -253,13 +268,13 @@ def rising_targets(root, state, at, config, latest, catalogue):
     lane = config["trends_rising"]
     if not lane["reads_per_round"]:
         return []
-    known, found = known_words(state, catalogue), {}
-    for folder, record in _rising_rows(root, at, lane["max_age_days"]):
+    known, found = word_index(known_words(state, catalogue)), {}
+    for folder, record in rising_rows(root, at, lane["max_age_days"]):
         for row in record["queries"]:
             text = " ".join(str(row.get("query") or "").split())
             query_key, found_words = normalise(text), frozenset(words(text))
             # A query covering a known phrase or type name is a variant of it, not a new direction.
-            if (not found_words or any(word_set <= found_words for word_set in known) or len(text) > 120
+            if (not found_words or covers(found_words, known) or len(text) > 120
                     or not due(latest.get(("trends-rising", query_key)), at, config, None)):
                 continue
             category = gate(text)

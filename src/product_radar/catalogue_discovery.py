@@ -29,7 +29,6 @@ from .work_turns import active_work_turn, reserve_source_callback
 VERSION = "catalogue-discovery-cycle-v1"
 WAVE_VERSION = "discovery-wave-v2"
 WAVE_CONTROL_VERSION = "discovery-wave-control-v2"
-SEED_CYCLE_VERSION = "catalogue-discovery-seed-cycle-v1"
 SEED_RETRY_SECONDS = 300
 # Amazon India and Flipkart no longer produce candidates (owner decision D4):
 # they keep running only as each type's crowding check.
@@ -307,51 +306,67 @@ def _wave_control(state, programme_id):
     return control_id, deepcopy(saved)
 
 
-def _wave_candidates(state, programme_id, catalogue, handlers, at, *, cache_days):
-    """Pure source-specific choices; no family-wide busy/cooldown exclusion."""
+def _wave_candidates(state, programme_id, catalogue, handlers, at, *, cache_days, order=None, enough=None):
+    """Pure source-specific choices; no family-wide busy/cooldown exclusion.
+
+    ``order`` (the effective catalogue -> its usable headings in the order to
+    try) and ``enough`` (the candidates so far -> stop) let a wave preparation
+    look only at as many headings as it can use (W10)."""
     from .research_questions import _catalogue_direction_scope
     from .source_acquisitions import source_readiness_owner_scope
     current = effective_catalogue(validate_catalogue(catalogue), state)
+    families = order(current) if order is not None else None
     with source_readiness_owner_scope(state), _catalogue_direction_scope(state, catalogue, current):
         return _wave_candidates_in_scope(state, programme_id, catalogue, current, handlers, at,
-            cache_days=cache_days)
+            cache_days=cache_days, families=families, enough=enough)
 
 
-def _wave_candidates_in_scope(state, programme_id, catalogue, current, handlers, at, *, cache_days):
+def _family_specs(state, family, handlers):
+    """One heading's source questions (Amazon department lists are crowding reads, D4)."""
+    from .source_coverage import shared_source_hooks
+    for phrase in family["phrases"]:
+        if phrase["source"] == "supplier":
+            from .supplier_route_acquisition import ACTIVE_SEARCH_ROUTES
+            from .supplier_search import supplier_request_for_state
+            # A retired supplier route is never planned; its saved
+            # questions/answers remain validatable history below.
+            for route in ACTIVE_SEARCH_ROUTES:
+                if not shared_source_hooks(handlers.get(route))["prepare"]:
+                    continue
+                yield (family, route, supplier_request_for_state(state, route, phrase["text"]),
+                       {"search_scope": "accepted_direction_supplier_leads"}, "sourcing")
+            continue
+        if phrase["source"] == "trends":
+            # A chart answers a type-demand question; it is not a set of
+            # product cards and must not create a fabricated product.
+            yield (family, "google-trends", {"query": phrase["text"], "country": phrase["country"]},
+                   {"search_scope": "accepted_direction_demand_context"}, "validation")
+            continue
+        # Quick commerce is never a discovery source: its paid credits are
+        # spent only on admitted per-type product checks (W5).
+        if phrase["source"] not in {"meta", "marketplace"}:
+            continue
+        # Amazon and Flipkart searches are the types' crowding check (D4).
+        routes = FREE_ROUTES if phrase["purpose"] == "discovery" or phrase["source"] == "meta" else ()
+        for route in routes:
+            yield (family, route, _source_request(route, phrase=phrase["text"]),
+                   {"search_scope": "accepted_direction"}, phrase["purpose"])
+
+
+def _wave_candidates_in_scope(state, programme_id, catalogue, current, handlers, at, *, cache_days,
+                              families=None, enough=None):
     from .research_questions import _prepare, catalogue_direction_subject
     from .source_coverage import shared_source_hooks, source_readiness_hint
     candidates, waits, seen, gaps = [], [], set(), []
-    families = [row for row in current["families"] if row["disposition"] == "usable"]
-    specs = []  # Amazon department lists are crowding reads for types, not discovery (D4).
-    for family in sorted(families, key=lambda row: row["id"]):
-        for phrase in family["phrases"]:
-            if phrase["source"] == "supplier":
-                from .supplier_route_acquisition import ACTIVE_SEARCH_ROUTES
-                from .supplier_search import supplier_request_for_state
-                # A retired supplier route is never planned; its saved
-                # questions/answers remain validatable history below.
-                for route in ACTIVE_SEARCH_ROUTES:
-                    if not shared_source_hooks(handlers.get(route))["prepare"]:
-                        continue
-                    specs.append((family, route, supplier_request_for_state(state, route, phrase["text"]),
-                                  {"search_scope": "accepted_direction_supplier_leads"}, "sourcing"))
-                continue
-            if phrase["source"] == "trends":
-                # A chart answers a type-demand question; it is not a set of
-                # product cards and must not create a fabricated product.
-                specs.append((family, "google-trends", {"query": phrase["text"], "country": phrase["country"]},
-                              {"search_scope": "accepted_direction_demand_context"}, "validation"))
-                continue
-            # Quick commerce is never a discovery source: its paid credits are
-            # spent only on admitted per-type product checks (W5).
-            if phrase["source"] not in {"meta", "marketplace"}:
-                continue
-            # Amazon and Flipkart searches are the types' crowding check (D4).
-            routes = FREE_ROUTES if phrase["purpose"] == "discovery" or phrase["source"] == "meta" else ()
-            for route in routes:
-                specs.append((family, route, _source_request(route, phrase=phrase["text"]),
-                              {"search_scope": "accepted_direction"}, phrase["purpose"]))
-    for family, route, request, options, purpose in specs:
+    if families is None:
+        families = sorted((row for row in current["families"] if row["disposition"] == "usable"), key=lambda row: row["id"])
+
+    def specs():
+        for family in families:
+            if enough is not None and enough(candidates):
+                return
+            yield from _family_specs(state, family, handlers)
+    for family, route, request, options, purpose in specs():
         hooks = shared_source_hooks(handlers.get(route))
         if hooks["prepare"]:
             try: request = hooks["prepare"]({"route": route, "request": request, "as_of": at})
@@ -442,17 +457,35 @@ def prepare_next_discovery_wave(memory, programme_id, catalogue, *, handlers, ac
         existing = validate_discovery_wave(state, state["batch_runs"][control["current_wave_id"]])
         if not _first_pass_settled(existing):
             return deepcopy(existing)
+    categories = list(CATEGORIES)
+    offset = (categories.index(control["last_category"]) + 1) % len(categories) if control["last_category"] in categories else 0
+    categories = categories[offset:] + categories[:offset]
+    # Heading order (W10): never served first, then fresh signals, oldest served;
+    # headings whose types came out High crowding last; categories take turns.
+    # Headings are tried in that order only until the wave can be filled.
+    from .heading_order import heading_facts, heading_key
+    facts = {}
+
+    present = set()
+
+    def order(current):
+        facts.update(heading_facts(state, current, root=memory.root))
+        usable = [row for row in current["families"] if row["disposition"] == "usable"]
+        present.update(row["category"] for row in usable)
+        return sorted(usable, key=lambda row: heading_key(row, facts, categories))
+
+    def enough(rows):
+        # Enough rows, from as many categories as the wave can take turns over.
+        return (len(rows) >= action_limit
+                and len({row["family"]["category"] for row in rows}) >= min(action_limit, len(present)))
     current, candidates, waits, gaps = _wave_candidates(state, programme_id, catalogue, handlers, at,
-        cache_days=cache_days)
+        cache_days=cache_days, order=order, enough=enough)
     if not candidates:
         return {"kind": WAVE_VERSION, "state": "waiting", "wave_id": None,
                 "next_retry_at": min(waits, key=timestamp) if waits else None,
                 "next_trigger": "saved_retry_time" if waits else "saved_input_reply_or_connection_change", "preparation_gaps": gaps}
-    categories = list(CATEGORIES)
-    offset = (categories.index(control["last_category"]) + 1) % len(categories) if control["last_category"] in categories else 0
-    categories = categories[offset:] + categories[:offset]
-    candidates.sort(key=lambda row: (row["last_served"], categories.index(row["family"]["category"]),
-                                    row["family"]["id"], row["question"]["route"], row["question"]["id"]))
+    candidates.sort(key=lambda row: (heading_key(row["family"], facts, categories), row["last_served"],
+                                    row["question"]["route"], row["question"]["id"]))
     selected, used = [], set()
     while candidates and len(selected) < action_limit:
         choice = next((row for row in candidates if row["family"]["category"] not in used), candidates[0])
@@ -963,8 +996,12 @@ def _discovery_wave_readiness(memory, programme_id, catalogue, *, handlers, as_o
                              and not (hint.get("access", {}).get("local_saved") and not ref.get("refresh_due_at"))),
                          "last_served": progress.get("last_served_turn", 0)})
     work.sort(key=lambda row: (row["last_served"], row["question_id"]))
-    current_catalogue, candidates, new_waits, gaps = _wave_candidates(state, programme_id, catalogue, handlers, as_of,
-        cache_days=cache_days)
+    if current is None or _first_pass_settled(current):
+        current_catalogue, candidates, new_waits, gaps = _wave_candidates(state, programme_id, catalogue, handlers, as_of,
+            cache_days=cache_days)
+    else:
+        # No new wave until the current one's first pass settles: no candidates to look for.
+        current_catalogue, candidates, new_waits, gaps = effective_catalogue(validate_catalogue(catalogue), state), [], [], []
     waits.extend(new_waits)
     new_wave = bool((current is None or _first_pass_settled(current)) and candidates)
     # A different accepted catalogue or newly due question is a real wake
@@ -1057,334 +1094,6 @@ def advance_discovery_waves(memory, programme_id, catalogue, *, handlers, runner
         "paid_actor_calls": 0, "original_product_pool_changed": False}
 
 
-def _seed_cycle_id(programme_id):
-    return key("discovery-seed-cycle", [SEED_CYCLE_VERSION, identifier(programme_id)])
-
-
-def catalogue_seed_wake_hint(memory, state, programme_id, manifest, *, as_of):
-    """Pure exact-file/deadline hints for the ORIGINAL frozen seed work.
-
-    This never reads public sites, changes the manifest, admits source facts
-    or starts a model. A changed hint permits one normal bounded inspection;
-    the existing loader/Jobs path still validates and owns the actual work.
-    """
-    from .catalogue_seed import MAX_SAVED_BYTES
-    from .research_ai import current_attempt
-    at = timestamp(as_of)
-    if manifest is None:
-        return {"ready": False, "next_retry_at": None, "signal": None, "branch_hints": {}}
-    cycle = state["batch_runs"].get(_seed_cycle_id(programme_id))
-    preparations = safe_path(memory.root, "catalogue_materials", "preparations")
-    files, deadlines, waits, ready, branch_hints = {}, [], [], cycle is None, {}
-    branch_paths = None
-
-    def owned(reference, root, code):
-        path = safe_path(Path(reference))
-        path = path.resolve()
-        if not path.is_relative_to(root.resolve()):
-            raise SafetyError(code)
-        return path
-
-    def watch(path):
-        safe_path(path)
-        if branch_paths is not None:
-            branch_paths.add(str(path))
-        try:
-            info = path.stat()
-            files[str(path)] = [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns]
-        except FileNotFoundError:
-            files[str(path)] = ["missing"]
-        except OSError as error:
-            files[str(path)] = ["local_io", error.errno]
-
-    original_manifest = cycle.get("manifest_reference") if cycle else manifest
-    if isinstance(original_manifest, (str, Path)) and original_manifest != "supplied-manifest-mapping":
-        manifest_path = owned(original_manifest, preparations, "DISCOVERY_SEED_MANIFEST_OUTSIDE_RESEARCH")
-        watch(manifest_path)
-        # A missing/unreadable whole manifest cannot start a cycle. Its file
-        # state is still in the signal, so the file appearing wakes the lane.
-        ready = ready and files[str(manifest_path)][0] not in ("missing", "local_io")
-    if cycle is None:
-        return {"ready": ready, "next_retry_at": None,
-                "signal": {"manifest": digest(manifest) if isinstance(manifest, dict) else str(manifest), "files": files},
-                "branch_hints": {}}
-    if (cycle.get("kind") != SEED_CYCLE_VERSION or cycle.get("programme_id") != programme_id
-            or not isinstance(cycle.get("planned_branches"), list) or len(cycle["planned_branches"]) > 200
-            or not isinstance(cycle.get("branches"), dict)):
-        raise SafetyError("DISCOVERY_SEED_BINDING_CHANGED")
-    pages = safe_path(memory.root, "catalogue_materials", "pages")
-    for planned in cycle["planned_branches"]:
-        branch_id = identifier(planned["branch_id"])
-        progress = cycle["branches"].get(branch_id)
-        if progress and progress.get("state") == "completed":
-            continue
-        branch_paths = set()
-        due_at = progress.get("next_retry_at") if progress else None
-        due = due_at is None or timestamp(due_at) <= at
-        ready |= due
-        deadlines.append([branch_id, due])
-        if due_at and not due:
-            waits.append(due_at)
-        reference = planned.get("prepared_reference")
-        if isinstance(reference, str):
-            watch(owned(reference, preparations, "CATALOGUE_SEED_PREPARATION_OUTSIDE_RESEARCH"))
-        groups = [planned.get(name, []) for name in ("prepared_material_ids", "reused_material_ids")]
-        ids = list(dict.fromkeys(value for group in groups if isinstance(group, list) for value in group if isinstance(value, str)))
-        if len(ids) > 1000:
-            raise SafetyError("CATALOGUE_SEED_MATERIAL_IDS_INVALID")
-        for material_id in ids:
-            path = safe_path(memory.root, "catalogue_materials", "items", identifier(material_id)) / "material.json"
-            watch(path)
-            try:
-                material = load_json(path, MAX_SAVED_BYTES)
-                if isinstance(material, dict) and isinstance(material.get("page_reference"), str):
-                    watch(owned(material["page_reference"], pages, "CATALOGUE_SEED_PREPARATION_OUTSIDE_RESEARCH"))
-            except (SafetyError, OSError) as error:
-                _raise_shared_integrity(error)
-                # Invalid/missing material remains a stable local hint; the
-                # actual seed loader records the exact repair reason.
-        for job_id in progress.get("job_ids", []) if progress else []:
-            identifier(job_id)
-            job = state["jobs"].get(job_id)
-            if not job or job.get("request", {}).get("role") != "C":
-                continue
-            folder = current_attempt(safe_path(memory.root, "ai_jobs", job_id))
-            for name in ("result.json", "completion.json"):
-                watch(folder / name)
-        branch_hints[branch_id] = digest({path: files[path] for path in sorted(branch_paths)})
-        ready |= progress is not None and progress.get("saved_wake_hash") != branch_hints[branch_id]
-        branch_paths = None
-    matrix = cycle.get("accepted_matrix")
-    if isinstance(matrix, dict) and isinstance(matrix.get("reference"), str):
-        watch(owned(matrix["reference"], safe_path(memory.root, "discovery_cycles", cycle["id"]),
-                    "DISCOVERY_SEED_MATRIX_CHANGED"))
-    return {"ready": bool(ready), "next_retry_at": min(waits, key=timestamp) if waits else None,
-            "signal": {"manifest_hash": cycle["manifest_hash"], "deadlines": deadlines, "files": files},
-            "branch_hints": branch_hints}
-
-
-def catalogue_seed_lane_hint(memory, state, programme_id, discovery_step, *, as_of):
-    """Wake hint for the installed seed lane; local stats only, never a read.
-
-    With the repository inventory, a store without its own manifest is ready
-    only when every declared source page exists and no unchanged failed
-    preparation is waiting. After that, the ordinary seed-cycle hint applies.
-    """
-    inventory = getattr(discovery_step, "discovery_seed_inventory", None)
-    if inventory is None:
-        return catalogue_seed_wake_hint(memory, state, programme_id,
-            getattr(discovery_step, "discovery_seed_manifest", None), as_of=as_of)
-    from .catalogue_seed import seed_inventory_gate, seed_inventory_manifest_path
-    path = seed_inventory_manifest_path(memory, inventory["plan"])
-    if _seed_cycle_id(programme_id) in state["batch_runs"] or path.is_file():
-        return catalogue_seed_wake_hint(memory, state, programme_id, path, as_of=as_of)
-    gate = seed_inventory_gate(memory, inventory["plan"], source_root=inventory["source_root"], as_of=as_of)
-    return {"ready": gate["ready"], "next_retry_at": gate["next_retry_at"],
-            "signal": {"inventory_hash": digest(inventory["plan"]), "manifest": "missing",
-                       "sources": gate["files"], "attempt": gate["attempt"]},
-            "branch_hints": {}}
-
-
-def _seed_inventory_manifest(memory, programme_id, catalogue, inventory, at):
-    """Store-local manifest path, or a named seed wait; prepared at most once."""
-    from .catalogue_seed import prepare_seed_inventory_manifest, seed_inventory_gate, seed_inventory_manifest_path
-    path = seed_inventory_manifest_path(memory, inventory["plan"])
-    if _seed_cycle_id(programme_id) in memory.snapshot()["batch_runs"]:
-        return path, None  # An existing cycle keeps its own original bindings.
-    wait = {"first_pass_done": True, "new_concept_ids": [], "paid_actor_calls": 0, "original_product_pool_changed": False}
-    if not path.is_file():
-        gate = seed_inventory_gate(memory, inventory["plan"], source_root=inventory["source_root"], as_of=at)
-        if not gate["ready"]:
-            return None, dict(wait, state="waiting", reason=gate["reason"], failures=[{"reason": gate["reason"]}],
-                missing_sources=gate["missing_sources"], next_retry_at=gate["next_retry_at"])
-    try:
-        # Prepares once, or verifies that a saved manifest binds this plan.
-        with preparation_step("catalogue_seed"):
-            return prepare_seed_inventory_manifest(memory, catalogue, inventory["plan"],
-                source_root=inventory["source_root"], as_of=at), None
-    except (SafetyError, OSError) as error:
-        _raise_shared_integrity(error)
-        reason = str(error) if isinstance(error, SafetyError) else "CATALOGUE_SEED_LOCAL_IO_FAILED"
-        return None, dict(wait, state="input_failed", reason=reason, failures=[{"reason": reason}])
-
-
-def _save_seed_cycle(memory, record):
-    old = memory.snapshot()["batch_runs"].get(record["id"])
-    fields = ("kind", "id", "programme_id", "baseline_concepts", "manifest_hash", "manifest_reference", "prepared_at", "planned_branches")
-    if old is not None and any(old[field] != record[field] for field in fields):
-        raise SafetyError("DISCOVERY_SEED_BINDING_CHANGED")
-    if old != record:
-        memory.put("batch_runs", record["id"], record, previous=old,
-            event_id=key("discovery-seed-state", [record["id"], digest(old), digest(record)]))
-
-
-def prepare_catalogue_seed_cycle(memory, programme_id, manifest, *, as_of=None):
-    """Freeze prepared-file bindings separately from product/source run IDs."""
-    from .catalogue_seed import MAX_SAVED_BYTES
-    cycle_id = _seed_cycle_id(programme_id)
-    state = memory.snapshot()
-    existing = state["batch_runs"].get(cycle_id)
-    if existing is not None:
-        return deepcopy(existing)  # Original branch bindings, not a later manifest replacement.
-    at = as_of or utc_now(); timestamp(at)
-    reference = "supplied-manifest-mapping"
-    if isinstance(manifest, (str, Path)):
-        path = safe_path(Path(manifest))
-        if not path.resolve().is_relative_to(safe_path(memory.root, "catalogue_materials", "preparations").resolve()):
-            raise SafetyError("DISCOVERY_SEED_MANIFEST_OUTSIDE_RESEARCH")
-        reference = str(path); manifest = load_json(path, MAX_SAVED_BYTES)
-    if (not isinstance(manifest, dict) or manifest.get("schema_version") != 1
-            or not isinstance(manifest.get("branches"), list) or len(manifest["branches"]) > 200):
-        raise SafetyError("DISCOVERY_SEED_MANIFEST_INVALID")
-    try:
-        branches = deepcopy(manifest["branches"])
-        ids = [identifier(row["branch_id"]) for row in branches]
-        if len(set(ids)) != len(ids):
-            raise ValueError
-    except (TypeError, KeyError, ValueError):
-        raise SafetyError("DISCOVERY_SEED_MANIFEST_INVALID") from None
-    old_discovery = state["batch_runs"].get(_cycle_id(programme_id))
-    record = {"kind": SEED_CYCLE_VERSION, "id": cycle_id, "programme_id": programme_id,
-        "baseline_concepts": deepcopy(old_discovery["baseline_concepts"]) if old_discovery else sorted(state["concepts"]),
-        "manifest_hash": digest(manifest), "manifest_reference": reference, "prepared_at": at,
-        "planned_branches": branches, "branches": {}, "accepted_matrix": None,
-        "paid_actor_calls": 0, "new_concept_ids": [], "original_product_pool_changed": False}
-    _save_seed_cycle(memory, record)
-    return deepcopy(record)
-
-
-def _seed_matrix(memory, catalogue, record, at):
-    """Retain the admitted choice matrix; staged examples never add capacity."""
-    from .catalogue_coverage import catalogue_matrix
-    state = memory.snapshot(); view = effective_catalogue(catalogue, state); catalogue_hash = digest(view)
-    previous = record.get("accepted_matrix")
-    if previous is not None and previous["catalogue_hash"] == catalogue_hash:
-        path = safe_path(Path(previous["reference"]))
-        if digest(load_json(path, 8 * 1024 * 1024)) != previous["hash"]:
-            raise SafetyError("DISCOVERY_SEED_MATRIX_CHANGED")
-        return previous
-    matrix = catalogue_matrix(view, state)
-    saved = {"schema_version": 1, "seed_cycle_id": record["id"], "manifest_hash": record["manifest_hash"],
-        "catalogue_hash": catalogue_hash, "checked_at": at, "matrix": matrix,
-        "note": "Only actual admitted catalogue families and phrases are counted. Prepared examples and C judgments are not fresh products or six-month capacity."}
-    path = safe_path(memory.root, "discovery_cycles", record["id"], "accepted_catalogue") / (catalogue_hash + ".json")
-    if path.exists():
-        saved = load_json(path, 8 * 1024 * 1024)
-        if saved.get("catalogue_hash") != catalogue_hash or saved.get("seed_cycle_id") != record["id"]:
-            raise SafetyError("DISCOVERY_SEED_MATRIX_CHANGED")
-    else:
-        atomic_json(path, saved)
-    return {"reference": str(path), "hash": digest(saved), "catalogue_hash": catalogue_hash,
-        "totals": saved["matrix"]["totals"], "categories": saved["matrix"]["categories"]}
-
-
-def _seed_summary(memory, record):
-    state = memory.snapshot()
-    outcomes, eligible, judged, reused, completed = {}, set(), set(), set(), set()
-    material_ids, prepared_ids, failures = set(), set(), []
-    for planned in record["planned_branches"]:
-        branch = record["branches"].get(planned["branch_id"], {})
-        supplied = planned.get("material_ids", [])
-        branch_ids = {value for value in supplied if isinstance(value, str)} if isinstance(supplied, list) else set()
-        material_ids.update(branch_ids)
-        supplied_prepared = planned.get("prepared_material_ids", [])
-        if isinstance(supplied_prepared, list):
-            prepared_ids.update(value for value in supplied_prepared if isinstance(value, str))
-        eligible.update(branch.get("eligible_material_ids", [])); reused.update(branch.get("reused_material_ids", []))
-        failures.extend(branch.get("failures", []))
-        for addition_id in branch.get("addition_ids", []):
-            addition = state["catalogue_additions"].get(addition_id)
-            if addition is None or addition.get("material_id") not in branch_ids:
-                continue
-            mid = addition["material_id"]; completed.add(mid); outcomes[mid] = addition["outcome"]
-            if addition.get("job_id") is not None and addition.get("proposal") is not None:
-                judged.add(mid)
-    first_pass_done = all(row["branch_id"] in record["branches"] for row in record["planned_branches"])
-    pending = material_ids - completed
-    counts = {"branches": len(record["planned_branches"]), "branches_considered": len(record["branches"]),
-        "branches_complete": sum(row.get("state") == "completed" for row in record["branches"].values()),
-        "prepared_examples": len(prepared_ids), "eligible_examples": len(eligible),
-        "completed_examples": len(completed), "actual_judged_examples": len(judged),
-        "exact_local_merges": sum(state["catalogue_additions"][aid].get("job_id") is None
-            for row in record["branches"].values() for aid in row.get("addition_ids", []) if aid in state["catalogue_additions"]),
-        "cache_reused_examples": len(reused), "accepted_examples": sum(value == "accepted" for value in outcomes.values()),
-        "merged_examples": sum(value == "merged" for value in outcomes.values()),
-        "no_useful_addition_examples": sum(value == "no_useful_addition" for value in outcomes.values()),
-        "unclear_examples": sum(value == "deferred" for value in outcomes.values()),
-        "contract_rejected_examples": sum(value == "rejected" for value in outcomes.values()), "pending_examples": len(pending)}
-    return {"state": "checked" if first_pass_done and not pending and all(row.get("state") == "completed" for row in record["branches"].values())
-        else "work_remaining", "seed_cycle_id": record["id"], "first_pass_done": first_pass_done,
-        "counts": counts, "pending_material_ids": sorted(pending), "failures": failures,
-        "accepted_matrix": record.get("accepted_matrix"), "baseline_concepts": record["baseline_concepts"],
-        "new_concept_ids": [], "paid_actor_calls": 0, "original_product_pool_changed": False}
-
-
-def advance_catalogue_seed_cycle(memory, cycle_id, catalogue, *, runner=None, max_branches=1, as_of=None, wake_hints=None):
-    """One finite original C branch turn; errors yield to healthy branches."""
-    from .catalogue_seed import build_catalogue_branch, load_prepared_catalogue_branch
-    if type(max_branches) is not int or not 1 <= max_branches <= 10:
-        raise SafetyError("DISCOVERY_SEED_SLICE_INVALID")
-    if wake_hints is not None and (not isinstance(wake_hints, dict) or len(wake_hints) > 200
-            or any(not isinstance(value, str) or len(value) != 64 for value in wake_hints.values())):
-        raise SafetyError("DISCOVERY_SEED_WAKE_HINT_INVALID")
-    identifier(cycle_id); at = as_of or utc_now(); timestamp(at)
-    with Journal(safe_path(memory.root, "discovery_cycles", cycle_id, "writer")).locked(timeout=5):
-        record = deepcopy(memory.snapshot()["batch_runs"].get(cycle_id))
-        if record is None or record.get("kind") != SEED_CYCLE_VERSION:
-            raise SafetyError("DISCOVERY_SEED_CYCLE_REQUIRED")
-        def due(planned):
-            prior = record["branches"].get(planned["branch_id"])
-            return prior is None or prior.get("state") != "completed" and (
-                prior.get("next_retry_at") is None or timestamp(at) >= timestamp(prior["next_retry_at"])
-                or wake_hints is not None and planned["branch_id"] in wake_hints
-                   and prior.get("saved_wake_hash") != wake_hints[planned["branch_id"]])
-        # An unvisited branch gets its first bounded turn before retrying a
-        # failed sibling. Saved original jobs still own every pending item.
-        selected = sorted((row for row in record["planned_branches"] if due(row)),
-            key=lambda row: row["branch_id"] in record["branches"])[:max_branches]
-        for planned in selected:
-            branch_id = planned["branch_id"]
-            old = deepcopy(record["branches"].get(branch_id, {}))
-            row = dict(old, state="intent_saved", considered_at=old.get("considered_at", at))
-            record["branches"][branch_id] = row; _save_seed_cycle(memory, record)
-            try:
-                prepared = load_prepared_catalogue_branch(memory, catalogue, planned)
-                result = build_catalogue_branch(memory, catalogue, runner, branch_id=branch_id,
-                    material_ids=prepared["material_ids"], limit=10, as_of=at, prepared_payload=prepared["payload"])
-                additions = result["records"] + result["reused"]
-                addition_ids = list(dict.fromkeys(old.get("addition_ids", []) + [item["id"] for item in additions]))
-                completed = {item["material_id"] for item in additions}
-                missing = sorted(set(planned["material_ids"]) - completed)
-                failures = result["failures"] + prepared["pending"] + [{"material_id": mid,
-                    "reason": "CATALOGUE_SEED_PREPARATION_NOT_SUPPLIED"} for mid in prepared["unprepared_material_ids"]]
-                row.update(state="completed" if not missing else "pending", eligibility="eligible" if not failures
-                    else "partly_eligible" if result["eligible_material_ids"] else "not_confirmed",
-                    eligible_material_ids=sorted(set(old.get("eligible_material_ids", [])) | set(result["eligible_material_ids"])),
-                    addition_ids=addition_ids, reused_material_ids=sorted(set(old.get("reused_material_ids", []))
-                        | {item["material_id"] for item in result["reused"]}),
-                    pending_material_ids=missing, failures=failures, job_ids=list(dict.fromkeys(old.get("job_ids", []) + result["job_ids"])),
-                    prepared_reference=prepared["reference"], payload_hash=prepared["payload_hash"])
-            except (SafetyError, OSError, KeyError, TypeError, ValueError) as error:
-                reason = str(error) if isinstance(error, SafetyError) else "CATALOGUE_SEED_LOCAL_IO_FAILED"
-                row.update(state="input_failed", eligibility="not_confirmed", failures=[{"branch_id": branch_id, "reason": reason}])
-            row["next_retry_at"] = None if row["state"] == "completed" else (timestamp(at) + timedelta(seconds=SEED_RETRY_SECONDS)).isoformat()
-            if wake_hints is not None and branch_id in wake_hints:
-                row["saved_wake_hash"] = wake_hints[branch_id]
-            _save_seed_cycle(memory, record)
-        # A matrix/file error is local, never permission to repeat a C request.
-        try:
-            record["accepted_matrix"] = _seed_matrix(memory, catalogue, record, at)
-            record.pop("matrix_failure", None)
-        except (SafetyError, OSError, KeyError, TypeError, ValueError) as error:
-            record["matrix_failure"] = str(error) if isinstance(error, SafetyError) else "CATALOGUE_SEED_MATRIX_SAVE_FAILED"
-        _save_seed_cycle(memory, record)
-        summary = _seed_summary(memory, record)
-        summary.update(branches_advanced_this_round=len(selected), matrix_failure=record.get("matrix_failure"))
-        if record.get("matrix_failure"):
-            summary["state"] = "work_remaining"
-        return summary
-
-
 def _wider_result(wider):
     """The wider lane's result; its failure is its own wait, never the heading searches'."""
     try:
@@ -1393,7 +1102,7 @@ def _wider_result(wider):
         if not isinstance(new, list) or any(not isinstance(cid, str) for cid in new):
             raise SafetyError("WIDER_DISCOVERY_RESULT_INVALID")
     except (SafetyError, OSError, KeyError, TypeError, ValueError) as error:
-        # Like the seed lane: a wider-lane defect never defers the heading searches.
+        # Like the product-map lane: a wider-lane defect never defers the heading searches.
         _raise_shared_integrity(error)
         result = {"state": "waiting", "reason": str(error) if isinstance(error, SafetyError)
                   else "WIDER_DISCOVERY_LOCAL_FAILURE", "new_concept_ids": []}
@@ -1418,56 +1127,56 @@ def _headings_and_wider(headings, wider, *, wider_first):
     return dict(result, wider=lane, new_concept_ids=found, new_products_need_full_source_review=found)
 
 
+def _map_result(mapping):
+    """The product-map lane's result; its failure is its own wait, never the searches'."""
+    try:
+        result = mapping()
+        if not isinstance(result, dict) or not isinstance(result.get("state"), str):
+            raise SafetyError("PRODUCT_MAP_RESULT_INVALID")
+    except (SafetyError, OSError, KeyError, TypeError, ValueError) as error:
+        _raise_shared_integrity(error)
+        result = {"state": "waiting", "reason": str(error) if isinstance(error, SafetyError)
+                  else "PRODUCT_MAP_LOCAL_FAILURE"}
+    return result
+
+
+def _with_map(searches, mapping, *, map_first):
+    """The searches (headings and wider discovery) and the product-map lane (W10):
+    the map goes first in the rounds when it has the first use of the AI calls
+    held for discovery, otherwise after the searches. A search failure still
+    lets the map run that round before it is raised."""
+    mapped = _map_result(mapping) if map_first else None
+    try:
+        result = searches()
+    except Exception as error:
+        _raise_shared_integrity(error)
+        if mapped is None:
+            _map_result(mapping)
+        raise
+    return dict(result, map=mapped if mapped is not None else _map_result(mapping))
+
+
 def create_catalogue_discovery_step(catalogue=None, *, action_limit=4, actions_per_round=2,
-                                    admission=None, seed_manifest=None, seed_branches_per_round=1,
-                                    shared_marketplace=False, renewable_waves=False, seed_inventory=None,
-                                    seed_source_root=None, wider_step=None):
+                                    admission=None, shared_marketplace=False, renewable_waves=False,
+                                    wider_step=None, map_step=None):
     """N22 callback. Construction is read-only and performs no external work.
 
-    ``seed_inventory`` (the repository plan) with ``seed_source_root`` lets
-    each store prepare its own seed manifest through the ordinary staging
-    route the first time the lane runs; ``seed_manifest`` supplies one directly.
+    The old seed lane fed by saved Amazon pages is retired (D4, Plan R10 W10):
+    the headings it produced stay; the map lane builds the map now.
     ``wider_step`` (``wider_discovery.wider_step``, W8) runs after the heading
     searches of each renewable wave turn, or before them when the programme
     gives it the round's first use of the AI share held for discovery
-    (``context["wider_first"]``).
+    (``context["wider_first"]``). ``map_step`` (``product_map.map_step``, W10)
+    grows and renews the product map in the same turn: first when the
+    programme gives it the round's first use of that AI share
+    (``context["map_first"]``), otherwise after the searches.
     """
     base = validate_catalogue(catalogue or load_catalogue())
-    if type(seed_branches_per_round) is not int or not 1 <= seed_branches_per_round <= 10:
-        raise SafetyError("DISCOVERY_SEED_SLICE_INVALID")
     if (type(renewable_waves) is not bool or renewable_waves and not shared_marketplace
-            or wider_step is not None and (not callable(wider_step) or not renewable_waves)):
+            or wider_step is not None and (not callable(wider_step) or not renewable_waves)
+            or map_step is not None and (not callable(map_step) or not renewable_waves)):
         raise SafetyError("DISCOVERY_WAVE_OPTION_INVALID")
-    inventory = None
-    if seed_inventory is not None:
-        from .catalogue_seed import validate_inventory_plan
-        if seed_manifest is not None or not isinstance(seed_source_root, (str, Path)) or not str(seed_source_root):
-            raise SafetyError("DISCOVERY_SEED_OPTION_INVALID")
-        inventory = {"plan": deepcopy(validate_inventory_plan(seed_inventory)), "source_root": Path(seed_source_root)}
-    supplied_manifest = deepcopy(seed_manifest) if isinstance(seed_manifest, dict) else seed_manifest
     def step(memory, programme_record, context):
-        seed, manifest = None, supplied_manifest
-        if inventory is not None:
-            manifest, seed = _seed_inventory_manifest(memory, programme_record["programme_id"], base, inventory, context["at"])
-        if manifest is not None:
-            try:
-                with preparation_step("catalogue_seed"):
-                    prepared = prepare_catalogue_seed_cycle(memory, programme_record["programme_id"], manifest, as_of=context["at"])
-                    seed_options = ({"wake_hints": catalogue_seed_wake_hint(memory, memory.snapshot(),
-                        programme_record["programme_id"], manifest, as_of=context["at"])["branch_hints"]}
-                        if renewable_waves else {})
-                    seed = advance_catalogue_seed_cycle(memory, prepared["id"], base, runner=context.get("runner"),
-                        max_branches=seed_branches_per_round, as_of=context["at"], **seed_options)
-            except (SafetyError, OSError, KeyError, TypeError, ValueError) as error:
-                seed = {"state": "input_failed", "first_pass_done": True, "failures": [{"reason": str(error)
-                    if isinstance(error, SafetyError) else "CATALOGUE_SEED_LOCAL_IO_FAILED"}], "new_concept_ids": [], "paid_actor_calls": 0}
-            # Original product lanes still run after this callback. A genuinely
-            # new discovery cycle waits only for one finite initial branch pass,
-            # not for unavailable evidence or endless successful new ideas.
-            if not renewable_waves and not seed["first_pass_done"] and _cycle_id(programme_record["programme_id"]) not in memory.snapshot()["batch_runs"]:
-                return {"state": "work_remaining", "seed": seed, "new_concept_ids": [],
-                    "new_products_need_full_source_review": [], "paid_actor_calls": 0,
-                    "original_product_pool_changed": False, "note": "Prepared branch decisions are advancing before new search choices are frozen. Original product-review lanes continue independently."}
         if renewable_waves:
             def headings():
                 with preparation_step("discovery_questions"):
@@ -1475,28 +1184,22 @@ def create_catalogue_discovery_step(catalogue=None, *, action_limit=4, actions_p
                         handlers=context["handlers"], runner=context.get("runner"), max_actions=actions_per_round,
                         flow_limit=min(50, context.get("fit_limit", 10)), admission=admission, action_limit=action_limit,
                         as_of=context["at"])
-            result = headings() if wider_step is None else _headings_and_wider(
-                headings, lambda: wider_step(memory, programme_record, dict(context, discovery_catalogue=base)),
-                wider_first=context.get("wider_first") is True)
-            if seed is not None:
-                result["seed"] = seed
+            def searches():
+                return headings() if wider_step is None else _headings_and_wider(
+                    headings, lambda: wider_step(memory, programme_record, dict(context, discovery_catalogue=base)),
+                    wider_first=context.get("wider_first") is True)
+            result = searches() if map_step is None else _with_map(
+                searches, lambda: map_step(memory, programme_record, dict(context, discovery_catalogue=base)),
+                map_first=context.get("map_first") is True)
             return result
         record = prepare_discovery_cycle(memory, programme_record["programme_id"], base,
-            handlers=context["handlers"], action_limit=action_limit, as_of=context["at"],
-            baseline_concepts=seed.get("baseline_concepts") if seed else None)
-        result = advance_discovery_cycle(memory, record["id"], handlers=context["handlers"], runner=context.get("runner"),
+            handlers=context["handlers"], action_limit=action_limit, as_of=context["at"])
+        return advance_discovery_cycle(memory, record["id"], handlers=context["handlers"], runner=context.get("runner"),
             max_actions=actions_per_round, flow_limit=min(50, context.get("fit_limit", 10)), admission=admission, as_of=context["at"],
             shared_marketplace=shared_marketplace)
-        if seed is not None:
-            result["seed"] = seed
-            result["seed_catalogue_available_to_cycle"] = record["catalogue_hash"] == (seed.get("accepted_matrix") or {}).get("catalogue_hash")
-            if seed["state"] != "checked":
-                result["state"] = "work_remaining"
-        return result
     if renewable_waves:
         step.discovery_wave_contract = WAVE_VERSION
         step.discovery_catalogue = deepcopy(base)
         step.discovery_wave_options = {"cache_days": 7}
-        step.discovery_seed_manifest = deepcopy(supplied_manifest)
-        step.discovery_seed_inventory = deepcopy(inventory)
+        step.discovery_product_map = map_step is not None
     return step

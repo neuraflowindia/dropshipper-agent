@@ -235,6 +235,33 @@ class VerifiedReplayCacheTests(unittest.TestCase):
             self.assertEqual(self.memory.last_commit_diagnostic, "RESEARCH_INDEX_SIZE_LIMIT")
         self.assertEqual(self.fresh_memory().snapshot()["brand_reviews"]["review-one"], {"verdict": "unclear"})
 
+    def test_a_lookup_copy_known_too_large_is_not_rebuilt_only_to_be_refused(self):
+        sizes = []
+        real = memory_module.canonical
+
+        def measured(value):
+            text = real(value)
+            if isinstance(value, dict) and set(value) == {"head", "state"}:
+                sizes.append(len(text))
+            return text
+        with patch.object(memory_module, "INDEX_LIMIT", 600), patch.object(memory_module, "canonical", side_effect=measured):
+            self.memory.put("concepts", "large", {"text": "x" * 700})
+            self.assertEqual((self.memory.last_commit_diagnostic, len(sizes)), ("RESEARCH_INDEX_SIZE_LIMIT", 1))
+            self.memory.put("concepts", "small", {"value": 1})
+            self.assertEqual((self.memory.last_commit_diagnostic, len(sizes)), ("RESEARCH_INDEX_SIZE_LIMIT", 1))
+            # Replacing the large record could make it fit: measured again, and saved.
+            self.memory.put("concepts", "large", {"text": "y"}, previous={"text": "x" * 700})
+            self.assertEqual((self.memory.last_commit_diagnostic, len(sizes)), (None, 2))
+            self.assertTrue((self.memory.root / "index.json").is_file())
+            self.memory.put("concepts", "large", {"text": "z" * 700}, previous={"text": "y"})
+            self.assertEqual(len(sizes), 3)
+            # Another writer's events: the size is measured again.
+            other = self.fresh_memory()
+            other.put("concepts", "other", {"value": 2})
+            self.memory.put("concepts", "after-other", {"value": 3})
+            self.assertEqual((self.memory.last_commit_diagnostic, len(sizes)), ("RESEARCH_INDEX_SIZE_LIMIT", 5))
+        self.assertEqual(self.fresh_memory().snapshot()["concepts"]["small"], {"value": 1})
+
     def test_event_symlink_replacement_is_rejected_before_cache_reuse(self):
         self.seed(2)
         path = self.event_path(1)

@@ -45,7 +45,7 @@ _SITES = {"amazon-bestsellers": "Amazon bestsellers",
     "indiamart": "IndiaMART", "tradeindia": "TradeIndia", "company-pages": "supplier websites",
     "deodap": "DeoDap", "baapstore": "BaapStore", "dropship-india": "Dropship India", "dropdash": "Dropdash",
     "meta-ads-depth": "Facebook ads (deeper read)"}
-_DETAILS = {"catalogue_seed": "Reviewing saved ideas for future searches.",
+_DETAILS = {"product_map": "Growing the product map from platform, Trends, Meta and supplier material.",
     "discovery_questions": "Choosing the next searches and checking their saved results.",
     "discovery_saved_answers": "Reviewing products from saved search results."}
 _PHASE_MESSAGES = {"model_call": "Waiting for the AI to finish its answer.",

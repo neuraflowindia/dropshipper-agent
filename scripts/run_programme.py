@@ -231,22 +231,13 @@ def _main(argv=None, *, memory=None, runner=None, handlers=None, steps=None, dis
         if discovery_step is None:
             try:
                 from product_radar.catalogue_discovery import create_catalogue_discovery_step
-                from product_radar.catalogue_seed import load_seed_inventory
-                # The repository's grounded branch inventory, not a replacement
-                # product pool. Each store prepares its own seed manifest from
-                # it through the ordinary staging route the first time the lane
-                # runs; a missing source page is a named seed-lane wait inside
-                # the callback and cannot stop independent current-product review.
-                seed_options = {}
-                try:
-                    seed_options = {"seed_inventory": load_seed_inventory(), "seed_source_root": root}
-                except (SafetyError, OSError) as error:
-                    setup_failures["catalogue_seed"] = str(error) if isinstance(error, SafetyError) else "CATALOGUE_INVENTORY_UNREADABLE"
-                # W8: the wider-discovery lane follows the heading searches of each turn.
+                # W8: the wider-discovery lane follows the heading searches of each turn;
+                # W10: the product-map lane grows and renews the map in the same turn.
+                from product_radar.product_map import map_step
                 from product_radar.wider_discovery import wider_step
-                discovery_options = ({"shared_marketplace": True, "renewable_waves": True, "wider_step": wider_step}
-                                     if args.cooperative_turns else {})
-                discovery_step = create_catalogue_discovery_step(**seed_options, **discovery_options)
+                discovery_options = ({"shared_marketplace": True, "renewable_waves": True, "wider_step": wider_step,
+                                      "map_step": map_step} if args.cooperative_turns else {})
+                discovery_step = create_catalogue_discovery_step(**discovery_options)
             except (SafetyError, OSError) as error:
                 setup_failures["catalogue_discovery"] = str(error) if isinstance(error, SafetyError) else "DISCOVERY_CATALOGUE_UNREADABLE"
         if platform_step is None and installed_sources:

@@ -684,18 +684,11 @@ def _signature(state, record):
     tasks = {task_id: {field: row.get(field) for field in ("request_hash", "targets", "status", "generation",
         "tries", "receipt_refs", "target_results", "next_retry_at", "reconcile_required")}
         for task_id, row in state["query_tasks"].items() if row.get("run_id") in runs}
-    from .catalogue_discovery import SEED_CYCLE_VERSION
-    seed_progress = {ref: {"planned_branches": [row.get("branch_id") for row in batch.get("planned_branches", [])],
-        "branches": {branch_id: {field: result.get(field) for field in
-            ("state", "addition_ids", "pending_material_ids", "eligible_material_ids")}
-            for branch_id, result in batch.get("branches", {}).items()}}
-        for ref, batch in state["batch_runs"].items()
-        if batch.get("kind") == SEED_CYCLE_VERSION and batch.get("programme_id") == record["programme_id"]}
     return digest({"concepts": {cid: row for cid, row in state["concepts"].items() if cid in ids},
         "assessments": {cid: row for cid, row in state["assessments"].items() if cid in ids},
         "profiles": sorted(_current_profiles(dict(state, concepts={cid: state["concepts"][cid] for cid in ids if cid in state["concepts"]}))),
         "scope_bindings": [_binding(scope) for scope in scopes], "tasks": tasks,
-        "catalogue_additions": state["catalogue_additions"], "seed_progress": seed_progress,
+        "catalogue_additions": state["catalogue_additions"],
         "market_reviews": state["market_reviews"], "supplier_assessments": state["supplier_assessments"],
         "observations": sorted(state["observations"]), "associations": state["associations"],
         "photos": {ref: row for ref, row in state["source_checks"].items()
@@ -3151,7 +3144,7 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
         raise SafetyError("PROGRAMME_STEPS_INVALID")
     if (setup_failures is not None and (not isinstance(setup_failures, dict)
             or not set(setup_failures) <= {"model", "funded_quickcommerce", "native_renderer", "catalogue_discovery",
-                                           "catalogue_seed", "private_staging"}
+                                           "private_staging"}
             or any(not isinstance(value, str) or not value or len(value) > 200 for value in setup_failures.values()))):
         raise SafetyError("PROGRAMME_SETUP_RESULT_INVALID")
     # Factories prepare callbacks, never navigate/charge on construction.
@@ -3248,11 +3241,12 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
             _observe(record, context, phase_state="finished", result=deepcopy(platforms), control_save=last_save)
 
         def run_discovery_lane():
-            # Heading searches, wider discovery (inside the discovery step) and the
-            # platforms take turns at the first use of the held share, one round
-            # each; the platforms never wait on discovery.
-            first = record["cycles"] % 3
+            # Heading searches, the platforms, wider discovery and the product map
+            # (the last two inside the discovery step) take turns at the first use
+            # of the held share, one round each; the platforms never wait on discovery.
+            first = record["cycles"] % 4
             context["wider_first"] = first == 2
+            context["map_first"] = first == 3
             for lane in ((run_platforms, run_discovery) if first == 1 else (run_discovery, run_platforms)):
                 if not owner_paused:
                     lane()
@@ -3756,16 +3750,27 @@ def _source_turn_readiness(memory, state, record, handlers, at):
 def _discovery_turn_readiness(memory, state, record, handlers, at, *, discovery_step=None, runner_available=False):
     """Read the existing finite cycle; do not prepare or launch a new one."""
     from .catalogue_discovery import (VERSION as DISCOVERY_KIND, WAVE_VERSION, _callable, _receipt_path,
-                                     discovery_wave_readiness, catalogue_seed_lane_hint)
+                                     discovery_wave_readiness)
     from .source_coverage import shared_source_hooks, source_readiness_hint
     if getattr(discovery_step, "discovery_wave_contract", None) == WAVE_VERSION:
         result = discovery_wave_readiness(memory, record["programme_id"], discovery_step.discovery_catalogue,
             handlers=handlers, as_of=at, runner_available=runner_available, state=state,
             **discovery_step.discovery_wave_options)
-        seed = catalogue_seed_lane_hint(memory, state, record["programme_id"], discovery_step, as_of=at)
-        result["local_ready"] |= seed["ready"]
-        result["signal"].append(["original_seed", seed["signal"]])
-        retries = [value for value in (result["next_retry_at"], seed["next_retry_at"]) if value]
+        retries = [result["next_retry_at"]] if result["next_retry_at"] else []
+        if getattr(discovery_step, "discovery_product_map", False):
+            from .product_map import map_lane_hint
+            try:
+                mapped = map_lane_hint(memory, state, record["programme_id"], discovery_step.discovery_catalogue,
+                                       as_of=at, runner_available=runner_available)
+            except (SafetyError, OSError) as error:
+                if isinstance(error, SafetyError) and str(error) in INTEGRITY_FAILURES:
+                    raise
+                # The map's own defect is reported by its lane; it never stops the searches' wake.
+                mapped = {"ready": False, "next_retry_at": None,
+                          "signal": str(error) if isinstance(error, SafetyError) else "PRODUCT_MAP_LOCAL_FAILURE"}
+            result["local_ready"] |= mapped["ready"]
+            result["signal"].append(["product_map", mapped["signal"]])
+            retries += [mapped["next_retry_at"]] if mapped["next_retry_at"] else []
         result["next_retry_at"] = min(retries, key=timestamp) if retries else None
         return result
     ready, fresh_ready, local, projection, signals = False, False, False, {}, []
@@ -4465,8 +4470,8 @@ def _closed_model_allowance_continuation(memory, state, record, *, runner, at, r
 
 
 def _discovery_model_questions(memory, state, record, *, discovery_step, at):
-    """Actual saved A/B admission and original C seed questions, not counts."""
-    from .catalogue_discovery import VERSION as CYCLE, WAVE_VERSION, SEED_CYCLE_VERSION, _seed_cycle_id
+    """Actual saved A/B admission questions, not counts."""
+    from .catalogue_discovery import VERSION as CYCLE, WAVE_VERSION
     from .research_flow import DESCRIPTION_SCOPE, DESCRIPTION_RULES, QUALITY_FAILURES
     from .discovery import find_possible_matches
     from .brand_reviews import brand_binding
@@ -4507,34 +4512,6 @@ def _discovery_model_questions(memory, state, record, *, discovery_step, at):
                 except SafetyError as error:
                     if str(error) in INTEGRITY_FAILURES:
                         raise
-    seed = state["batch_runs"].get(_seed_cycle_id(record["programme_id"]))
-    catalogue = getattr(discovery_step, "discovery_catalogue", None)
-    if not seed or seed.get("kind") != SEED_CYCLE_VERSION or catalogue is None:
-        return
-    from .catalogue_seed import (load_prepared_catalogue_branch, VERSION, PROMPT_VERSION,
-                                 _branch, _load_material, _verify_prepared_item)
-    from .catalogue_expansion import effective_catalogue, _exact_match
-    view = SimpleNamespace(root=memory.root, snapshot=lambda: state, evidence_type=memory.evidence_type)
-    current = effective_catalogue(catalogue, state)
-    for planned in seed["planned_branches"]:
-        progress = seed["branches"].get(planned["branch_id"], {})
-        if (progress.get("state") == "completed" or progress.get("next_retry_at")
-                and timestamp(progress["next_retry_at"]) > timestamp(at)):
-            continue
-        try:
-            prepared = load_prepared_catalogue_branch(view, catalogue, planned)
-            branch, items = _branch(current, planned["branch_id"]), []
-            for item in prepared["payload"]["items"]:
-                _verify_prepared_item(current, branch, _load_material(view, item["id"]), item)
-                if (_exact_match(current, item["material"]["label"]) is None
-                        and not any(row.get("seed_version") == VERSION and row.get("input") == item
-                                    and not row.get("resumable", False) for row in state["catalogue_additions"].values())):
-                    items.append(item)
-            if items:
-                yield "C", "C", dict(prepared["payload"], items=items), PROMPT_VERSION
-        except (SafetyError, OSError) as error:
-            if isinstance(error, SafetyError) and str(error) in INTEGRITY_FAILURES:
-                raise
 
 
 def _programme_turn_readiness(memory, record, *, root, handlers=None, runner=None,

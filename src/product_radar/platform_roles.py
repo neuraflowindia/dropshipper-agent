@@ -284,22 +284,29 @@ def platform_leads(state, concept_id):
             if row.get("kind") == LEAD_KIND and row.get("concept_id") == concept_id]
 
 
-def _phrase_words(text):
+def phrase_words(text):
     return [_stem(word) for word in re.findall(r"[a-z0-9]+", text.casefold())]
+
+
+def _joined(text):
+    return " " + " ".join(phrase_words(text)) + " "
+
+
+def excluded_kind(text, config):
+    """Whether a text names one of the excluded kinds (jewellery, cosmetics, pets ...)."""
+    joined = _joined(text)
+    return any(_joined(phrase) in joined for phrase in config["exclude"])
 
 
 def item_category(item, config):
     """The client category an item fits (from its product type, tags and title), or
     None when it fits none or is in an excluded kind (jewellery, cosmetics, ...)."""
     text = " ".join([item.get("product_type") or "", " ".join(item.get("tags") or []), item["title"]])
-    found = _phrase_words(text)
-    joined = " " + " ".join(found) + " "
-
-    def has(phrase):
-        return " " + " ".join(_phrase_words(phrase)) + " " in joined
-    if any(has(phrase) for phrase in config["exclude"]):
+    if excluded_kind(text, config):
         return None
-    return next((category for category, phrases in config["categories"].items() if any(has(phrase) for phrase in phrases)), None)
+    joined = _joined(text)
+    return next((category for category, phrases in config["categories"].items()
+                 if any(_joined(phrase) in joined for phrase in phrases)), None)
 
 
 def _tier(item):
