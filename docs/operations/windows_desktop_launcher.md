@@ -109,7 +109,7 @@ The older [direct-WSL setup script](../../scripts/setup_programme_task.ps1) is a
 | Check group on 11 October | Result | Evidence under `archive/2026-10-13-before-fresh-start/data/operations/desktop` |
 |---|---:|---|
 | Local project controls, interruption handling, scheduling, saved-answer reuse and existing related research rules. These use manufactured data, not live provider requests. | 296 / 296 passed, across groups of 188 and 108. | `python-controls-tests-20261011.log` and `python-model-reuse-tests-20261011.log`. |
-| Native window and tray handlers, with fake research. | 15 / 15 passed (11 October). The R10 self-test now has 32 checks (adding sign-in, Trends, platform, spend, the attention line and notification, worker-failure logging, and a check that the self-test never shows a real Windows notification); 32 / 32 passed on 15 October. | `gui-self-test.json` and `gui-self-test.png`. |
+| Native window and tray handlers, with fake research. | 15 / 15 passed (11 October). The self-test now has 33 checks (adding sign-in, Trends, platform, spend, the attention line and notification, worker-failure logging, a check that the self-test never shows a real Windows notification, and the product-map line); 33 / 33 passed on 16 October after the app was rebuilt and reinstalled. | `gui-self-test.json` and `gui-self-test.png`. |
 | Actual installed shortcut, real Start/Stop, hide/restore, Exit, preserved schedule, manually invoked installed task while stopped and icon assignment. | 15 / 15 passed on the final executable. | `installed-test.json` and its dated copy. |
 
 These are focused launcher and affected-code checks, not a full project acceptance run or a new project-completion percentage.

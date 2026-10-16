@@ -717,7 +717,7 @@ namespace NeuraFlow.Dropshipper {
                 finally { if (!window.IsDisposed) window.DisposeForTest(); }
             };
             Application.Run(window);
-            bool passed = failure == null && checks.Count == 32;
+            bool passed = failure == null && checks.Count == 33;
             foreach (bool check in checks.Values) passed &= check;
             File.WriteAllText(output, new JavaScriptSerializer().Serialize(new { passed = passed, checks = checks, failure = failure,
                 actual_research_started = false, provider_calls = 0, tested_at = DateTime.UtcNow.ToString("o") }));
