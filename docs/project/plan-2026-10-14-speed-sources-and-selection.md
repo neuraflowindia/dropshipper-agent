@@ -11,8 +11,8 @@
 | W6 selection step (Low/Medium first) and W7 ranking score (`opportunity-score-v3`) | Built | see the implementation record |
 | W5 quick commerce, W8 wider discovery | Built | `6630cbc` (wave 3) |
 | W10 product map | Built | `42be726` (wave 4) |
-| W13 cutover and live proof | Switch-over done 15 October; live checks in progress: Trends draws and exports while minimised (one read, 16 October), Dropdash set to its real pages, IndiaMART waits for the owner's sign-in; same-day live fixes (R13) loaded 16 October | `8a3799b`, `85ccb0c`, R13 |
-| W14 documents, suites, outside steps | Documents and the whole local suites done 16 October; Windows app rebuild pending | `406be81`, `2791256` |
+| W13 cutover and live proof | Switch-over done 15 October; live checks in progress: Trends draws and exports while minimised (one read, 16 October), Dropdash set to its real pages, IndiaMART waits for the owner's sign-in; same-day live fixes (R13) loaded 16 October | `8a3799b`, `85ccb0c`, `9059304` |
+| W14 documents, suites, outside steps | Documents and the whole local suites done 16 October (6,026 tests passed); Windows app rebuilt and reinstalled 16 October, self-test 33/33 | `406be81`, `2791256`, `9059304`, `4d49834` |
 
 What was built, with its settings files, wait codes and known limits, is recorded in the [implementation record, R10](../operations/implementation_2026-10-11.md#r10-plan-r10-sources-crowding-check-product-map-and-spend-watch-1415-october).
 

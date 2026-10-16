@@ -84,7 +84,7 @@ $ErrorActionPreference='Stop'
 $request=ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('PAYLOAD')))
 CLOSE_LEFTOVERS
 if($request.close_leftovers){Close-Leftovers $request.profile ([DateTime]::UtcNow.AddSeconds(10))}
-[Console]::Out.Write((@{window=((Get-SignInWindow $request.profile).Count -gt 0)}|ConvertTo-Json -Compress))
+[Console]::Out.Write((@{window=(@(Get-SignInWindow $request.profile).Count -gt 0)}|ConvertTo-Json -Compress))
 """
 
 # Plain Chrome without the remote-control flag: Google refuses sign-in in
@@ -94,7 +94,7 @@ $ErrorActionPreference='Stop'
 $request=ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('PAYLOAD')))
 CLOSE_LEFTOVERS
 Close-Leftovers $request.profile ([DateTime]::UtcNow.AddSeconds(8))
-if((Get-SignInWindow $request.profile).Count){[Console]::Out.Write((@{state='already_open'}|ConvertTo-Json -Compress));exit 0}
+if(@(Get-SignInWindow $request.profile).Count){[Console]::Out.Write((@{state='already_open'}|ConvertTo-Json -Compress));exit 0}
 $flags=@('--no-first-run','--disable-sync','--no-default-browser-check',('--user-data-dir='+$request.profile),'--new-window')+@($request.urls)
 $quoted=($flags|ForEach-Object {'"'+($_ -replace '"','\"')+'"'}) -join ' '
 $null=Start-Process -FilePath $request.browser -ArgumentList $quoted -WindowStyle Normal

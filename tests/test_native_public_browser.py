@@ -314,7 +314,7 @@ class SignedInNativeBrowserTests(unittest.TestCase):
         start = SIGNED_IN_START
         removal = start.index("Remove-Item -LiteralPath $portFile")
         self.assertLess(start.index("OWNER_DESKTOP_UNAVAILABLE"), start.index("Close-Leftovers $request.profile $deadline"))
-        self.assertLess(start.index("Close-Leftovers $request.profile $deadline"), start.index("(Get-SignInWindow $request.profile).Count"))
+        self.assertLess(start.index("Close-Leftovers $request.profile $deadline"), start.index("@(Get-SignInWindow $request.profile).Count"))
         self.assertLess(start.index("OWNER_SIGN_IN_WINDOW_OPEN"), removal)
         self.assertLess(start.index("$portFile=Join-Path $request.profile 'DevToolsActivePort'"), removal)
         self.assertLess(removal, start.index("if(Test-Path -LiteralPath $portFile){throw"))

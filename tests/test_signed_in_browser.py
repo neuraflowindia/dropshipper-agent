@@ -129,8 +129,8 @@ class SignedInBrowserTests(unittest.TestCase):
         window = signed.sign_in_window(self.root)
         self.assertTrue(window["open"]); self.assertEqual(window["last_opened_at"], window["checked_at"])
         # Program Chrome left behind is closed before deciding the owner's window is already open.
-        self.assertLess(script.index("Close-Leftovers $request.profile"), script.index("(Get-SignInWindow $request.profile).Count"))
-        self.assertLess(script.index("(Get-SignInWindow $request.profile).Count"), script.index("already_open"))
+        self.assertLess(script.index("Close-Leftovers $request.profile"), script.index("@(Get-SignInWindow $request.profile).Count"))
+        self.assertLess(script.index("@(Get-SignInWindow $request.profile).Count"), script.index("already_open"))
 
     def test_already_open_window_is_not_opened_twice_but_the_owner_click_rechecks_sites(self):
         signed.note_sign_in_window(self.root, True, opened=True, at="2026-10-14T10:00:00+00:00")
@@ -154,6 +154,21 @@ class SignedInBrowserTests(unittest.TestCase):
                 self.assertRaisesRegex(SafetyError, "NOT_INSTALLED"):
             signed.open_sign_in_window(self.root, runner=self.runner())
 
+    def test_every_window_count_is_taken_on_a_list(self):
+        # Windows PowerShell 5.1 hands back a single process object, not a list,
+        # when exactly one Chrome matches, and such an object has no Count: an
+        # owner's open sign-in window (one process) then read as "closed" and
+        # research reads collided with it (16 October 2026). Every count of
+        # sign-in windows must be taken on @(...).
+        from product_radar import native_public_browser as native
+        scripts = {"window": signed._WINDOW_SCRIPT, "open": signed._OPEN_SCRIPT, "read": native.SIGNED_IN_START}
+        uses = 0
+        for name, script in scripts.items():
+            for match in re.finditer(r"Get-SignInWindow \$request\.profile", script):
+                uses += 1
+                self.assertEqual(script[match.start() - 2:match.start()], "@(", name)
+        self.assertEqual(uses, 3)
+
     def test_window_check_looks_at_local_processes_only_and_saves_closed(self):
         signed.note_sign_in_window(self.root, True, opened=True, at="2026-10-14T10:00:00+00:00")
         with self.installed():
@@ -161,8 +176,8 @@ class SignedInBrowserTests(unittest.TestCase):
         self.assertFalse(closed["open"]); self.assertEqual(closed["last_opened_at"], "2026-10-14T10:00:00+00:00")
         script, request = decoded(self.commands[-1])
         self.assertIn("Get-CimInstance Win32_Process", script)
-        self.assertIn("window=((Get-SignInWindow $request.profile).Count -gt 0)", script)
-        self.assertLess(script.index("if($request.close_leftovers){Close-Leftovers"), script.index("window=((Get-SignInWindow"))
+        self.assertIn("window=(@(Get-SignInWindow $request.profile).Count -gt 0)", script)
+        self.assertLess(script.index("if($request.close_leftovers){Close-Leftovers"), script.index("window=(@(Get-SignInWindow"))
         self.assertNotIn("Start-Process", script); self.assertNotIn("http", script.lower().replace("https://", ""))
         self.assertEqual(request, {"profile": PROFILE, "close_leftovers": True})
         for bad in ("[]", json.dumps({"window": "yes"})):

@@ -235,7 +235,7 @@ SIGNED_IN_START = r"""
      -not @(Get-Process -Name explorer -ErrorAction SilentlyContinue|Where-Object {$_.SessionId -eq $session}).Count){$wait='OWNER_DESKTOP_UNAVAILABLE';throw 'wait'}
 CLOSE_LEFTOVERS
   Close-Leftovers $request.profile $deadline
-  if((Get-SignInWindow $request.profile).Count){$result.sign_in_window_open=$true;$wait='OWNER_SIGN_IN_WINDOW_OPEN';throw 'wait'}
+  if(@(Get-SignInWindow $request.profile).Count){$result.sign_in_window_open=$true;$wait='OWNER_SIGN_IN_WINDOW_OPEN';throw 'wait'}
   $result.sign_in_window_open=$false
   $portFile=Join-Path $request.profile 'DevToolsActivePort'
   Remove-Item -LiteralPath $portFile -Force -ErrorAction SilentlyContinue
