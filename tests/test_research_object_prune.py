@@ -15,7 +15,7 @@ from product_radar import research_object_prune as prune
 from product_radar import research_segments as segments
 from product_radar import runtime_storage
 from product_radar import store_housekeeping as housekeeping
-from product_radar.models import SafetyError
+from product_radar.models import SafetyError, timestamp
 from product_radar.research_memory import ResearchMemory
 from product_radar.storage import Journal, atomic_json, load_json
 
@@ -278,7 +278,10 @@ class StoreHousekeepingTests(_Store, unittest.TestCase):
         path.write_text(json.dumps(value))
 
     def test_once_a_day_with_settings_and_nothing_without(self):
-        self.grow(10); self.memory.migrate_segments(); self.grow(10, "second"); self.age_all()
+        # The pages are two hours older than this test's own "now" (16 October, 12:00 UTC), whatever
+        # the real clock says: aged from the real time, they were too young once that day passed 14:00.
+        aged = int(time.time() - timestamp("2026-10-16T12:00:00+00:00").timestamp()) + 7200
+        self.grow(10); self.memory.migrate_segments(); self.grow(10, "second"); self.age_all(aged)
         self.assertIsNone(housekeeping.run_due_store_housekeeping(self.memory, root=self.root))
         self.configure()
         first = housekeeping.run_due_store_housekeeping(self.memory, root=self.root, now="2026-10-16T12:00:00+00:00")
