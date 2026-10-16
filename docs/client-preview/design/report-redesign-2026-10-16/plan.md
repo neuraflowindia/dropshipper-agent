@@ -2,7 +2,16 @@
 
 **Project stage:** Development and testing (confirmed 13 October 2026, `docs/project/pj-brief.md`). No client has received a live report, so the new layout simply replaces the old one in place: no side-by-side versions, no migration of old report stages.
 
-**Status of this document:** design direction and mock-up for the owner to approve. **Nothing in production code, configuration or tests has been changed.** The production build starts only after the owner approves the direction and answers the open choices in section 14.
+**Status of this document:** **built** (16 October 2026, branch `redesign`; implementation record [R14](../../../operations/implementation_2026-10-11.md#r14-report-redesign-built-16-october)). The owner approved the direction and every recommended option in section 14 on 16 October 2026; the phone edition (choice 7) stays a later second phase. Production renders of a synthetic fixture issue printed by the production engine are in `production-renders/`. Sections 1–16 below remain the specification; the build differs from them only as follows:
+
+1. **Chart data (choice 4).** The Trends weekly series, the advertisers' first-ad start dates and the platform summary are not stored a second time: they are read at render time from the exact originals the score read, which every current packet already freezes and re-checks (`functional_market_proof`), and each is cross-checked against the score's own figures. Only the one fact the proof lacks is new: `quick_commerce_checks` (which places each app was asked in the score's seven days), frozen with the selection and validated.
+2. **Compliance (choice 5a)** is computed by a fixed code rule from frozen facts (Baby Products category plus fixed word lists in the accepted type wording), not stored. Word-list classes say "May count as …", because a word match is not proof of the class.
+3. **Extra photos (choice 6).** Not built: a packet holds exactly one checked photo per type (its asset receipt has one product photo per type), so there is nothing to show as thumbnails; adding them needs a new photo-selection and receipt contract.
+4. **Prices (section 10.4).** Current packets carry no price list (their prices are the quotes on the example listings), so page two shows "Prices seen on example listings" (shops and platforms, supplier listings as leads; up to six, the rest in the workbook). Packets with price facts keep the retail and supplier columns.
+5. **Supplier leads (section 10.5).** No city or platform is saved for a lead, so each row shows the site and the review date; the dispatch column uses the combined single-piece order + dispatch flag (as the workbook does), and the full code-owned stated terms follow under the row. Leads whose terms differ by offer are full-width paragraphs whose table head repeats the product's name if they run onto another page. Products with such long leads may take a third page (the section 11 overflow rule); page one never runs over.
+6. **Writing budgets (choice 3)** apply to the reason, points, update sentence and checklist phrases. "Keep in mind" is the code-owned limitation that the writer must copy exactly, so it keeps its own limit.
+7. **Market checks.** Route status rows stay in the workbook's Evidence sheet, as section 15 specifies; packets without the score (older test formats) show them on page two with a "Not scored" state.
+8. **Fonts (choice 1).** Both fonts declare Reserved Font Names, so the subset files were renamed inside to NF Serif / NF Sans (`assets/fonts/README.md`).
 
 **What is in this folder**
 
@@ -12,6 +21,7 @@
 | `mockup-en.html` / `mockup-en.pdf` | Full English mock-up, 10 A4 pages: cover, at a glance, how to read, three products (two pages each), method and notes |
 | `mockup-hi-Latn.html` / `mockup-hi-Latn.pdf` | Roman Hinglish mock-up, 4 pages: cover, at a glance, one product (the longest-text case: compliance flag + updated) |
 | `renders/` | 42 PNG previews: every A4 page (`*-a4-page-NN.png`), the HTML at 390 px phone width (`*-phone-390px-part-NN.png`), the A4 PDF as a phone shows it fitted to width and at 2× zoom (`*-pdf-on-phone-*.png`), and a greyscale check (`en-greyscale-check-pages-02-09.png`) |
+| `production-renders/` | The built report: every A4 page of a synthetic ten-product fixture issue in English and Roman Hinglish, printed by the production code and engine (`build_production_renders.py`), plus a greyscale check |
 | `source/` | Everything needed to rebuild the mock-up: `sample_data.py`, `copy_text.py`, `components.py` (all charts), `build_mockup.py` (pages + stylesheet), `render_previews.py` (PDF + PNG), `assets/fonts` (9 subset font files + both OFL licences), `assets/images` (NeuraFlow’s own illustrative still lifes from the August preview + logo) |
 
 Rebuild: `python source/build_mockup.py && python source/render_previews.py` with the project venv (PyMuPDF, Pillow, Playwright).

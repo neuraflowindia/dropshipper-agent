@@ -24,12 +24,12 @@ Each topic has one main home. Other documents link to it rather than repeat its 
 | Agreed programme after the owner's 14 October decisions (sources, crowding check, product map, spend watch): build state per package, the lead's build decisions and what waits for the ranking design | [Plan R10](project/plan-2026-10-14-speed-sources-and-selection.md) |
 | Indian dropshipping platforms (DeoDap, BaapStore, Dropdash; Dropship India dropped 15 October): research behind the built platform routes; paid search services set aside | [Platform research](research/sources/2026-10-14_dropshipping_platforms_and_search_services.md) |
 | Plain-language explanation of how the program works | [How it works](project/how-it-works.md) |
-| Proposed client-report redesign (plan, high-fidelity mock-ups and renders, waiting for owner approval; not built) | [Report redesign, 16 October](client-preview/design/report-redesign-2026-10-16/plan.md) |
+| Client-report redesign (approved and built 16 October; plan, mock-ups, production renders and the build's differences from the plan) | [Report redesign, 16 October](client-preview/design/report-redesign-2026-10-16/plan.md) |
 | Agreed programme of 16 October: second fresh start, year-long product map, long-run durability | [Plan R11](project/plan-2026-10-16-fresh-start-and-year-long-research.md) |
 
 ## Scope and precedence
 
-The approved work covers the connected nonvisual application, including two actual updated bilingual private report sets. Visual redesign, client publication and local/hosted release gates remain outside the present work. The [project tracker](project/pj-tracker.md#scope-and-remaining-work) records the current boundary.
+The approved work covers the connected application, including two actual updated bilingual private report sets in the redesigned layout (approved 16 October). Client publication and local/hosted release gates remain outside the present work. The [project tracker](project/pj-tracker.md#scope-and-remaining-work) records the current boundary.
 
 Use the product contract for requirements, the specification for mechanisms, and dated receipts for proof. A plan, passing code check, loaded change, completed research result, private download and client publication are different outcomes. Historical review/checkpoint documents do not override later accepted decisions or establish current running state.
 
