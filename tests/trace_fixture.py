@@ -51,7 +51,8 @@ def stage(acquisition_id, stage_type, recorded_at, **values):
 def crowding_fact(concept_id, level):
     from product_radar.crowding import FACT_KIND, VERSION, load_thresholds
     return {"kind": FACT_KIND, "version": VERSION, "thresholds_version": load_thresholds()["version"],
-            "concept_id": concept_id, "level": level, "rule": "test_rule", "assessed_at": T3}
+            "concept_id": concept_id, "level": level, "rule": "test_rule", "assessed_at": T3,
+            "reason": "CROWDING_CHECKED" if level != "not_checked" else "CROWDING_READS_PENDING"}
 
 
 def events():
@@ -73,7 +74,7 @@ def events():
               ("batch_runs", "wider-1", {"kind": "wider-discovery-read-v1", "route": "tradeindia",
                                          "lane": "supplier-listings", "state": "read", "candidates": 3}),
               ("observations", "obs-1", {"source": "meta", "source_item": "ad-1", "observed_at": T1, "semantic_id": "item-1", "capture_id": "cap-2",
-                                         "semantic": {"body": "Invented folding rack advert"}, "facts": {}}),
+                                         "semantic": {"body": "\u200b\nInvented folding\n rack advert"}, "facts": {}}),
               ("observations", "obs-2", {"source": "deodap", "source_item": "deodap-1", "observed_at": T1, "semantic_id": "item-2", "capture_id": "cap-1",
                                          "semantic": {"title": "Invented folding rack"},
                                          "facts": {"list_type": "dropship_discovery_list"}}),
@@ -160,6 +161,7 @@ def events():
         (T3, [("query_tasks", "task-1", {**task("amazon-search", "marketplace", "acquired", "MARKETPLACE_CARDS_OBSERVED", [A],
                                                 {A: {"state": "interpretation_pending"}}), "dispatched_at": T2}),
               ("batch_runs", "crowding-1", crowding_fact(A, "high")),
+              ("batch_runs", "crowding-2", crowding_fact(C, "not_checked")),
               ("source_checks", "image-1", {"kind": "public_product_image", "state": "usable", "concept_id": A,
                                             "reason": "Saved."}),
               ("source_checks", "image-2", {"kind": "public_product_image", "state": "failed", "concept_id": B,

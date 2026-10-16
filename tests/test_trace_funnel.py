@@ -147,7 +147,8 @@ class TraceFunnelTest(unittest.TestCase):
         self.assertEqual(rows(step, "Answers from Meta"), {"completed_no_results": 1})
 
     def test_crowding_scores_labels_codes(self):
-        self.assertEqual(by_key(self.steps["crowding"])["high"], 1)
+        self.assertEqual((by_key(self.steps["crowding"])["high"], by_key(self.steps["crowding"])["not_checked"]), (1, 1))
+        self.assertEqual(rows(self.steps["crowding"], "Why a type is not rated"), {"CROWDING_READS_PENDING": 1})
         scores = by_key(self.steps["scores"])
         self.assertEqual(scores["scored"], 2)
         self.assertEqual(scores["want"], "1 of 2 / 4.0")
@@ -172,7 +173,7 @@ class TraceFunnelTest(unittest.TestCase):
         self.assertEqual((first["raw_results"], first["product_types_created"], first["questions_created"]), (3, 4, 10))
         self.assertEqual((first["questions_answered"], first["website_reads_sent"], first["headings_first_searched"]),
                          (3, 3, 3))
-        self.assertEqual((first["crowding_results"], first["photos_saved"], first["definitions_accepted"]), (1, 1, 1))
+        self.assertEqual((first["crowding_results"], first["photos_saved"], first["definitions_accepted"]), (2, 1, 1))
         self.assertEqual((first["ai_jobs_finished"], second["ai_jobs_finished"]), (1, 1))
         self.assertEqual((first["rounds_finished"], second["rounds_finished"]), (1, 1))
 

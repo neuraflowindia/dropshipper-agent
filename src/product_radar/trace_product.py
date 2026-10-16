@@ -58,6 +58,12 @@ def _dict(value):
     return value if isinstance(value, dict) else {}
 
 
+def _one_line(text):
+    """A listing title on one short line (ad texts carry line breaks and invisible marks)."""
+    cleaned = " ".join(str(text or "").replace("\u200b", " ").replace("\ufeff", " ").split())
+    return cleaned[:TITLE_LIMIT]
+
+
 def _mentions(value, concept_id):
     return concept_id in json.dumps(value, ensure_ascii=False)
 
@@ -89,8 +95,8 @@ def _origin(store, concept_id):
         listings.append({"observation_id": observation_id, "semantic_id": row.get("semantic_id"),
                          "created_type": row.get("semantic_id") == creator, "source": row.get("source"),
                          "observed_at": row.get("observed_at"), "saved_at": store.first_at("observations", observation_id),
-                         "title": str(_dict(row.get("semantic")).get("title") or _dict(row.get("semantic")).get("body")
-                                      or "")[:TITLE_LIMIT], "list_type": facts.get("list_type"),
+                         "title": _one_line(_dict(row.get("semantic")).get("title") or _dict(row.get("semantic")).get("body")),
+                         "list_type": facts.get("list_type"),
                          "search_words": facts.get("query") or request.get("term") or request.get("query") or heading.get("query"),
                          "lane": request.get("lane"), "heading": heading.get("family_id"),
                          "heading_category": heading.get("category")})
@@ -178,7 +184,8 @@ def journey(store, judged, concept_id):
             "origin": _origin(store, concept_id), "ai_jobs": _jobs(store, concept_id, related),
             "checklist": checklist, "checklist_meets": fact.get("kpi_matches"), "checklist_total": fact.get("kpi_total"),
             "questions": _questions(store, concept_id),
-            "crowding": [{"level": row.get("level"), "rule": row.get("rule"), "assessed_at": row.get("assessed_at")}
+            "crowding": [{"level": row.get("level"), "rule": row.get("rule"), "reason": row.get("reason"),
+                          "assessed_at": row.get("assessed_at")}
                          for row in crowding],
             "supplier": {name: fact.get(name) for name in ("supplier_search_status", "supplier_leads_checked",
                                                            "supplier_leads_found", "supplier_limitation")},

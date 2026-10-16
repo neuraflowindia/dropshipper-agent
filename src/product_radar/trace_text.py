@@ -276,7 +276,8 @@ def product_text(report):
             out.append(f"        {when(change['at'])}  -> {words.state(change['status'])}: {words.reason(change['reason'])}")
     out.append("")
     for row in report["crowding"]:
-        out.append(f"Crowding: {row['level']} (rule {row['rule']}, checked {when(row['assessed_at'])})")
+        out.append(f"Crowding: {row['level']} ({words.reason(row.get('reason'))}; rule {row['rule']}, "
+                   f"checked {when(row['assessed_at'])})")
     supplier = report["supplier"]
     out.append(f"Supplier search: {supplier['supplier_search_status']}; leads found {number(supplier['supplier_leads_found'])},"
                f" checked {number(supplier['supplier_leads_checked'])}")

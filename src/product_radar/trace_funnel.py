@@ -491,8 +491,12 @@ def crowding_step(store):
     except (SafetyError, KeyError, TypeError, ValueError) as error:
         return step("crowding", "11. Amazon/Flipkart crowding level", notes=[
             "Could not read: " + words.reason(str(error) if isinstance(error, SafetyError) else type(error).__name__)])
+    from .crowding import FACT_KIND
+    unrated = Counter(row.get("reason") for row in store.state["batch_runs"].values()
+                      if row.get("kind") == FACT_KIND and row.get("level") == "not_checked")
     return step("crowding", "11. Amazon/Flipkart crowding level", counts=[
         entry(level, f"{level.replace('_', ' ').capitalize()}", count) for level, count in summary["levels"].items()],
+        tables=[table("Why a type is not rated yet (saved crowding results)", unrated)],
         notes=[summary["text"]] + ([summary["alert"]] if summary.get("alert") else []))
 
 

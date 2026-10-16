@@ -121,6 +121,10 @@ REASONS = {
     "KeyboardInterrupt": "Stopped by the owner (Stop button)",
     "AttributeError": "Program error (a bug)",
     "SafetyError": "Program safety check stopped this step",
+    "CROWDING_CHECKED": "Rated from the saved Amazon/Flipkart results",
+    "CROWDING_READS_PENDING": "Not rated yet: the Amazon/Flipkart reads for this type are not all done",
+    "CROWDING_SAVED_PAGE_UNREADABLE": "Not rated yet: a saved Amazon/Flipkart page could not be read",
+    "CROWDING_MEANING_PENDING": "Not rated yet: which Amazon/Flipkart results match this type is not settled",
     # Pool decisions (why a product type is not report-ready).
     "crowding_pending": "Waiting for the Amazon/Flipkart crowding check",
     "demand_too_quiet": "Too quiet: fewer than 5 of 20 'want' points (ads, searches, lists, stock)",

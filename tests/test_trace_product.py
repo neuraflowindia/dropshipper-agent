@@ -49,7 +49,7 @@ class TraceProductTest(unittest.TestCase):
         self.assertEqual([change["status"] for change in questions["task-1"]["changes"]],
                          ["prepared", "dispatching", "acquired"])
         self.assertEqual(questions["task-1"]["answer_for_this_type"], "interpretation_pending")
-        self.assertEqual(report["crowding"][0]["level"], "high")
+        self.assertEqual((report["crowding"][0]["level"], report["crowding"][0]["reason"]), ("high", "CROWDING_CHECKED"))
         self.assertEqual(report["supplier"]["supplier_leads_found"], 1)
         self.assertEqual((report["score"]["total"], report["score"]["label"]), (52, "sweet_spot"))
         self.assertEqual(report["score"]["parts"]["room"]["points"], 25)
