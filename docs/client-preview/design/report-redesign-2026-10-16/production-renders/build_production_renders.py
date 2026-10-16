@@ -7,7 +7,11 @@ names, drawn placeholder images, no research data), renders both language
 editions with ``live_outputs.render_html`` and prints them with
 ``scripts/render_live_pdf.py`` (native Windows Chrome via PowerShell, the same
 flags and the same PDF inspection as production). Saves every page as a PNG
-next to this script plus a greyscale check, and prints the page map.
+next to this script plus a greyscale check, and prints the page map. A stress
+edition of each language (the title at its 100-character limit, every writing
+slot at its budget, the updated type also compliance-flagged; printed with
+``report_view.render_document``, never a deliverable) is printed too: its cover
+and the hardest page one (flagged and updated) are saved as ``*-stress-*.png``.
 
 Usage, from the repository root with the project venv:
     PYTHONPATH=src:tests python docs/client-preview/design/report-redesign-2026-10-16/production-renders/build_production_renders.py
@@ -26,8 +30,10 @@ import fitz  # noqa: E402
 from PIL import Image, ImageOps  # noqa: E402
 
 import render_live_pdf  # noqa: E402
+from product_radar import live_outputs  # noqa: E402
 from product_radar.live_outputs import render_html  # noqa: E402
-from report_redesign_fixture import rich_issue  # noqa: E402
+from product_radar.report_view import render_document  # noqa: E402
+from report_redesign_fixture import rich_issue, stress_edition  # noqa: E402
 from test_report_redesign_chrome import product_spans  # noqa: E402
 
 DPI = 110
@@ -64,6 +70,21 @@ def main():
                     page.get_pixmap(dpi=DPI).save(path)
             if "--keep-html" in sys.argv:
                 shutil.copy(html, HERE / f"report-{language}.html")
+            root = folder / "fixture"
+            stressed, narrative = stress_edition(dataset, language)
+            stress = folder / f"stress-{language}.html"
+            stress.write_text(render_document(issue, stressed, narrative, language,
+                                              logo=live_outputs._owned_asset(dataset, "brand-logo", root=root),
+                                              images=[live_outputs._owned_asset(dataset, p["concept_id"], root=root)
+                                                      for p in dataset["products"]]), encoding="utf-8")
+            result = render_live_pdf.render(stress, folder / f"stress-{language}.pdf", timeout=120)
+            with fitz.open(result["path"]) as document:
+                spans = product_spans(document)
+                updated = next(n for n, product in enumerate(stressed["products"]) if product["status"] == "Updated")
+                print(language, "stress pages:", len(document), "product spans:", [pages for _, pages in spans])
+                document[0].get_pixmap(dpi=DPI).save(HERE / f"{language}-stress-cover-100-character-title.png")
+                document[spans[updated][0]].get_pixmap(dpi=DPI).save(
+                    HERE / f"{language}-stress-page-one-flagged-updated-at-budgets.png")
         grey = [ImageOps.grayscale(Image.open(HERE / f"en-a4-page-{n:02d}.png")) for n in grey_pages]
         sheet = Image.new("L", (grey[0].width * 2 + 10, grey[0].height), 128)
         sheet.paste(grey[0], (0, 0))
