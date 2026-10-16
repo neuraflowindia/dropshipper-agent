@@ -815,6 +815,7 @@ def _functional_facts(state, product, assessment, suppliers, as_of, route_covera
     from .frozen_records import freeze_original_json
     from .market_validation import functional_market_context, functional_score_support, freeze_functional_market
     from .fit_description import FUNCTIONAL_INFERENCE_KIND
+    from .report_visuals import quick_commerce_checks, validate_quick_commerce_checks
     cid = product["id"]
     block = freeze_functional_examples(state, cid, as_of=as_of)
     context = functional_market_context(state, cid, as_of=as_of)
@@ -871,6 +872,7 @@ def _functional_facts(state, product, assessment, suppliers, as_of, route_covera
         "functional_fit_proof": deepcopy(assessment["functional_proof"]), "functional_fit_proof_hash": assessment["functional_proof_hash"],
         "functional_fit_reference_proofs": _freeze_fit_references(state, assessment),
         "functional_market_contract": context["contract"], "functional_market_proof": freeze_functional_market(state, context, as_of=as_of),
+        "quick_commerce_checks": quick_commerce_checks(state, cid, as_of=as_of),
         "source_route_contract": FUNCTIONAL_SOURCE_ROUTE_CONTRACT, "source_route_checks": routes,
         "functional_route_proof": freeze_functional_route_proof(state, cid, as_of=as_of),
         "supplier_terms_display_version": SUPPLIER_TERMS_DISPLAY_VERSION, **block,
@@ -880,6 +882,7 @@ def _functional_facts(state, product, assessment, suppliers, as_of, route_covera
     validate_frozen_functional_fit(fact)
     from .market_validation import validate_frozen_functional_market
     validate_frozen_functional_market(fact)
+    validate_quick_commerce_checks(fact["quick_commerce_checks"])
     validate_frozen_functional_photo(fact)
     validate_functional_route_proof(fact)
     return fact

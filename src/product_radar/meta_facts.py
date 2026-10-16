@@ -152,17 +152,17 @@ def meta_state(ads, conflicts=()):
     return "Positive" if positive else "Not-positive" if complete else "Insufficient"
 
 
-def depth_facts(ads):
-    """Deeper Meta facts over valid relevant ads (no conflict).
+def advertiser_firsts(ads):
+    """Each counted advertiser's earliest relevant ad: its start, its observation
+    and whether it started at most 30 days before that observation.
 
-    ``recent_start_advertisers``: advertisers whose earliest relevant ad had
-    started at most 30 days before that ad was observed. It is measured at
-    observation, so it does not drift day by day. An advertiser with any
-    undated relevant ad is not counted, and while unlinked page addresses
-    might repeat unlinked page IDs only groups with a page ID count.
+    These are exactly the advertisers ``depth_facts`` counts for
+    ``recent_start_advertisers`` (the report's advertiser timeline draws them):
+    an advertiser with any undated relevant ad is left out, and while unlinked
+    page addresses might repeat unlinked page IDs only groups with a page ID count.
     """
-    groups, ambiguous, advertisers = advertiser_groups(ads)
-    recent = None
+    groups, ambiguous, _ = advertiser_groups(ads)
+    firsts = []
     for group in groups:
         if ambiguous and all(_address(name) for name in group):
             continue
@@ -172,7 +172,23 @@ def depth_facts(ads):
         # Ties (the same start) go to the earliest observation, then the id: the portal mirrors this.
         first = min(own, key=lambda ad: (timestamp(ad["started_at"]), timestamp(ad["observed_at"]), ad["id"]))
         age = timestamp(first["observed_at"]) - timestamp(first["started_at"])
-        recent = (recent or 0) + int(timedelta(0) <= age <= timedelta(days=RECENT_START_DAYS))
+        firsts.append({"started_at": first["started_at"], "observed_at": first["observed_at"],
+                       "recent": timedelta(0) <= age <= timedelta(days=RECENT_START_DAYS)})
+    return sorted(firsts, key=lambda row: (timestamp(row["started_at"]), timestamp(row["observed_at"])))
+
+
+def depth_facts(ads):
+    """Deeper Meta facts over valid relevant ads (no conflict).
+
+    ``recent_start_advertisers``: advertisers whose earliest relevant ad had
+    started at most 30 days before that ad was observed. It is measured at
+    observation, so it does not drift day by day. An advertiser with any
+    undated relevant ad is not counted, and while unlinked page addresses
+    might repeat unlinked page IDs only groups with a page ID count.
+    """
+    _, _, advertisers = advertiser_groups(ads)
+    firsts = advertiser_firsts(ads)
+    recent = sum(row["recent"] for row in firsts) if firsts else None
     dated = [ad["started_at"] for ad in ads if ad["started_at"] is not None]
     return {"version": FACTS_VERSION, "relevant_ads": len(ads), "advertisers": advertisers,
             "active_ads": sum(ad["active"] is True for ad in ads),
