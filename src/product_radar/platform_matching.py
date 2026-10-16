@@ -134,7 +134,17 @@ def _semantic(route, item):
 
 
 def item_facts(route, item, *, list_type, query=None, match=None):
-    """Observation facts for one platform item (supplier/presence context only)."""
+    """Observation facts for one platform item (supplier/presence context only).
+
+    A platform that shows how many units an item sold (Dropdash: "5K+") adds
+    ``units_sold``: an extra demand hint kept with the facts, never score points."""
+    facts = _item_facts(route, item, list_type=list_type, query=query, match=match)
+    if item.get("units_sold"):
+        facts["units_sold"] = item["units_sold"]
+    return facts
+
+
+def _item_facts(route, item, *, list_type, query=None, match=None):
     return {"source_route": route, "platform": LABELS[route], "item_id": item["item_id"], "url": item["url"],
             "list_type": list_type, "query": query,
             "price": {"amount": item["price"], "currency": "INR", "basis": item["price_basis"]} if item["price"] else None,

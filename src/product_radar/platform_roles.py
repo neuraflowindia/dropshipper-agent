@@ -106,6 +106,15 @@ def _item_view(item_id, review, catalogue):
                       "last_seen_at": facts["last_seen_at"], "terms": facts.get("terms"), "title": review["title"]}
     roles = {role: {"first_seen_at": dates["first_seen_at"], "last_seen_at": dates["last_seen_at"]}
              for role, dates in sorted(source["roles"].items())}
+    view = _view(item_id, review, item, source, roles)
+    # Dropdash's "units sold" range: a demand hint shown with the item, never score points.
+    sold = (item or {}).get("units_sold") or facts.get("units_sold")
+    if sold:
+        view["units_sold"] = sold
+    return view
+
+
+def _view(item_id, review, item, source, roles):
     return {"item_id": item_id, "title": source["title"], "url": source["url"], "listed": item is not None,
             "observation_id": review["observation_id"], "relationship": review["relationship"],
             "review_id": review["review_id"], "roles": roles,
@@ -217,7 +226,9 @@ def current_platform_presence(state, concept_id):
     first_seen_at, last_seen_at}}}``; each item has ``item_id, title, url,
     listed, observation_id, relationship, review_id, roles {role:
     {first_seen_at, last_seen_at}}, on_list, new_arrival, price, mrp,
-    price_basis, in_stock, terms, first_seen_at, last_seen_at``. A platform's
+    price_basis, in_stock, terms, first_seen_at, last_seen_at`` and, where the
+    platform shows it (Dropdash), ``units_sold`` (its range, "5K+"; a demand
+    hint, never score points). A platform's
     ``state`` is relevant / relevant_delisted / review_pending /
     no_relevant_items (whole feed) / no_relevant_items_in_sample (a sampled
     signed-in catalogue) / not_checked.

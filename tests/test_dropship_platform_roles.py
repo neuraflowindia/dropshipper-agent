@@ -315,12 +315,20 @@ class PresenceTests(RolesCase):
         self.assertFalse(deodap["on_new_arrivals"])
         self.assertEqual(deodap["links"], [deodap["items"][0]["url"]])
         self.assertEqual(deodap["items"][0]["terms"], roles.NOT_STATED)
+        self.assertNotIn("units_sold", deodap["items"][0])  # DeoDap shows no units sold: its fact is unchanged
         self.assertEqual(deodap["items"][0]["first_seen_at"], deodap["first_seen_at"])
         self.assertGreaterEqual(deodap["items"][0]["roles"]["bestseller"]["first_seen_at"], deodap["first_seen_at"])
         self.assertEqual(value["platforms"]["baapstore"]["state"], "not_checked")
         self.review(self.matched("888"), relationship="unrelated")
         value = roles.platform_presence(self.memory.snapshot(), self.cid, root=self.memory.root, as_of=AT)
         self.assertEqual(value["platforms"]["deodap"]["pending_review"], 0)
+        # A platform that shows its units sold (Dropdash's "5K+") carries the range with the item: a demand
+        # hint, never list or score points.
+        catalogues = self.catalogues()
+        catalogues["deodap"]["items"]["777"]["units_sold"] = "5K+"
+        shown = roles.platform_presence(self.memory.snapshot(), self.cid, root=self.memory.root, as_of=AT, catalogues=catalogues)
+        self.assertEqual(shown["platforms"]["deodap"]["items"][0]["units_sold"], "5K+")
+        self.assertEqual((shown["on_list_platforms"], shown["platforms"]["deodap"]["list_roles"]), (["deodap"], ["bestseller"]))
         # Relevant but no longer listed is not "relevant".
         catalogues = self.catalogues()
         del catalogues["deodap"]["items"]["777"]

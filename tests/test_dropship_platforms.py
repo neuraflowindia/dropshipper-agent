@@ -180,14 +180,27 @@ class SettingsTests(unittest.TestCase):
             lambda v: v["platforms"]["dropdash"].update(product_path="(unclosed"),
             # Sales sections: a list of the platform's own category addresses, each named once.
             lambda v: v["platforms"]["dropdash"].pop("sales_sections"),
-            lambda v: v["platforms"]["dropdash"].update(sales_sections=WINNING),
+            lambda v: v["platforms"]["dropdash"].update(sales_sections=PROFITABLE),
             lambda v: v["platforms"]["dropdash"].update(sales_sections=["https://elsewhere.example/products?categoryId=1"]),
-            lambda v: v["platforms"]["dropdash"].update(sales_sections=[WINNING, WINNING]),
-            lambda v: v["platforms"]["dropdash"].update(sales_sections=[WINNING + "#top"]),
-            lambda v: v["platforms"]["dropdash"].update(sales_sections=[WINNING + " x"]),
+            lambda v: v["platforms"]["dropdash"].update(sales_sections=[PROFITABLE, PROFITABLE]),
+            lambda v: v["platforms"]["dropdash"].update(sales_sections=[PROFITABLE + "#top"]),
+            lambda v: v["platforms"]["dropdash"].update(sales_sections=[PROFITABLE + " x"]),
             lambda v: v["platforms"]["dropdash"].update(sales_sections=[7]),
-            lambda v: v["platforms"]["dropdash"].update(sales_sections=[{"url": WINNING}]),
+            lambda v: v["platforms"]["dropdash"].update(sales_sections=[{"url": PROFITABLE}]),
             lambda v: v["platforms"]["deodap"].update(sales_sections=[]),
+            # The weekly category pages: an address anchored to the platform, read every 1-30 days.
+            lambda v: v["platforms"]["dropdash"].pop("category_path"),
+            lambda v: v["platforms"]["dropdash"].update(category_path=r"^https://elsewhere\.example/c\?id=([0-9]+)$"),
+            lambda v: v["platforms"]["dropdash"].update(category_path=r"https://app\.dropdash\.co/products\?categoryId=([0-9]+)"),
+            lambda v: v["platforms"]["dropdash"].update(category_path=r"^https://app\.dropdash\.co/c/([0-9]+)/([0-9]+)$"),
+            lambda v: v["platforms"]["dropdash"].update(category_refresh_days=0),
+            lambda v: v["platforms"]["dropdash"].update(category_refresh_days=31),
+            lambda v: v["platforms"]["dropdash"].update(category_refresh_days="7"),
+            lambda v: v["platforms"]["deodap"].update(category_path=r"^https://deodap\.in/c/([0-9]+)$"),
+            # A configured page is the catalogue, a role list or a plain list; never a category page.
+            lambda v: v["platforms"]["dropdash"]["pages"][1].update(role="category"),
+            lambda v: v["platforms"]["dropdash"]["pages"][1].update(role="plain"),
+            lambda v: v["platforms"]["deodap"]["lists"][0].update(role="list"),
         ]
         for change in changes:
             broken = deepcopy(value)
@@ -200,6 +213,23 @@ class SettingsTests(unittest.TestCase):
         with self.assertRaisesRegex(SafetyError, "DROPSHIP_ROUTE_INVALID"):
             platforms.platform_settings("amazon-search")
 
+
+    def test_units_sold_ranges_are_kept_in_one_spelling_only_where_shown(self):
+        for shown, kept in (("5K+", "5K+"), ("100-500", "100-500"), ("1K-2K", "1K-2K"), ("2k - 4k", "2K-4K"),
+                            ("1.2K", "1.2K"), (" 10L+ ", "10L+"), ("97", "97")):
+            self.assertEqual(platforms.units_sold(shown), kept, shown)
+        for shown in ("97 units", "", None, 7, "5K++", "1-2-3", "Low", "x" * 21, "₹ 220"):
+            self.assertIsNone(platforms.units_sold(shown), shown)
+        row = {"item_id": "1", "title": "Sink caddy", "url": "https://deodap.in/products/sink-caddy"}
+        self.assertNotIn("units_sold", platforms.clean_item(row, price_basis="Feed price"))  # a feed's items are unchanged
+        self.assertEqual(platforms.clean_item(dict(row, units_sold="5k+"), price_basis="x")["units_sold"], "5K+")
+        self.assertNotIn("units_sold", platforms.clean_item(dict(row, units_sold="lots"), price_basis="x"))
+        # Facts carry it only when known, so saved feed facts stay byte for byte the same.
+        from product_radar.platform_matching import item_facts
+        item = dict(platforms.clean_item(row, price_basis="Feed price"), first_seen_at=START, last_seen_at=START,
+                    source_ref="raw/x", collections={}, roles={})
+        self.assertNotIn("units_sold", item_facts("deodap", item, list_type="catalogue"))
+        self.assertEqual(item_facts("dropdash", dict(item, units_sold="5K+"), list_type="catalogue")["units_sold"], "5K+")
 
     def test_product_address_patterns_are_anchored_and_read_alike_in_python_and_javascript(self):
         value = platforms.settings()
@@ -606,7 +636,8 @@ class FeedRefreshTests(PlatformCase):
 
 
 HOME = "https://app.dropdash.co/home"
-WINNING = "https://app.dropdash.co/products?categoryId=288"
+PROFITABLE = "https://app.dropdash.co/products?categoryId=288"  # "Profitable Products": a plain list
+LISTED = "page-list-products-categoryid-288"  # its items' membership handle
 PRODUCT = "https://app.dropdash.co/productDetails?id=13227&sellerId=1405"
 
 
@@ -659,6 +690,16 @@ class SignedInTests(PlatformCase):
         outcomes = [self.advance(self.reader(), self.route, clock=clock, limit=1) for _ in range(count)]
         return outcomes, clock
 
+    def categories_read(self, at=START):
+        """The weekly categories cycle counts as read at ``at`` (for tests of the other cycles)."""
+        platforms.platform_folder(self.store, self.route).mkdir(parents=True, exist_ok=True)
+        refresh = platforms.load_refresh(self.store, self.route)
+        refresh["completed"]["categories"] = {"started_at": at, "completed_at": at, "items": 0}
+        platforms._save_refresh(self.store, self.route, refresh)
+
+    def on_list(self, catalogue):
+        return sorted(item_id for item_id, item in catalogue["items"].items() if LISTED in item["collections"])
+
     def test_without_sign_in_the_platform_waits_calmly_and_nothing_is_opened(self):
         outcome = self.advance(self.reader(), self.route)
         self.assertEqual((outcome["state"], outcome["reason"]), ("waiting", "OWNER_SIGN_IN_REQUIRED"))
@@ -666,13 +707,14 @@ class SignedInTests(PlatformCase):
         self.assertEqual(self.calls, [])
         self.assertEqual(platforms.catalogue_wait(self.store, self.route), "OWNER_SIGN_IN_REQUIRED")
 
-    def test_signed_in_cycle_reads_the_home_page_the_winning_list_and_its_product_pages(self):
+    def test_signed_in_cycle_reads_the_home_page_the_profitable_list_and_its_product_pages(self):
         self.sign_in()
-        self.serve = {HOME: "home", WINNING: "category_288"}
+        self.categories_read()  # the weekly categories cycle has its own test
+        self.serve = {HOME: "home", PROFITABLE: "category_288"}
         outcomes, _ = self.run_reads(3)
         self.assertEqual([row["state"] for row in outcomes], ["reading", "reading", "current"])
         self.assertEqual(outcomes[-1]["reads"], 0)
-        self.assertEqual([call["url"] for call in self.calls], [HOME, WINNING])
+        self.assertEqual([call["url"] for call in self.calls], [HOME, PROFITABLE])
         self.assertTrue(all(call["options"] == {"profile": "signed-in", "root": self.pacing_root} for call in self.calls))
         self.assertTrue(all(call["expression"] == signed.expression(self.route) for call in self.calls))
         catalogue = platforms.load_catalogue(self.store, self.route)
@@ -684,28 +726,28 @@ class SignedInTests(PlatformCase):
                          ("Figure 8 Workout Resistance Band for Yoga (Pack of 1)",
                           "https://app.dropdash.co/productDetails?id=12344&sellerId=1627", "220", "249", True,
                           ["Testing Products"], {}))
+        self.assertEqual(band["units_sold"], "5K+")  # Dropdash's own units-sold range, kept as shown
         self.assertEqual(band["images"], ["https://sp-api.dropdash.co/upload/ProductImages/72dd30bc-443a-4ec5-bae0-485016c418c6.jpg"])
         self.assertEqual(band["price_basis"], platforms.platform_settings(self.route)["price_basis"])
         self.assertIs(catalogue["items"]["2644"]["in_stock"], False)  # its stock count is 0
         self.assertEqual((catalogue["items"]["2301"]["price"], catalogue["items"]["2301"]["mrp"]), ("385", None))  # no MRP shown
-        # The winning list ("Profitable Products"); its cards on the home page keep their section.
+        # "Profitable Products" is a plain product list (owner decision, 16 October 2026): its items keep
+        # their membership, and its cards on the home page their section, but never a list role.
         glue = catalogue["items"]["9240"]
-        self.assertEqual((glue["price"], glue["mrp"], sorted(glue["roles"]), glue["tags"]),
-                         ("101", "201", ["winning"], ["Profitable Products"]))
-        self.assertEqual(sorted(glue["collections"]), ["page-catalogue", "page-winning"])
+        self.assertEqual((glue["price"], glue["mrp"], glue["roles"], glue["tags"], glue["units_sold"]),
+                         ("101", "201", {}, ["Profitable Products"], "2K-4K"))
+        self.assertEqual(sorted(glue["collections"]), ["page-catalogue", LISTED])
         resin = catalogue["items"]["12607"]  # only on the list page
-        self.assertEqual((sorted(resin["roles"]), resin["tags"], resin["in_stock"]), (["winning"], [], True))
-        listed = sorted(item_id for item_id, item in catalogue["items"].items() if item["roles"])
+        self.assertEqual((resin["roles"], resin["tags"], resin["in_stock"]), ({}, [], True))
+        self.assertFalse(any(item["roles"] for item in catalogue["items"].values()))  # no list points, no role chip
+        listed = self.on_list(catalogue)
         self.assertEqual(listed, sorted(["9240", "9210", "9212", "9280", "9251", "9274", "12607", "9576"]))
-        # The home page's 21 category links less its "Testing Products" sales section, and the winning
-        # list's own page. "Profitable Products" is that list (its role); the home page is no category.
+        # The home page's 21 category links less its two sales sections ("Testing Products", and the
+        # plain "Profitable Products" list); the home page is no category and a plain list no collection.
         collections = {row["handle"]: row for row in catalogue["collections"]}
-        self.assertEqual(len(collections), 20 + 1)
-        self.assertEqual((collections["products-288"]["title"], collections["products-288"]["url"], collections["products-288"]["roles"]),
-                         ("Profitable Products", WINNING, ["winning"]))
-        self.assertEqual(collections["page-winning"]["roles"], ["winning"])
-        self.assertNotIn("page-catalogue", collections)
-        self.assertNotIn("products-282", collections)
+        self.assertEqual(len(collections), 19)
+        for handle in ("page-catalogue", "products-282", "products-288", LISTED, "page-winning"):
+            self.assertNotIn(handle, collections)
         self.assertEqual(collections["products-63"], {"handle": "products-63", "title": "Home Decor & Lighting",
                                                       "url": "https://app.dropdash.co/products?categoryId=63",
                                                       "products_count": None, "roles": [], "parent": None})
@@ -716,7 +758,7 @@ class SignedInTests(PlatformCase):
                   if row["key"].startswith("dropdash:collection:")]
         self.assertEqual(len(titles), 19)
         self.assertIn("Home Decor & Lighting", titles)
-        for title in ("Catalogue page", "Testing Products", "Profitable Products", "Winning page"):
+        for title in ("Catalogue page", "Testing Products", "Profitable Products", "Winning page", "List page"):
             self.assertNotIn(title, titles)
         self.assertEqual(site_states(self.pacing_root)[self.route]["state"], "signed_in")
         # The next day's lists cycle reads the list again, then each listed item's own product page.
@@ -724,26 +766,152 @@ class SignedInTests(PlatformCase):
         self.serve.update({url: "product_sparse" for url in product_pages})
         outcomes, _ = self.run_reads(10, start=later(START, 86400 + 300))
         self.assertEqual([row["state"] for row in outcomes], ["reading"] * 9 + ["current"])
-        self.assertEqual(self.calls[2]["url"], WINNING)
+        self.assertEqual(self.calls[2]["url"], PROFITABLE)
         self.assertEqual({call["url"] for call in self.calls[3:]}, product_pages)
         catalogue = platforms.load_catalogue(self.store, self.route)
         glue = catalogue["items"]["9240"]
-        # A product page that shows almost nothing leaves the card's title, price, stock and images in place.
-        self.assertEqual((glue["title"], glue["price"], glue["mrp"], glue["in_stock"], glue["terms"]),
-                         ("Invisible Waterproof Glue", "101", "201", True, None))
+        # A product page that shows almost nothing leaves the card's title, price, stock, units sold and images in place.
+        self.assertEqual((glue["title"], glue["price"], glue["mrp"], glue["in_stock"], glue["terms"], glue["units_sold"]),
+                         ("Invisible Waterproof Glue", "101", "201", True, None, "2K-4K"))
         self.assertEqual(len(glue["images"]), 1)
         self.assertIn("product-page", glue["collections"])
-        self.assertEqual(sorted(glue["roles"]), ["winning"])
+        self.assertEqual(glue["roles"], {})
         # A lists cycle reads only the list pages: the full cycle's category list stays whole,
         # also when the catalogue is rebuilt from the saved reads.
         self.assertEqual(catalogue["collections"], full_collections)
         self.assertEqual(platforms.replay_platform(self.store, self.route, self.reader())["collections"], full_collections)
         # A sampled catalogue never drops an item it did not see again.
         self.pages["home_short"] = dict(self.pages["home"], cards=self.pages["home"]["cards"][:6])
-        self.serve = {HOME: "home_short", WINNING: "category_288"}
-        self.run_reads(3, start=later(START, 8 * 86400))
-        self.assertEqual([call["url"] for call in self.calls[-2:]], [HOME, WINNING])
+        self.serve = {HOME: "home_short", PROFITABLE: "category_288"}
+        self.run_reads(2, start=later(START, 8 * 86400))
+        self.assertEqual([call["url"] for call in self.calls[-2:]], [HOME, PROFITABLE])
         self.assertIn("2301", platforms.load_catalogue(self.store, self.route)["items"])
+
+    def serve_categories(self):
+        """Each category page shows the "Profitable Products" page's cards (they move with the page)."""
+        for row in self.pages["home"]["categories"]:
+            self.pages["category-" + row["href"]] = dict(self.pages["category_288"], url=None)
+            self.serve.setdefault(row["href"], "category-" + row["href"])
+
+    def test_the_weekly_categories_cycle_reads_each_category_page_once(self):
+        # Owner decision 4 (16 October 2026): every category page the home page links to, once a week.
+        self.sign_in()
+        self.serve = {HOME: "home", PROFITABLE: "category_288"}
+        self.serve_categories()
+        outcomes, clock = self.run_reads(2)
+        self.assertEqual([call["url"] for call in self.calls], [HOME, PROFITABLE])
+        # The 19 real categories in the home page's order, then the "Testing Products" sales section;
+        # "Profitable Products" is read with the lists anyway, never twice.
+        plan = self.reader().plan_categories(platforms.platform_settings(self.route), platforms.load_catalogue(self.store, self.route))
+        expected = [row["href"] for row in self.pages["home"]["categories"] if not row["href"].endswith("=288")]
+        self.assertEqual([row["url"] for row in plan], expected[1:] + expected[:1])
+        self.assertEqual(len(plan), 20)
+        self.assertEqual((plan[0]["handle"], plan[0]["role"], plan[0]["title"], plan[-1]["handle"], plan[-1]["title"]),
+                         ("category-63", "category", "Home Decor & Lighting", "category-282", None))
+        # Once the full cycle (which also counts as the day's lists) is done: one paced read per round,
+        # saved as it goes, so a restart (a new reader) resumes the same cycle.
+        outcomes, clock = self.run_reads(5, start=later(START, 120))
+        self.assertEqual([row["state"] for row in outcomes], ["reading"] * 5)
+        refresh = platforms.load_refresh(self.store, self.route)
+        self.assertEqual((sorted(refresh["completed"]), refresh["cycle"]["kind"]), (["full", "lists"], "categories"))
+        self.assertEqual([call["url"] for call in self.calls[2:]], [row["url"] for row in plan[:5]])
+        outcomes, _ = self.run_reads(17, start=later(START, 600))
+        self.assertEqual([row["state"] for row in outcomes], ["reading"] * 15 + ["current"] * 2)
+        self.assertEqual([call["url"] for call in self.calls[2:]], [row["url"] for row in plan])
+        refresh = platforms.load_refresh(self.store, self.route)
+        self.assertIsNone(refresh["cycle"])
+        self.assertEqual(sorted(refresh["completed"]), ["categories", "full", "lists"])
+        catalogue = platforms.load_catalogue(self.store, self.route)
+        glue = catalogue["items"]["9240"]
+        self.assertIn("Home Decor & Lighting", glue["tags"])
+        self.assertIn("category-63", glue["collections"])
+        self.assertEqual(glue["roles"], {})  # a category page gives no list role
+        self.assertEqual(len(catalogue["collections"]), 19)  # the category list is the full cycle's alone
+        self.assertEqual(platforms.load_catalogue(self.store, self.route)["lists_completed_at"],
+                         refresh["completed"]["lists"]["completed_at"])  # category pages are no lists
+        # A rebuild from the saved reads (a new parser) keeps the category pages' tags and memberships.
+        rebuilt = platforms.replay_platform(self.store, self.route, self.reader())
+        self.assertEqual(rebuilt["items"]["9240"]["tags"], glue["tags"])
+        self.assertIn("category-63", rebuilt["items"]["9240"]["collections"])
+        # Not again for a week: the daily lists cycle comes first, then nothing.
+        count = len(self.calls)
+        outcomes, _ = self.run_reads(12, start=later(START, 2 * 86400))
+        self.assertEqual([row["state"] for row in outcomes][-1], "current")
+        self.assertEqual(self.calls[count]["url"], PROFITABLE)
+        self.assertNotIn("https://app.dropdash.co/products?categoryId=63", [call["url"] for call in self.calls[count:]])
+
+    def test_a_category_page_that_fails_is_skipped_for_the_week(self):
+        self.sign_in()
+        self.serve = {HOME: "home", PROFITABLE: "category_288"}
+        self.serve_categories()
+        self.pages["changed"] = dict(self.pages["unrecognised"], url=None)
+        self.serve["https://app.dropdash.co/products?categoryId=63"] = "changed"  # a changed layout (or an empty category)
+        self.serve["https://app.dropdash.co/products?categoryId=295"] = "home"  # it moved to the home page
+        outcomes, _ = self.run_reads(4)
+        # Neither is a failure of the platform (review finding, R15): no back-off, no failure count,
+        # no owner line; each is skipped for the week and the next category is read at the next turn.
+        self.assertEqual([(row["state"], row["reason"]) for row in outcomes[2:]],
+                         [("waiting", "DROPSHIP_PAGE_LAYOUT_UNRECOGNISED"), ("waiting", "DROPSHIP_PAGE_REDIRECTED")])
+        refresh = platforms.load_refresh(self.store, self.route)
+        self.assertEqual((refresh["cycle"]["kind"], len(refresh["cycle"]["queue"]), refresh["failures"], refresh["blocked_until"]),
+                         ("categories", 18, 0, None))
+        self.assertEqual(platforms.platform_lines(self.store), [])
+        # A wall is not the page's own: it waits as usual and the same page is asked again.
+        self.pages["walled"] = dict(self.pages["plan_wall"], url=None)
+        self.serve["https://app.dropdash.co/products?categoryId=293"] = "walled"
+        outcomes, _ = self.run_reads(1, start=later(START, 300))
+        refresh = platforms.load_refresh(self.store, self.route)
+        self.assertEqual((outcomes[0]["reason"], refresh["failures"], refresh["cycle"]["queue"][0]["url"]),
+                         ("DROPSHIP_PLAN_REQUIRED", 1, "https://app.dropdash.co/products?categoryId=293"))
+        self.serve["https://app.dropdash.co/products?categoryId=293"] = "category-https://app.dropdash.co/products?categoryId=293"
+        outcomes, _ = self.run_reads(35, start=later(START, 2 * 86400))  # the rest of the week's categories, then the day's lists
+        self.assertEqual(outcomes[-1]["state"], "current")
+        urls = [call["url"] for call in self.calls]
+        self.assertEqual((urls.count("https://app.dropdash.co/products?categoryId=63"),
+                          urls.count("https://app.dropdash.co/products?categoryId=295"),
+                          urls.count("https://app.dropdash.co/products?categoryId=293")), (1, 1, 2))
+        self.assertIn("categories", platforms.load_refresh(self.store, self.route)["completed"])
+
+    def test_the_owners_first_name_never_reaches_a_saved_page(self):
+        # Owner decision 7 (16 October 2026): Dropdash greets the account holder by name.
+        self.sign_in()
+        self.categories_read()
+        for name in ("home", "category_288"):
+            self.pages[name] = dict(self.pages[name], text=self.pages[name]["text"].replace("Research Owner", "Asha Verma"))
+        self.serve = {HOME: "home", PROFITABLE: "category_288"}
+
+        def greeting(url, expression, folder, **options):
+            result = self.browser(url, expression, folder, **options)
+            (folder / "native_result.json").write_text(json.dumps(result))  # as Chrome's own saved result
+            return result
+        reader = signed.SignedInReader(self.route, pacing_root=self.pacing_root, browser=greeting)
+        clock = Clock(START, 31)
+        for _ in range(2):
+            self.advance(reader, self.route, clock=clock, limit=1)
+        folder = platforms.platform_folder(self.store, self.route)
+        saved = [path.read_bytes() for path in folder.rglob("*") if path.is_file()]
+        saved += [__import__("gzip").decompress(path.read_bytes()) for path in folder.rglob("*.gz")]
+        self.assertTrue(saved)
+        self.assertFalse(any(b"Asha" in raw or b"Verma" in raw for raw in saved))
+        body = json.loads(platforms.load_raw(self.store, self.route, platforms.raw_files(self.store, self.route)[0])["body"])
+        self.assertIn("Welcome, [name removed]", body["text"])
+        self.assertNotIn("research.owner@example.com", body["text"])  # the account's identity, as before
+        # A product called "Welcome ..." keeps its name; only the greeting line itself is cleaned.
+        page = {"text": "B2B Marketplace\nWelcome, Asha\nWelcome Home Doormat\n" + "x" * 700 + "\nWelcome, Friends Kit",
+                "cards": [{"title": "Welcome, Friends Door Mat", "text": "Welcome, Friends Door Mat\n249"}]}
+        cleaned = signed.redact_page(page)
+        self.assertEqual(cleaned["text"].splitlines()[:3], ["B2B Marketplace", "Welcome, [name removed]", "Welcome Home Doormat"])
+        self.assertTrue(cleaned["text"].endswith("\nWelcome, Friends Kit"))  # below the header: a product's own text
+        self.assertEqual(cleaned["cards"], page["cards"])
+        self.assertEqual(signed.redact_page(cleaned), cleaned)  # cleaning again changes nothing
+        self.assertEqual(signed.redact_page({"text": "Welcome, Asha"}), {"text": "Welcome, Asha"})  # no page snapshot
+        split = signed.redact_page({"text": "B2B Marketplace\nWelcome,\nAsha Verma\n299", "cards": []})
+        self.assertEqual(split["text"], "B2B Marketplace\nWelcome, [name removed]\n299")  # the name on its own line
+        # A page saved before this change (with the name) is cleaned again whenever it is re-read.
+        old = {"receipt": {}, "body": json.dumps(dict(self.pages["category_288"], url=PROFITABLE,
+                                                     text="Welcome, Asha Verma\n" + self.pages["category_288"]["text"]))}
+        with patch("product_radar.platform_signed_in.parse_snapshot", side_effect=lambda route, request, snapshot: snapshot):
+            self.assertNotIn("Asha", json.dumps(self.reader().parse(page_request("list", PROFITABLE), old)))
 
     def test_a_product_page_gives_its_own_price_mrp_stock_and_stated_terms(self):
         page = self.pages["product_13227"]
@@ -753,6 +921,9 @@ class SignedInTests(PlatformCase):
                           "url": PRODUCT, "price": "240", "mrp": "299", "in_stock": True,
                           "terms": "Including GST and Shipping Charges; RTO Cost 70 per return; Delivery Rate Low; "
                                    "Dispatch in 24 hrs"})
+        self.assertEqual(item["units_sold"], "100-500")  # its own "Units Sold" line
+        sparse = dict(self.pages["product_sparse"], url=PRODUCT)
+        self.assertIsNone(signed.parse_snapshot(self.route, product_request(), sparse)["items"][0]["units_sold"])
         # The same product's home card shows the same figures.
         card = next(row for row in signed.parse_snapshot(self.route, page_request(), self.pages["home"])["items"]
                     if row["item_id"] == "13227")
@@ -810,7 +981,7 @@ class SignedInTests(PlatformCase):
         self.assertIn("[email redacted]", saved)
         raw = platforms.load_raw(self.store, self.route, platforms.raw_files(self.store, self.route)[0])
         self.assertNotIn("research.owner@example.com", raw["body"])
-        self.serve = {WINNING: "garbled"}
+        self.serve = {PROFITABLE: "garbled"}
         self.run_reads(1, start=later(START, 40))
         self.assertFalse((reads / "r000002" / "native_result.json").exists())
         self.assertEqual(len(list((reads / "signed-in-quarantine").iterdir())), 1)
@@ -819,7 +990,7 @@ class SignedInTests(PlatformCase):
         self.sign_in()
         self.serve = {HOME: "home"}
         self.run_reads(1)
-        self.serve = {WINNING: "wall"}
+        self.serve = {PROFITABLE: "wall"}
         outcomes, _ = self.run_reads(1, start=later(START, 40))
         self.assertEqual((outcomes[0]["state"], outcomes[0]["reason"]), ("waiting", "OWNER_SIGN_IN_REQUIRED"))
         self.assertEqual(site_states(self.pacing_root)[self.route]["state"], "expired")
@@ -925,15 +1096,19 @@ class SignedInTests(PlatformCase):
                     "https://app.dropdash.co/productDetails?id=0&sellerId=1405",
                     "https://app.dropdash.co/products",  # the guessed catalogue address: not a configured page
                     "https://app.dropdash.co/winning-products",
-                    "https://app.dropdash.co/products?categoryId=63",  # a category seen on the home page, not configured
+                    "https://app.dropdash.co/products?categoryId=0", "https://app.dropdash.co/products?categoryId=abc",
+                    "https://app.dropdash.co/products?categoryId=63&sort=new", "https://app.dropdash.co/products?sort=new&categoryId=63",
+                    "https://app.dropdash.co/products?categoryId=63#top", "https://app.dropdash.co/products/63",
                     "https://app.dropdash.co/products?categoryId=288&page=2",
                     "https://app.dropdash.co/home?page=2&plan=gold", "https://app.dropdash.co/home?sort=new",
                     "https://app.dropdash.co/home?page=0", "https://elsewhere.example/home",
                     "https://app.dropdash.co/home#top"):
             with self.subTest(url=url), self.assertRaisesRegex(SafetyError, "DROPSHIP_PAGE_NOT_READ_ONLY"):
                 signed.read_only_url(self.route, url)
-        for url in (HOME, WINNING, PRODUCT, "https://app.dropdash.co/home?page=2",
-                    "https://app.dropdash.co/productDetails?id=1&sellerId=999999999"):
+        for url in (HOME, PROFITABLE, PRODUCT, "https://app.dropdash.co/home?page=2",
+                    "https://app.dropdash.co/productDetails?id=1&sellerId=999999999",
+                    "https://app.dropdash.co/products?categoryId=63",  # a category page (read weekly)
+                    "https://app.dropdash.co/products?categoryId=282"):
             self.assertEqual(signed.read_only_url(self.route, url), url)
         # A next-page link to a forbidden step is simply not followed.
         parsed = signed.parse_snapshot(self.route, page_request(max_pages=5), self.pages["text_only_page_2"])
@@ -965,23 +1140,34 @@ class SignedInTests(PlatformCase):
                 else:
                     self.assertIsNone(row["mrp"])
                 self.assertEqual(row["badges"], [])  # discounts, units sold and stock are not list badges
+                self.assertEqual(row["units_sold"], card["sold"])  # "100-500", "1K-2K", "5K+": kept as an extra demand hint
         self.assertEqual(sorted({row["tags"][0] for row in home["items"]}),
                          ["Fitness & Wellness", "Men", "Profitable Products", "Religious & Spirituals", "Testing Products"])
-        # The home page is no category; its "Testing Products" sales section is left out (its cards keep
-        # it as a tag) and "Profitable Products", the configured winning list, is that list.
+        # The home page is no category; its "Testing Products" sales section and "Profitable Products", the
+        # configured plain list, are left out (their cards keep them as a tag).
         categories = home["collections"]
-        self.assertEqual(len(categories), 20)
-        self.assertEqual(categories[0], {"handle": "products-288", "title": "Profitable Products", "url": WINNING,
-                                         "products_count": None, "roles": ["winning"], "parent": None})
-        self.assertEqual(categories[1], {"handle": "products-63", "title": "Home Decor & Lighting",
+        self.assertEqual(len(categories), 19)
+        self.assertEqual(categories[0], {"handle": "products-63", "title": "Home Decor & Lighting",
                                          "url": "https://app.dropdash.co/products?categoryId=63", "products_count": None,
                                          "roles": [], "parent": None})
         self.assertNotIn("Testing Products", [row["title"] for row in categories])
-        self.assertEqual(home["follow"], [])
-        listed = signed.parse_snapshot(self.route, page_request("winning", WINNING), self.pages["category_288"])
-        self.assertEqual([(row["price"], row["mrp"], row["in_stock"], row["tags"]) for row in listed["items"]],
-                         [("101", "201", True, [])] * 8)
-        self.assertEqual((listed["collections"][0]["roles"], len(listed["collections"])), (["winning"], 1))
+        self.assertNotIn("Profitable Products", [row["title"] for row in categories])
+        self.assertEqual((home["follow"], home["role"]), ([], None))
+        listed = signed.parse_snapshot(self.route, page_request("list", PROFITABLE), self.pages["category_288"])
+        self.assertEqual([(row["price"], row["mrp"], row["in_stock"], row["tags"], row["badges"]) for row in listed["items"]],
+                         [("101", "201", True, [], [])] * 8)
+        self.assertEqual([row["units_sold"] for row in listed["items"]],
+                         [card["sold"] for card in self.pages["category_288"]["cards"]])
+        self.assertEqual((listed["collections"], listed["role"]), ([], None))  # a plain list: no collection, no role
+        # A page saved as the "winning" list before the owner made it plain is re-read as the plain list.
+        replayed = signed.parse_snapshot(self.route, page_request("winning", PROFITABLE), self.pages["category_288"])
+        self.assertEqual((replayed["collections"], replayed["role"]), ([], None))
+        # A category page's cards carry the category's name; its own category came from the home page.
+        category = dict(page_request(signed.CATEGORY_ROLE, "https://app.dropdash.co/products?categoryId=63"),
+                        handle="category-63", title="Home  Decor & Lighting ")
+        parsed = signed.parse_snapshot(self.route, category, dict(self.pages["category_288"], url=category["url"]))
+        self.assertEqual({tuple(row["tags"]) for row in parsed["items"]}, {("Home Decor & Lighting",)})
+        self.assertEqual((parsed["collections"], parsed["role"]), ([], None))
         # One product shown in two sections is one item with both.
         twice = deepcopy(self.pages["home"])
         twice["cards"].append(dict(twice["cards"][0], section="Profitable Products"))
@@ -1035,7 +1221,10 @@ class SignedInTests(PlatformCase):
     def test_dropdash_uses_its_own_pages_and_product_addresses(self):
         reader = signed.SignedInReader("dropdash", pacing_root=self.pacing_root, browser=self.browser)
         plan = reader.plan_full(platforms.platform_settings("dropdash"), platforms.load_catalogue(self.store, "dropdash"))
-        self.assertEqual([(row["role"], row["url"], row["max_pages"]) for row in plan], [("catalogue", HOME, 1), ("winning", WINNING, 1)])
+        self.assertEqual([(row["role"], row["handle"], row["url"], row["max_pages"]) for row in plan],
+                         [("catalogue", "page-catalogue", HOME, 1), ("list", LISTED, PROFITABLE, 1)])
+        self.assertEqual(re.fullmatch(platforms.platform_settings("dropdash")["category_path"],
+                                      "https://app.dropdash.co/products?categoryId=63")[1], "63")
         config = platforms.platform_settings("dropdash")
         self.assertEqual(re.fullmatch(config["product_path"], PRODUCT)[1], "13227")
         for url in ("https://app.dropdash.co/products/sink-caddy", PRODUCT + "&x=1", "https://app.dropdash.co/productDetails?id=13227"):
@@ -1046,12 +1235,14 @@ class SignedInTests(PlatformCase):
 
     def test_a_cycle_saved_under_earlier_addresses_is_dropped_never_opened(self):
         # Not signed in yet: the cycle is planned and saved while it waits for the owner.
+        self.categories_read()
         self.assertEqual(self.advance(self.reader(), self.route)["reason"], "OWNER_SIGN_IN_REQUIRED")
         refresh = platforms.load_refresh(self.store, self.route)
-        refresh["cycle"]["queue"][0]["url"] = "https://app.dropdash.co/products"  # an earlier settings' address
+        stale = dict(product_request(), url="https://app.dropdash.co/products/invisible-glue")  # an earlier settings' address
+        refresh["cycle"]["queue"].insert(0, stale)
         platforms._save_refresh(self.store, self.route, refresh)
         self.sign_in()
-        self.serve = {HOME: "home", WINNING: "category_288"}
+        self.serve = {HOME: "home", PROFITABLE: "category_288"}
         outcomes, _ = self.run_reads(1)
         self.assertEqual((outcomes[0]["state"], outcomes[0]["reason"]), ("waiting", "DROPSHIP_PAGE_NOT_READ_ONLY"))
         self.assertEqual(self.calls, [])  # never opened
@@ -1059,10 +1250,10 @@ class SignedInTests(PlatformCase):
         self.assertIsNone(platforms.load_refresh(self.store, self.route)["cycle"])
         receipt = platforms.load_raw(self.store, self.route, platforms.raw_files(self.store, self.route)[0])["receipt"]
         self.assertEqual((receipt["state"], receipt["execution_stage"], receipt["requested_url"]),
-                         ("failed", "not_dispatched", "https://app.dropdash.co/products"))
+                         ("failed", "not_dispatched", "https://app.dropdash.co/products/invisible-glue"))
         # After the short wait, a new cycle from the current settings reads the configured pages.
         outcomes, _ = self.run_reads(3, start=later(START, 400))
-        self.assertEqual([call["url"] for call in self.calls], [HOME, WINNING])
+        self.assertEqual([call["url"] for call in self.calls], [HOME, PROFITABLE])
         self.assertEqual(outcomes[-1]["state"], "current")
         # An item whose saved address the settings no longer allow is never planned for a product page.
         catalogue = platforms.load_catalogue(self.store, self.route)
@@ -1071,6 +1262,38 @@ class SignedInTests(PlatformCase):
         products = [row["item_id"] for row in plan if row["kind"] == "product"]
         self.assertNotIn("9240", products)
         self.assertIn("9210", products)
+
+    def test_a_cycle_planned_under_earlier_settings_is_planned_again_without_a_failure(self):
+        # 16 October: the full cycle saved at 14:19 still named "Profitable Products" as the
+        # "winning" list (and three failures from the guessed addresses were still counted).
+        self.categories_read()
+        self.assertEqual(self.advance(self.reader(), self.route)["reason"], "OWNER_SIGN_IN_REQUIRED")
+        refresh = platforms.load_refresh(self.store, self.route)
+        refresh["cycle"]["queue"][1].update(handle="page-winning", role="winning")
+        refresh.update(failures=3)
+        platforms._save_refresh(self.store, self.route, refresh)
+        self.assertFalse(self.reader().cycle_current(refresh["cycle"]))
+        self.sign_in()
+        self.serve = {HOME: "changed", PROFITABLE: "category_288"}
+        self.pages["changed"] = dict(self.pages["unrecognised"], url=None)
+        outcomes, _ = self.run_reads(1)
+        refresh = platforms.load_refresh(self.store, self.route)
+        # Re-planned under the current settings, the earlier settings' failures no longer count:
+        # a failed read now waits five minutes, not a day.
+        self.assertEqual((outcomes[0]["reason"], refresh["failures"]), ("DROPSHIP_PAGE_LAYOUT_UNRECOGNISED", 1))
+        self.assertEqual(timestamp(refresh["blocked_until"]) - timestamp(START), timedelta(minutes=5))
+        self.serve[HOME] = "home"
+        outcomes, _ = self.run_reads(3, start=later(START, 400))
+        self.assertEqual([row["state"] for row in outcomes], ["reading", "reading", "current"])
+        self.assertEqual([call["url"] for call in self.calls], [HOME, HOME, PROFITABLE])
+        refresh = platforms.load_refresh(self.store, self.route)
+        self.assertEqual((refresh["failures"], refresh["blocked_until"]), (0, None))
+        catalogue = platforms.load_catalogue(self.store, self.route)
+        self.assertFalse(any(item["roles"] for item in catalogue["items"].values()))
+        self.assertEqual(len(self.on_list(catalogue)), 8)
+        # A saved next page or product page never makes a current cycle stale.
+        current = {"queue": [dict(page_request(), page=2, url=HOME + "?page=2"), product_request()]}
+        self.assertTrue(self.reader().cycle_current(current))
 
     def test_odd_figures_and_placeholder_prices_never_break_or_pass_a_read(self):
         page = deepcopy(self.pages["home"])
@@ -1093,40 +1316,41 @@ class SignedInTests(PlatformCase):
 
     def test_a_list_page_that_lands_on_another_allowed_page_is_a_redirect(self):
         self.sign_in()
-        # The winning list now opens the home page (an allowed page): its cards are not the list's.
-        self.serve = {HOME: "home", WINNING: "home"}
+        self.categories_read()
+        # The list now opens the home page (an allowed page): its cards are not the list's.
+        self.serve = {HOME: "home", PROFITABLE: "home"}
         outcomes, _ = self.run_reads(2)
         self.assertEqual([(row["state"], row["reason"]) for row in outcomes],
                          [("reading", None), ("waiting", "DROPSHIP_PAGE_REDIRECTED")])
         catalogue = platforms.load_catalogue(self.store, self.route)
         self.assertEqual(len(catalogue["items"]), 30)  # the home page's own read stays
-        self.assertFalse(any(item["roles"] for item in catalogue["items"].values()))
+        self.assertEqual(self.on_list(catalogue), [])
         receipt = platforms.load_raw(self.store, self.route, platforms.raw_files(self.store, self.route)[-1])["receipt"]
-        self.assertEqual((receipt["state"], receipt["requested_url"], receipt["final_url"]), ("failed", WINNING, None))
+        self.assertEqual((receipt["state"], receipt["requested_url"], receipt["final_url"]), ("failed", PROFITABLE, None))
         # Like a redirect off the allowed pages: the cycle keeps what it read; only that page is tried again.
         refresh = platforms.load_refresh(self.store, self.route)
-        self.assertEqual(([row["url"] for row in refresh["cycle"]["queue"]], refresh["failures"]), ([WINNING], 1))
+        self.assertEqual(([row["url"] for row in refresh["cycle"]["queue"]], refresh["failures"]), ([PROFITABLE], 1))
         self.assertIsNotNone(refresh["blocked_until"])
-        self.serve = {WINNING: "category_288"}
+        self.serve = {PROFITABLE: "category_288"}
         outcomes, _ = self.run_reads(2, start=later(START, 400))
         self.assertEqual([row["state"] for row in outcomes], ["reading", "current"])
-        self.assertEqual([call["url"] for call in self.calls], [HOME, WINNING, WINNING])
-        listed = [item for item in platforms.load_catalogue(self.store, self.route)["items"].values() if item["roles"]]
-        self.assertEqual(len(listed), 8)
+        self.assertEqual([call["url"] for call in self.calls], [HOME, PROFITABLE, PROFITABLE])
+        self.assertEqual(len(self.on_list(platforms.load_catalogue(self.store, self.route))), 8)
 
     def test_harmless_differences_in_the_landed_address_are_the_same_page(self):
         for landed, requested in ((HOME + "/", HOME), ("https://APP.Dropdash.co:443/home#top", HOME),
                                   ("https://app.dropdash.co/productDetails?sellerId=1405&id=13227", PRODUCT),
-                                  ("https://app.dropdash.co/products?categoryId=%32%38%38", WINNING), (WINNING, WINNING)):
+                                  ("https://app.dropdash.co/products?categoryId=%32%38%38", PROFITABLE), (PROFITABLE, PROFITABLE)):
             self.assertTrue(signed.same_page(landed, requested), landed)
         for landed, requested in ((HOME + "?page=2", HOME), ("http://app.dropdash.co/home", HOME),
                                   ("https://app.dropdash.co:8443/home", HOME), ("https://app.dropdash.co/Home", HOME),
-                                  ("https://app.dropdash.co/products?categoryId=282", WINNING), (None, HOME), ("", HOME),
+                                  ("https://app.dropdash.co/products?categoryId=282", PROFITABLE), (None, HOME), ("", HOME),
                                   ("https://app.dropdash.co:99999/home", HOME), (HOME, None)):
             self.assertFalse(signed.same_page(landed, requested), landed)
         self.sign_in()
+        self.categories_read()
         self.pages["home_spelled"] = dict(self.pages["home"], url="https://APP.dropdash.co:443/home/#top")
-        self.serve = {HOME: "home_spelled", WINNING: "category_288"}
+        self.serve = {HOME: "home_spelled", PROFITABLE: "category_288"}
         outcomes, _ = self.run_reads(3)
         self.assertEqual([row["state"] for row in outcomes], ["reading", "reading", "current"])
         receipt = platforms.load_raw(self.store, self.route, platforms.raw_files(self.store, self.route)[0])["receipt"]
@@ -1139,17 +1363,18 @@ class SignedInTests(PlatformCase):
         page = self.pages["product_13227"]  # product 13227's own page
         other = product_request(item_id="99", url="https://app.dropdash.co/productDetails?id=99&sellerId=1")
         self.assertEqual(signed.parse_snapshot(self.route, other, page)["items"], [])
-        for landed in (HOME, WINNING, None, 7):  # no product's page, or no address at all
+        for landed in (HOME, PROFITABLE, None, 7):  # no product's page, or no address at all
             self.assertEqual(signed.parse_snapshot(self.route, product_request(), dict(page, url=landed))["items"], [])
         moved = dict(page, url="https://app.dropdash.co/productDetails?id=13227&sellerId=77#reviews")  # the same product number
         item = signed.parse_snapshot(self.route, product_request(), moved)["items"][0]
         self.assertEqual((item["item_id"], item["url"], item["price"]), ("13227", PRODUCT, "240"))
         # In a lists cycle, one listed product (a deleted one) now opens another product's page.
         self.sign_in()
-        self.serve = {HOME: "home", WINNING: "category_288"}
+        self.categories_read()
+        self.serve = {HOME: "home", PROFITABLE: "category_288"}
         self.run_reads(3)
         catalogue = platforms.load_catalogue(self.store, self.route)
-        listed = sorted(item_id for item_id, item in catalogue["items"].items() if item["roles"])
+        listed = self.on_list(catalogue)
         self.serve.update({catalogue["items"][item_id]["url"]: "product_sparse" for item_id in listed})
         glue_url = catalogue["items"]["9240"]["url"]
         self.serve[glue_url] = "product_13227"
@@ -1157,7 +1382,7 @@ class SignedInTests(PlatformCase):
         # The read is kept and the cycle finishes; later rounds read nothing more (no retry every round).
         self.assertEqual([row["state"] for row in outcomes], ["reading"] * 9 + ["current"] * 3)
         self.assertEqual(sorted(call["url"] for call in self.calls[2:]),
-                         sorted([WINNING] + [catalogue["items"][item_id]["url"] for item_id in listed]))
+                         sorted([PROFITABLE] + [catalogue["items"][item_id]["url"] for item_id in listed]))
         refs = platforms.raw_files(self.store, self.route)
         receipts = [platforms.load_raw(self.store, self.route, ref)["receipt"] for ref in refs]
         redirected = next(row for row in receipts if row["requested_url"] == glue_url)

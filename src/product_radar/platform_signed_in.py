@@ -29,11 +29,14 @@ calmly with that reason. A sign-in wall seen in the profile is recorded as an
 expired sign-in (``OWNER_SIGN_IN_REQUIRED``).
 
 The research account's identity (e-mail addresses, account query values,
-Google's account label) is removed from the result and from the browser's
-saved file before anything here reads them, also when a read is interrupted;
-a saved file that cannot be cleaned is quarantined unread
-(``signed_in_saved``). Only the product cards, product block and page text are
-kept with the platform's saved reads.
+Google's account label) and the platform's greeting of the account holder by
+name (Dropdash's "Welcome, <name>": owner decision 7, 16 October 2026) are
+removed from the result and from the browser's saved file before anything
+here reads or saves them, also when a read is interrupted (``redact_page``); a
+saved file that cannot be cleaned is quarantined unread (``signed_in_saved``).
+A saved page re-read later (a new parser replays the saved reads) is cleaned
+again before it is parsed. Only the product cards, product block and page text
+are kept with the platform's saved reads.
 
 Dropdash's signed-in pages were first seen on 16 October 2026. Its home page
 shows each category (its own "Testing Products" and "Profitable Products"
@@ -41,9 +44,13 @@ among them) with six product cards; a category page
 (``products?categoryId=..``) shows the first 18 and loads more only when
 scrolled, which this read never does. A card links to
 ``productDetails?id=<product number>&sellerId=..`` and shows the price, the
-MRP, the units sold (a range) and the stock count in elements of their own;
-the rupee sign is a picture, so prices are read from those elements
-(``selectors`` in the platform settings), not from the text. A selector that
+MRP, the units sold (a range: "100-500", "1K-2K", "5K+") and the stock count
+in elements of their own; the rupee sign is a picture, so prices are read from
+those elements (``selectors`` in the platform settings), not from the text.
+The units-sold range is kept with each item (``units_sold``, also from a
+product page's "Units Sold" line) as an extra demand hint: it reaches the
+observation facts and the platform presence fact, never score points (owner
+decision 6, 16 October 2026; no score rule reads it). A selector that
 finds nothing never stops the read; but a catalogue or list page with no
 product card showing its price (no cards, or a changed layout) stops that
 refresh cycle with ``DROPSHIP_PAGE_LAYOUT_UNRECOGNISED`` rather than recording
@@ -51,13 +58,32 @@ an empty platform or priceless items. The catalogue read this way is a sample
 (one page per configured address), never the whole platform.
 
 Categories: the home page's category links become the platform's categories
-(product-map material). Two kinds of link are not kinds of product and are
-never recorded as one: a configured list page's own link (Dropdash's
-"Profitable Products" is its winning list) is recorded with that list's role,
-like a feed's list collection; any other sales section named in the settings
-(``sales_sections``: Dropdash's "Testing Products") is left out. Their cards
+(product-map material). Some links are not kinds of product and are never
+recorded as one: a configured role list's own link is recorded with that
+list's role, like a feed's list collection; a configured plain product list
+(role "list") and any other sales section named in the settings
+(``sales_sections``: Dropdash's "Testing Products") are left out. Their cards
 keep the section's name as a tag, so the membership stays with each item. The
 catalogue page itself is a page, not a category, and is never recorded as one.
+
+Dropdash's "Profitable Products" (``products?categoryId=288``) is read as a
+plain product list (owner decision 3, 16 October 2026): it looks like a
+fixed-price promotion, not proof of demand, so its items keep their list
+membership (and get their product pages read) but no list role: no platform
+list points in the opportunity score and no role chip. A list role always
+comes from the current settings, also when saved reads are replayed
+(``page_role``), and a cycle planned under earlier settings is planned again
+(``SignedInReader.cycle_current``).
+
+Once a week (``category_refresh_days``), after the full and lists cycles, the
+categories cycle reads each category page the home page links to (its real
+categories, then the sales sections; owner decision 4, 16 October 2026): one
+page each (its first 18 cards), paced like every signed-in read, saved in the
+refresh record so a restart resumes it. A category page's cards carry the
+category's name as a tag and its membership (``category-<id>``). A category
+page that is empty, changed or sent elsewhere is skipped until the next week
+(no platform failure); a wall or a browser failure waits as usual and the
+page is asked again. While the weekly cycle runs, the day's lists wait for it.
 """
 
 from datetime import timedelta
@@ -65,13 +91,13 @@ import json
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
-from .dropship_platforms import LIST_ROLES, SIGNED_IN_ROUTES, amount, body_json, platform_settings
+from .dropship_platforms import CATEGORY_ROLE, LIST_ROLES, SIGNED_IN_ROUTES, amount, body_json, platform_settings, units_sold
 from .native_public_browser import signed_in_budget
 from .models import SafetyError, digest, timestamp, utc_now
 from .research_memory import key
 from .storage import safe_path
 
-PARSER_VERSION = "signed-in-platform-v3"
+PARSER_VERSION = "signed-in-platform-v4"
 PROFILE = "signed-in"
 PLAN_WAIT_SECONDS = 24 * 3600
 # Never opened, even inside an allowed address: any step that orders, pays,
@@ -95,6 +121,12 @@ _FIGURE = re.compile(r"(?<![0-9.,])([0-9][0-9,]{0,9}(?:\.[0-9]{1,2})?)(?![0-9])"
 _DISCOUNT = re.compile(r"[ \t\u00a0]*(?:off|discount)\b", re.I)  # "₹ 29 OFF" on one line, never "₹ 220" then "Off-white"
 _TERMS = re.compile(r"\b(?:dropship|shipping|delivery|dispatch|cod|cash on delivery|returns?|rto|moq|minimum order)\b", re.I)
 _WALL = re.compile(r"\b(?:log ?in|sign ?in)\b.{0,80}\b(?:password|otp|continue with google)\b", re.I | re.S)
+_SOLD_LINE = re.compile(r"\bUnits\s+Sold\s*:?\s*([0-9][0-9.]{0,5}[KkLM]?(?:\+|\s?-\s?[0-9][0-9.]{0,5}[KkLM]?)?)", re.I)
+# Dropdash greets the signed-in account holder by name at the top of every page
+# ("Welcome, <name>" on a line of its own). Owner decision 7 (16 October 2026):
+# the name never reaches a saved page.
+_GREETING = re.compile(r"(?m)^([ \t\u00a0]*Welcome,)(?:[ \t\u00a0]*[^\n]{1,80}|[ \t\u00a0]*\n[ \t\u00a0]*[^\n]{1,80})$")
+_HEADER = 600  # the greeting is in the page's header, above every product
 
 # One DOM read. __PRODUCT_PATTERN__ is the platform's product-address pattern
 # and __PAGE_SELECTORS__ its own page selectors (JSON text, ``selectors`` in the
@@ -163,7 +195,7 @@ def read_only_url(route, url):
     pages = {page["url"] for page in config["pages"]}
     plain = parts.scheme + "://" + parts.netloc + parts.path
     if (url in pages or plain in pages and len(query) == 1 and query[0][0] == "page" and re.fullmatch(r"[1-9][0-9]{0,2}", query[0][1])
-            or re.fullmatch(config["product_path"], url)):
+            or re.fullmatch(config["product_path"], url) or re.fullmatch(config["category_path"], url)):
         return url
     raise SafetyError("DROPSHIP_PAGE_NOT_READ_ONLY")
 
@@ -206,6 +238,31 @@ def _same_product(landed, request, product_path):
         return True
     match = re.fullmatch(product_path, landed)
     return match is not None and _item_id(match, landed) == request.get("item_id")
+
+
+def redact_page(value):
+    """The research account's identity removed (``redact_signed_in``), and the
+    platform's greeting of the account holder by name: in a saved page's own
+    text (a snapshot: it has ``text`` and ``cards``), a line near the top that
+    reads "Welcome, <name>" (or "Welcome," with the name on the next line)
+    keeps only "Welcome, [name removed]". Keys and every
+    other value are unchanged: product titles and card text are never touched."""
+    from .signed_in_browser import redact_signed_in
+    return _without_greeting(redact_signed_in(value))
+
+
+def _without_greeting(value):
+    if isinstance(value, dict):
+        cleaned = {name: _without_greeting(item) for name, item in value.items()}
+        text = value.get("text")
+        if "cards" in value and isinstance(text, str) and "Welcome," in text:
+            end = text.find("\n", _HEADER)
+            end = len(text) if end < 0 else end
+            cleaned["text"] = _GREETING.sub(r"\1 [name removed]", text[:end]) + text[end:]
+        return cleaned
+    if isinstance(value, list):
+        return [_without_greeting(item) for item in value]
+    return value
 
 
 def expression(route):
@@ -292,7 +349,17 @@ def _card_item(card, product_path):
     return {"item_id": _item_id(match, url), "title": title, "url": url,
             "images": [card["image"]] if isinstance(card.get("image"), str) else [], "price": price, "mrp": mrp,
             "in_stock": _in_stock(card, text), "vendor": None, "product_type": None, "tags": [section] if section else [],
-            "created_at": None, "terms": None, "badges": _badges(card.get("badges"))}
+            "created_at": None, "terms": None, "badges": _badges(card.get("badges")),
+            "units_sold": units_sold(card.get("sold"))}
+
+
+def _block_units_sold(block, text):
+    """A product page's own "Units Sold" range (its terms, else its text), or None."""
+    for value in list(block.get("terms") or []) + [text]:
+        found = _SOLD_LINE.search(value) if isinstance(value, str) else None
+        if found and units_sold(found[1]):
+            return units_sold(found[1])
+    return None
 
 
 def plan_wall(request, snapshot, product_path):
@@ -320,14 +387,30 @@ def shows_priced_products(snapshot, product_path):
     return False
 
 
+def page_role(config, request):
+    """The list role the current settings give a page read: a configured role
+    list's own role, else None (the catalogue page, a plain list, a category
+    page, a product page, or an address no longer configured). Saved reads are
+    re-parsed with the current settings, as a new parser re-reads saved feeds."""
+    if request.get("kind") != "page":
+        return None
+    address = _address(re.sub(r"[?&]page=[1-9][0-9]{0,2}$", "", request.get("url") or "") if request.get("page", 1) > 1
+                       else request.get("url"))
+    for page in config["pages"]:
+        if _address(page["url"]) == address and page["role"] in LIST_ROLES + ("new_arrival",):
+            return page["role"]
+    return None
+
+
 def parse_snapshot(route, request, snapshot):
-    """Saved page snapshot -> items, categories and the next page to read."""
+    """Saved page snapshot -> items, categories and the next page to read
+    (``role``: the page's list role under the current settings, or None)."""
     config = platform_settings(route)
     if request["kind"] == "product":
         if not _same_product(snapshot.get("url"), request, config["product_path"]):
             # Another product's page, or no product's (a deleted product that now
             # opens the home page): nothing it shows is this item's.
-            return {"items": [], "collections": None, "follow": []}
+            return {"items": [], "collections": None, "follow": [], "role": None}
         block = snapshot.get("product") if isinstance(snapshot.get("product"), dict) else {}
         text = block.get("text") if isinstance(block.get("text"), str) else ""
         price, mrp = _own_prices(block, text)
@@ -336,13 +419,19 @@ def parse_snapshot(route, request, snapshot):
                  for line in value.splitlines() if _TERMS.search(line) and not _PRICE.search(line)][:6]
         item = {"item_id": request["item_id"], "title": title, "url": request["url"], "images": [], "price": price,
                 "mrp": mrp, "in_stock": _in_stock(block, text), "vendor": None, "product_type": None, "tags": [], "created_at": None,
-                "terms": "; ".join(dict.fromkeys(terms))[:1000] or None, "badges": []}
-        return {"items": [item], "collections": None, "follow": []}
+                "terms": "; ".join(dict.fromkeys(terms))[:1000] or None, "badges": [],
+                "units_sold": _block_units_sold(block, text)}
+        return {"items": [item], "collections": None, "follow": [], "role": None}
     items, seen = [], {}
+    # A category page's cards carry their category's name (from the catalogue page's link).
+    category = (" ".join(request["title"].split())[:80] if request.get("role") == CATEGORY_ROLE
+                and isinstance(request.get("title"), str) and request["title"].strip() else None)
     for card in snapshot.get("cards") or []:
         row = _card_item(card, config["product_path"])
         if not row:
             continue
+        if category and category not in row["tags"]:
+            row["tags"] = row["tags"] + [category]
         kept = seen.get(row["item_id"])
         if kept is None:
             seen[row["item_id"]] = row
@@ -350,11 +439,12 @@ def parse_snapshot(route, request, snapshot):
         else:  # one product shown twice (another link form, another section) is one item with both
             kept["tags"] = list(dict.fromkeys(kept["tags"] + row["tags"]))[:20]
             kept["badges"] = sorted(set(kept["badges"]) | set(row["badges"]))
-    # A configured list page's own link is that list (its role), never a kind of
-    # product; another sales section of the platform is left out (its cards keep
-    # the section's name as a tag).
-    lists = {_address(page["url"]): page["role"] for page in config["pages"] if page["role"] != "catalogue"}
-    sales = {_address(url) for url in config["sales_sections"]}
+    # A configured role list's own link is that list (its role), never a kind of
+    # product; a plain product list (role "list") and any other sales section of
+    # the platform are left out (their cards keep the section's name as a tag).
+    lists = {_address(page["url"]): page["role"] for page in config["pages"] if page["role"] in LIST_ROLES + ("new_arrival",)}
+    sales = {_address(page["url"]) for page in config["pages"] if page["role"] == "list"}
+    sales |= {_address(url) for url in config["sales_sections"]}
     categories = []
     for row in snapshot.get("categories") or []:
         href = row.get("href") if isinstance(row, dict) else None
@@ -369,10 +459,13 @@ def parse_snapshot(route, request, snapshot):
             if handle and (role is not None or _address(url) not in sales):
                 categories.append({"handle": handle, "title": " ".join(str(row.get("text")).split())[:200], "url": url,
                                    "products_count": None, "roles": [role] if role else [], "parent": None})
-    # A list page is recorded as that list; the catalogue page is a page, not a category.
-    pages = [] if request["role"] == "catalogue" else [{
-        "handle": request["handle"], "title": request["role"].replace("_", " ").title() + " page", "url": request["url"],
-        "products_count": len(items), "roles": [request["role"]], "parent": None}]
+    # A role list page is recorded as that list. The catalogue page is a page, a
+    # plain list is no kind of product and a category page's own category came
+    # from the catalogue page: none of them is recorded again here.
+    role = page_role(config, request)
+    pages = [] if role is None else [{
+        "handle": request["handle"], "title": role.replace("_", " ").title() + " page", "url": request["url"],
+        "products_count": len(items), "roles": [role], "parent": None}]
     follow, next_url = [], snapshot.get("next")
     if isinstance(next_url, str) and request["page"] < request["max_pages"]:
         try:
@@ -381,7 +474,8 @@ def parse_snapshot(route, request, snapshot):
             follow = []
     # Complete as far as this cycle has read: only a full cycle's reads replace
     # the saved category list (``dropship_platforms._apply_read``).
-    return {"items": items, "collections": pages + categories, "follow": follow, "collections_complete": True}
+    return {"items": items, "collections": pages + categories, "follow": follow, "collections_complete": True,
+            "role": role}
 
 
 class SignedInReader:
@@ -398,25 +492,67 @@ class SignedInReader:
         self.route, self.pacing_root, self.browser = route, pacing_root, browser
         self.config = platform_settings(route)
 
+    def _handle(self, page):
+        """A configured page's handle: ``page-<role>``; a plain list's names its own address."""
+        if page["role"] != "list":
+            return "page-" + page["role"].replace("_", "-")
+        parts = urlsplit(page["url"])
+        return ("page-list-" + re.sub(r"[^a-z0-9]+", "-", (parts.path + "-" + parts.query).casefold()).strip("-"))[:120]
+
     def _pages(self, roles):
-        return [{"kind": "page", "handle": "page-" + page["role"].replace("_", "-"), "role": page["role"], "page": 1,
+        return [{"kind": "page", "handle": self._handle(page), "role": page["role"], "page": 1,
                  "max_pages": page["max_pages"], "url": read_only_url(self.route, page["url"])}
                 for page in self.config["pages"] if page["role"] in roles]
 
+    _LISTS = frozenset(LIST_ROLES) | {"new_arrival", "list"}
+
     def plan_full(self, config, catalogue):
-        return self._pages({"catalogue"}) + self._pages(set(LIST_ROLES) | {"new_arrival"})
+        return self._pages({"catalogue"}) + self._pages(self._LISTS)
 
     def plan_lists(self, config, catalogue):
-        """The list pages, then (for listed items) product pages not read within a full refresh."""
+        """The list pages, then (for items on a list page) product pages not read within a full refresh."""
         now = timestamp(utc_now())
+        listed = {self._handle(page) for page in self.config["pages"] if page["role"] in self._LISTS}
         due = [item for item in sorted(catalogue["items"].values(), key=lambda row: row["item_id"])
-               if item["roles"] and (item["collections"].get("product-page") is None or now - timestamp(
+               if (item["roles"] or listed & set(item["collections"]))
+               and (item["collections"].get("product-page") is None or now - timestamp(
                    item["collections"]["product-page"]) >= timedelta(days=config["full_refresh_days"]))
                and self._allowed(item["url"])]  # an address the settings no longer allow is never planned
         products = [{"kind": "product", "item_id": item["item_id"], "handle": "product-page", "role": None, "page": 1,
                      "max_pages": 1, "title": item["title"], "url": read_only_url(self.route, item["url"])}
                     for item in due][:config["product_pages_per_day"]]
-        return self._pages(set(LIST_ROLES) | {"new_arrival"}) + products
+        return self._pages(self._LISTS) + products
+
+    def cycle_current(self, cycle):
+        """Whether a saved cycle was planned under the current settings: every
+        configured page it still has to read is one these settings plan, with
+        the same handle and role (a list the owner made plain, or a page that
+        moved, makes the cycle planned again: no failure of the platform)."""
+        from .dropship_platforms import PAGE_ROLES
+        planned = {(row["handle"], row["role"], row["url"]) for row in self._pages(set(PAGE_ROLES))}
+        for request in cycle["queue"]:
+            if request.get("kind") == "product" or request.get("role") == CATEGORY_ROLE or request.get("page", 1) > 1:
+                continue  # their addresses are checked when read (``_allowed``)
+            if (request.get("handle"), request.get("role"), request.get("url")) not in planned:
+                return False
+        return True
+
+    def plan_categories(self, config, catalogue):
+        """The weekly categories cycle (owner decision 4, 16 October 2026): each
+        category page the catalogue page links to (its real categories, then the
+        platform's sales sections), one page each, paced like every signed-in
+        read. A configured page (read with the lists anyway) is not read twice."""
+        pattern, seen, plan = self.config["category_path"], {_address(page["url"]) for page in self.config["pages"]}, []
+        rows = [(row["url"], row["title"]) for row in catalogue["collections"] if not row["roles"]]
+        for url, title in rows + [(url, None) for url in self.config["sales_sections"]]:
+            found = re.fullmatch(pattern, url) if isinstance(url, str) else None
+            if found is None or _address(url) in seen or not self._allowed(url):
+                continue
+            seen.add(_address(url))
+            ident = found[1] if found.re.groups and found[1] else re.sub(r"[^a-z0-9]+", "-", url.casefold())[-60:].strip("-")
+            plan.append({"kind": "page", "handle": "category-" + ident, "role": CATEGORY_ROLE, "page": 1, "max_pages": 1,
+                         "title": title, "url": read_only_url(self.route, url)})
+        return plan
 
     def _allowed(self, url):
         try:
@@ -455,12 +591,11 @@ class SignedInReader:
 
         def cleaned(url, expression, target, **options):
             from .native_public_browser import native_snapshot
-            from .signed_in_browser import redact_signed_in
             from .signed_in_saved import protect_saved
             try:
-                return redact_signed_in((self.browser or native_snapshot)(url, expression, target, **options))
+                return redact_page((self.browser or native_snapshot)(url, expression, target, **options))
             finally:
-                protect_saved(target / "native_result.json", redact_signed_in)  # also when interrupted
+                protect_saved(target / "native_result.json", redact_page)  # also when interrupted
 
         def launched():
             return any((target / name).exists() for name in ("owned_process.json", "native_dispatch.json", "native_result.json"))
@@ -543,7 +678,8 @@ class SignedInReader:
                 "drop_cycle": reason == "DROPSHIP_PAGE_LAYOUT_UNRECOGNISED"}
 
     def parse(self, request, raw):
-        snapshot = body_json(raw)
+        # A page saved before its greeting was removed is cleaned again whenever it is re-read.
+        snapshot = redact_page(body_json(raw))
         if not isinstance(snapshot, dict):
             raise SafetyError("DROPSHIP_FEED_BODY_INVALID")
         return parse_snapshot(self.route, request, snapshot)

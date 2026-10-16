@@ -22,7 +22,8 @@ Saved catalogue (``catalogue.json``, ``CATALOGUE_VERSION``)::
             tags (<=20), created_at, terms (stated text or None),
             first_seen_at, last_seen_at, source_ref,
             collections {handle: seen_at},
-            roles {role: {first_seen_at, last_seen_at, via (list handles)}}}
+            roles {role: {first_seen_at, last_seen_at, via (list handles)}},
+            units_sold (only where the platform shows it: Dropdash's "5K+")}
 
 The collection list is also the product-map material for the bigger map
 (W10): ``collections`` keeps every platform category with its roles and, where
@@ -30,9 +31,10 @@ the platform has one, its ``parent`` handle. Only a full cycle replaces it; a
 lists cycle (list pages only) never does.
 
 Refreshing (``advance_platform``) works through one saved cycle at a time: a
-full catalogue at most every ``full_refresh_days`` and the role lists (new
-arrivals, bestsellers, trending ...) every ``list_refresh_hours``, a few paced
-requests per programme round. A catalogue counts only after one full cycle
+full catalogue at most every ``full_refresh_days``, the role lists (new
+arrivals, bestsellers, trending ...) and plain lists every
+``list_refresh_hours``, and (a signed-in platform) its category pages every
+``category_refresh_days``, a few paced requests per programme round. A catalogue counts only after one full cycle
 finished with items; until then no per-type question is planned. A sampled
 (signed-in) catalogue never treats an item it did not see again as delisted.
 """
@@ -59,6 +61,17 @@ LABELS = {"deodap": "DeoDap", "baapstore": "BaapStore", "dropdash": "Dropdash"}
 # high-demand list; "new_arrival" is the separate newly-launched signal.
 LIST_ROLES = ("bestseller", "trending", "high_demand", "winning", "state_bestseller")
 ROLES = LIST_ROLES + ("new_arrival",)
+# A signed-in platform's configured pages: its catalogue page, its role lists
+# (above), and plain product lists ("list": read with the lists, its items kept
+# with their membership but given no role, so no list points and no role chip;
+# owner decision of 16 October 2026 for Dropdash's "Profitable Products").
+# "category" is never configured: the weekly categories cycle reads each
+# category page the catalogue page links to.
+PAGE_ROLES = ROLES + ("catalogue", "list")
+CATEGORY_ROLE = "category"
+# Dropdash's "units sold" range on a card or product page ("100-500", "1K-2K",
+# "5K+"): kept with the item as an extra demand hint, never as score points.
+_UNITS_SOLD = re.compile(r"[0-9]{1,4}(?:\.[0-9])?[KkLM]?(?:\+|\s?-\s?[0-9]{1,4}(?:\.[0-9])?[KkLM]?)?")
 CATALOGUE_VERSION = "dropship-catalogue-v2"
 REFRESH_VERSION = "dropship-refresh-v1"
 SETTINGS = Path(__file__).resolve().parents[2] / "config/research/dropship_platforms.json"
@@ -68,6 +81,10 @@ MAX_RAW = 32 * 1024 * 1024
 # 6 hours, then a day), like the other research routes' access waits.
 BACKOFF_SECONDS = (300, 3600, 6 * 3600, 24 * 3600)
 SHORT_SPACING_SECONDS = 10
+# A weekly category page that fails for a reason of its own (empty or changed,
+# sent elsewhere) is skipped for the week; any other failure (a sign-in or plan
+# wall, a browser that could not read) waits as usual and the page is tried again.
+_PAGE_ONLY = ("DROPSHIP_PAGE_LAYOUT_UNRECOGNISED", "DROPSHIP_PAGE_REDIRECTED")
 _HANDLE = re.compile(r"[a-z0-9][a-z0-9-]{0,119}")
 # Where a signed-in platform's own page shows each fact (CSS selectors, or
 # null for the generic guess; ``platform_signed_in`` reads them, never clicks).
@@ -152,7 +169,8 @@ def _settings_value(value):
             common = {"transport", "base_url", "requests_per_round", "full_refresh_days", "list_refresh_hours",
                       "raw_retention_days", "price_basis", "stated_terms", "terms_url"}
             expected = common | ({"page_size", "lists"} if feed else {"product_path", "product_pages_per_day", "pages", "selectors",
-                                                                      "sales_sections"})
+                                                                      "sales_sections", "category_path",
+                                                                      "category_refresh_days"})
             if (set(row) != expected or row["transport"] != ("shopify-feed" if feed else "signed-in-browser")
                     or not re.fullmatch(r"https://[a-z0-9.-]+", row["base_url"])
                     or any(type(row[name]) is not int or not low <= row[name] <= high for name, low, high in (
@@ -183,6 +201,11 @@ def _settings_value(value):
                 # product number, when its address has one.
                 if not _browser_pattern(row["product_path"], row["base_url"]) or re.compile(row["product_path"]).groups > 1:
                     raise ValueError
+                # A category page's address (read weekly, one page each), anchored to the
+                # platform like the product address; never one of the never-opened steps.
+                if (not _browser_pattern(row["category_path"], row["base_url"]) or re.compile(row["category_path"]).groups > 1
+                        or type(row["category_refresh_days"]) is not int or not 1 <= row["category_refresh_days"] <= 30):
+                    raise ValueError
                 # The platform's own sales sections (category links that are no kind of product).
                 sections = row["sales_sections"]
                 if (not isinstance(sections, list) or len(sections) > 50 or len(set(map(str, sections))) != len(sections)
@@ -199,7 +222,7 @@ def _settings_value(value):
                         or not row["pages"] or not any(page.get("role") == "catalogue" for page in row["pages"])):
                     raise ValueError
                 for page in row["pages"]:
-                    if (set(page) != {"role", "url", "max_pages"} or page["role"] not in ROLES + ("catalogue",)
+                    if (set(page) != {"role", "url", "max_pages"} or page["role"] not in PAGE_ROLES
                             or not isinstance(page["url"], str) or not page["url"].startswith(row["base_url"] + "/")
                             or type(page["max_pages"]) is not int or not 1 <= page["max_pages"] <= 20):
                         raise ValueError
@@ -404,10 +427,23 @@ def clean_item(row, *, price_basis):
     except SafetyError:
         created = None
     in_stock = row.get("in_stock")
-    return {"item_id": item_id, "title": title, "url": url, "images": images, "price": price, "mrp": mrp,
-            "price_basis": price_basis, "in_stock": in_stock if type(in_stock) is bool else None,
-            "vendor": _text(row.get("vendor"), 120), "product_type": _text(row.get("product_type"), 120),
-            "tags": tags, "created_at": created, "terms": _text(row.get("terms"), 1000), "badges": badges}
+    value = {"item_id": item_id, "title": title, "url": url, "images": images, "price": price, "mrp": mrp,
+             "price_basis": price_basis, "in_stock": in_stock if type(in_stock) is bool else None,
+             "vendor": _text(row.get("vendor"), 120), "product_type": _text(row.get("product_type"), 120),
+             "tags": tags, "created_at": created, "terms": _text(row.get("terms"), 1000), "badges": badges}
+    sold = units_sold(row.get("units_sold"))
+    if sold:
+        value["units_sold"] = sold  # only a platform that shows it (Dropdash) carries the field
+    return value
+
+
+def units_sold(value):
+    """A platform's own "units sold" range ("100-500", "1K-2K", "5K+") in one
+    plain spelling, or None for anything else."""
+    if not isinstance(value, str) or len(value) > 20:
+        return None
+    text = " ".join(value.split())
+    return re.sub(r"\s?-\s?", "-", text).upper() if _UNITS_SOLD.fullmatch(text) else None
 
 
 def merge_items(catalogue, items, *, seen_at, source_ref, handle=None, role=None, authoritative=True):
@@ -415,8 +451,9 @@ def merge_items(catalogue, items, *, seen_at, source_ref, handle=None, role=None
 
     Only an authoritative read (a platform feed, which states every field) may
     clear a known value. A signed-in card or product page shows less: what it
-    leaves out is unknown, not removed. List roles come from the page's own
-    role and from the card's badge elements only (``badges``).
+    leaves out is unknown, not removed, and its tags (the section or category it
+    was shown in) are added to the item's earlier ones. List roles come from the
+    page's own role and from the card's badge elements only (``badges``).
     """
     merged = 0
     for row in items:
@@ -428,10 +465,13 @@ def merge_items(catalogue, items, *, seen_at, source_ref, handle=None, role=None
                      collections=dict((old or {}).get("collections", {})), roles=deepcopy((old or {}).get("roles", {})))
         if old:
             kept = ("terms",) if authoritative else ("price", "mrp", "in_stock", "vendor", "product_type", "created_at",
-                                                     "images", "tags", "terms")
+                                                     "images", "terms", "units_sold")
             for field in kept:
-                if row.get(field) in (None, []):
-                    value[field] = old.get(field)
+                if row.get(field) in (None, []) and field in old:
+                    value[field] = old[field]
+            if not authoritative:
+                # Each signed-in page names only its own section or category: the newest first, the rest kept.
+                value["tags"] = list(dict.fromkeys(list(row.get("tags") or []) + list(old.get("tags") or [])))[:20]
         if handle is not None:
             value["collections"][handle] = seen_at
         for held in ({role} - {None}) | (set(badges) if handle is not None else set()):
@@ -517,7 +557,11 @@ def advance_platform(root, route, reader, *, as_of=None, limit=None, clock=utc_n
     ``reader`` supplies the transport: ``parser_version``, ``complete_catalogue``,
     ``authoritative``, ``plan_full(settings, catalogue)``, ``plan_lists(settings,
     catalogue)``, ``hold(at)`` (None or a calm ``{reason, next_retry_at}``),
-    ``read(request, folder, sequence, at)`` and ``parse(request, raw)``.
+    ``read(request, folder, sequence, at)`` and ``parse(request, raw)``; a
+    signed-in reader also ``plan_categories(settings, catalogue)``: its weekly
+    categories cycle (one page per category the catalogue page links to, once
+    the full and lists cycles are current), saved like the others so a restart
+    resumes it instead of starting again.
     ``deadline`` (a ``monotonic`` time) bounds the round, including a read in
     progress (``reader.worst_case_seconds``, when set); ``before_read`` is
     asked before every read and refuses it (``SafetyError``) when the owner has
@@ -536,17 +580,27 @@ def advance_platform(root, route, reader, *, as_of=None, limit=None, clock=utc_n
         while reads < limit:
             at = as_of or clock()
             refresh = load_refresh(root, route)
+            if refresh["cycle"] is not None and not getattr(reader, "cycle_current", lambda cycle: True)(refresh["cycle"]):
+                # Planned under earlier settings (a list made plain, a page that moved):
+                # planned again from the current ones. No failure of the platform, and
+                # failures counted under the earlier settings no longer lengthen its waits.
+                refresh.update(cycle=None, failures=0)
+                _save_refresh(root, route, refresh)
             if refresh["blocked_until"] and timestamp(at) < timestamp(refresh["blocked_until"]):
                 outcome.update(state="waiting", reason=refresh["wait"].get("reason"), next_retry_at=refresh["blocked_until"])
                 break
             if refresh["cycle"] is None:
                 kind = ("full" if _due(refresh["completed"], "full", config["full_refresh_days"] * 24, at) else
                         "lists" if catalogue["full_completed_at"] and _due(refresh["completed"], "lists",
-                                                                           config["list_refresh_hours"], at) else None)
+                                                                           config["list_refresh_hours"], at) else
+                        "categories" if (catalogue["full_completed_at"] and hasattr(reader, "plan_categories")
+                                         and _due(refresh["completed"], "categories",
+                                                  config["category_refresh_days"] * 24, at)) else None)
                 if kind is None:
                     outcome["state"] = "current"
                     break
-                plan = reader.plan_full(config, catalogue) if kind == "full" else reader.plan_lists(config, catalogue)
+                plan = (reader.plan_full(config, catalogue) if kind == "full" else
+                        reader.plan_lists(config, catalogue) if kind == "lists" else reader.plan_categories(config, catalogue))
                 refresh["cycle"] = {"kind": kind, "started_at": at, "queue": plan, "handles": [], "collections": [], "items_seen": 0}
                 _save_refresh(root, route, refresh)
             cycle = refresh["cycle"]
@@ -586,6 +640,7 @@ def advance_platform(root, route, reader, *, as_of=None, limit=None, clock=utc_n
                 break
             reads += 1
             relative = save_raw(root, route, at, refresh["sequence"], result["receipt"], result["body"])
+            parsed_failed = False
             if result["state"] == "read":
                 try:
                     parsed = reader.parse(request, load_raw(root, route, relative))
@@ -594,7 +649,18 @@ def advance_platform(root, route, reader, *, as_of=None, limit=None, clock=utc_n
                 except SafetyError as error:
                     result = {"state": "failed", "reason": str(error)}  # unparsable: wait, never re-read every round
                     catalogue = load_catalogue(root, route)
+                    parsed_failed = True
             if result["state"] != "read":
+                if (cycle["kind"] == "categories" and request.get("role") == CATEGORY_ROLE
+                        and (result["reason"] in _PAGE_ONLY or parsed_failed)):
+                    # That one category page (empty, moved, changed or unreadable) is not
+                    # asked again this week; it is no failure of the platform, so it never
+                    # lengthens the platform's waits or holds the other categories.
+                    cycle["queue"] = cycle["queue"][1:]
+                    refresh.update(wait={"reason": "DROPSHIP_CATEGORY_PAGE_SKIPPED", "at": at})
+                    _save_refresh(root, route, refresh)
+                    outcome.update(state="waiting", reason=result["reason"], next_retry_at=None)
+                    break
                 _fail(refresh, at, result["reason"], wait_seconds=result.get("wait_seconds"), drop_cycle=result.get("drop_cycle", False))
                 _save_refresh(root, route, refresh)
                 outcome.update(state="waiting", reason=result["reason"], next_retry_at=refresh["blocked_until"])
@@ -610,6 +676,9 @@ def advance_platform(root, route, reader, *, as_of=None, limit=None, clock=utc_n
 
 
 def _apply_read(catalogue, cycle, request, parsed, at, relative, config, *, authoritative=True):
+    # A signed-in parser names the page's list role under the current settings
+    # (a list the owner made plain gives no role, also when saved reads are replayed).
+    role = parsed["role"] if "role" in parsed else request.get("role")
     if parsed["collections"] is not None:
         cycle["collections"].extend(parsed["collections"])
     handle = request.get("handle")
@@ -617,7 +686,7 @@ def _apply_read(catalogue, cycle, request, parsed, at, relative, config, *, auth
         cycle["handles"].append(handle)  # a product page is not a list: reading one never ends another's membership
     clean = [row for row in (clean_item(row, price_basis=config["price_basis"]) for row in parsed["items"]) if row]
     cycle["items_seen"] += merge_items(catalogue, clean, seen_at=at, source_ref=relative, handle=handle,
-                                       role=request.get("role") if request.get("role") != "catalogue" else None,
+                                       role=role if role in ROLES else None,
                                        authoritative=authoritative)
     # Only a full cycle replaces the saved category list: a lists cycle reads
     # only the list pages, never the whole category list (a feed's lists cycle
@@ -645,7 +714,8 @@ def _complete(root, route, catalogue, refresh, at, outcome, reader):
         catalogue["full_completed_at"] = at
     if cycle["handles"]:
         _finish_lists(catalogue, set(cycle["handles"]), cycle["started_at"])
-        catalogue["lists_completed_at"] = at
+        if cycle["kind"] != "categories":  # category pages are no lists
+            catalogue["lists_completed_at"] = at
     catalogue["updated_at"] = at
     save_catalogue(root, route, catalogue)
     refresh["completed"][cycle["kind"]] = {"started_at": cycle["started_at"], "completed_at": at,
@@ -666,7 +736,7 @@ def replay_platform(root, route, reader):
     """
     config, refresh = platform_settings(route), load_refresh(root, route)
     catalogue = _empty(route)
-    cycles = [refresh["completed"][kind] for kind in ("full", "lists") if kind in refresh["completed"]]
+    cycles = [refresh["completed"][kind] for kind in ("full", "lists", "categories") if kind in refresh["completed"]]
     if not cycles:
         catalogue["parser_version"] = reader.parser_version
         save_catalogue(root, route, catalogue)
@@ -675,6 +745,7 @@ def replay_platform(root, route, reader):
     full = refresh["completed"].get("full")
     full_window = (timestamp(full["started_at"]), timestamp(full["completed_at"])) if full else None
     replay = {"kind": None, "queue": [], "handles": [], "collections": [], "items_seen": 0}
+    categories = {"kind": "categories", "queue": [], "handles": [], "collections": [], "items_seen": 0}
     for relative in raw_files(root, route):
         raw = load_raw(root, route, relative)
         receipt = raw["receipt"]
@@ -688,10 +759,11 @@ def replay_platform(root, route, reader):
         parsed = reader.parse(request, raw)
         if parsed["collections"] is not None and request.get("page") == 1 and request.get("kind") == "collections":
             replay["collections"] = []
-        # As when it was read: only the full cycle's reads replace the category list.
+        # As when it was read: only the full cycle's reads replace the category list,
+        # and a category page's membership ends only with its own weekly cycle.
         replay["kind"] = "full" if full_window and full_window[0] <= read_at <= full_window[1] else "lists"
-        _apply_read(catalogue, replay, request, parsed, receipt["read_at"], relative, config,
-                    authoritative=getattr(reader, "authoritative", True))
+        _apply_read(catalogue, categories if request.get("role") == CATEGORY_ROLE else replay, request, parsed,
+                    receipt["read_at"], relative, config, authoritative=getattr(reader, "authoritative", True))
     if full:
         _finish_full(catalogue, full["started_at"], complete=getattr(reader, "complete_catalogue", True),
                      at=full["completed_at"], stale_days=4 * config["full_refresh_days"])
@@ -700,6 +772,9 @@ def replay_platform(root, route, reader):
     if lists and replay["handles"]:
         _finish_lists(catalogue, set(replay["handles"]), lists["started_at"])
         catalogue["lists_completed_at"] = lists["completed_at"]
+    weekly = refresh["completed"].get("categories")
+    if weekly and categories["handles"]:
+        _finish_lists(catalogue, set(categories["handles"]), weekly["started_at"])
     catalogue.update(parser_version=reader.parser_version,
                      updated_at=max((row["completed_at"] for row in cycles), key=timestamp))
     save_catalogue(root, route, catalogue)
