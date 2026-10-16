@@ -27,7 +27,7 @@
 | L3 | The AI top-up only starts when fewer than 300 headings are unsearched, at most 6 calls a day | Keeps AI use for judging products, while guaranteeing the map never runs dry |
 | L4 | Medical devices (nebuliser, pulse oximeter, anti-choking device) left out; thermometers, posture aids and motion-sickness bands kept with the usual compliance note | Medical devices need regulatory approval; the others are ordinary consumer goods |
 | L5 | Old research archived on the Linux disk (`/home/anan/neuraflow-dropshipper-archive/2026-10-16-before-fresh-start/`), old backups beside the 13 October archive on D: | Same-disk moves are instant and keep D: (77 GB free) from filling |
-| L6 | The report redesign was built later on 16 October, after the owner's approval | Not yet loaded: on 16 October the owner paused new building to simplify research ([research process review](research-process-review-2026-10-16.md)) |
+| L6 | The report redesign was built later on 16 October, after the owner's approval | Not yet loaded: on 16 October the owner paused new building to simplify research ([Plan R18](plan-2026-10-17-ranking-and-big-universe.md)) |
 
 ## Open owner choices
 
