@@ -1,40 +1,36 @@
 # Project tracker
 
-Latest state: **16 October 2026, 12:31 UTC** — **research running on the new code since the second fresh start; the same-day live fixes (R13) are loaded.** At the owner's request research restarted from scratch at **06:58:54 UTC on 16 October** (the meter's new start). Code `main` = `r10` (Plan R10 from 15 October plus Plan R11/R12 and the R13 live fixes of 16 October). This is the sole current progress summary. Requirements belong to the [product contract](../product/india_dropshipping_product_opportunity_radar_product_brief.md); technical changes and receipts belong to the [implementation record](../operations/implementation_2026-10-11.md) (fresh starts: R08 and Plan R11; Plan R10: R10; durability: R11; product map and round speed: R12; same-day live fixes: R13); the 16 October programme is [Plan R11](plan-2026-10-16-fresh-start-and-year-long-research.md).
+Latest state: **16 October 2026, about 20:00 UTC — the owner paused new building to regroup.** Research keeps running on the live R15 code (`main` `7294369`), started from scratch at **06:58:54 UTC on 16 October**. Work built during the day (R14 report redesign, R16 speed, R17 market checks first) sits on separate branches and is **not loaded**. The owner judged the research process too strict and over-engineered for a service that offers *prospects worth testing*; the step-by-step explanation, the measured reasons it is slow, and a proposed lighter "quick pick" process are in the [research process review](research-process-review-2026-10-16.md). Nothing new is built until the owner answers its questions (they are also in the handoff). This is the sole current progress summary. Requirements belong to the [product contract](../product/india_dropshipping_product_opportunity_radar_product_brief.md); technical changes and receipts belong to the [implementation record](../operations/implementation_2026-10-11.md) (R13 same-day fixes and R15 signed-in sites on `main`; R14, R16 and R17 sections live on their branches until loaded).
 
-## Current position — 16 October 2026
+## Current position — 16 October 2026, 19:52 UTC
 
 | Measure (owner meter) | Count |
 |---|---:|
-| Candidates / accepted narrow types / assessed / passing (12:31 UTC) | 28 / 23 / 23 / 20 (rebuilding since 06:58:54 UTC) |
+| Candidates / accepted narrow types / assessed / passing | 34 / 30 / 30 / 27 (in 13 hours since 06:58:54 UTC) |
 | **Report-eligible types** (need 20 across the two sets) | **1** |
+| Why the others are not ready (34 types; one type can wait on several things) | 23 waiting for the Amazon/Flipkart crowding check; 11 still need a supplier search; 6 rejected as "Too quiet" (no demand signal); 4 need more checklist facts or fall below 5 Meets. Only 4 types have any relevant Meta ad and 1 has usable Trends data |
 | Report sets produced | 0 / 2 |
-| Product map | **1,705 headings in 55 sub-areas** (was 224 in 48; 1,681 not searched yet); grows by itself (AI top-up below 300 unsearched headings) |
-| Provider (Apify) money since the fresh start | USD 0 |
+| Product map | 1,706 headings, 1,674 never searched (about 7 weeks at today's pace; tops itself up) |
+| Money since the fresh start | ₹0 cash; Apify US$0 (US$3.07 earmarked free allowance left this month); 42 free quick-commerce credits (expire 2 November) |
 
-**What changed on 16 October** ([Plan R11](plan-2026-10-16-fresh-start-and-year-long-research.md)):
-- **Exhaustive product map:** 1,470 new headings (research directions, one functional kind of product each) across all four categories, plus seven new sub-areas (party decoration, home office, home repair, arts and crafts, pregnancy and new-mother care, car exterior care, swimming). The map never stops growing: soft target 40 per sub-area, and an AI top-up adds up to 12 headings a call (at most 6 calls a day, at most 120 headings a sub-area) whenever fewer than 300 headings are still unsearched. The meter and the window show a "Product map" runway line.
-- **Year-long running:** the weekly programme record is saved in small parts (store growth about −73%), daily backups keep 14 daily + 8 weekly copies and stop before the D: drive drops below 10 GB, unused lookup pages and 90-day-old run logs are tidied, the meter stays fast, cold start replays history once, and the window shows one plain line if any tidying gets stuck.
-- **Round speed and clarity** (owner "yes" to 15 October question 3): "Review group N of M" in the status; a restarted round skips stages it already finished; match stage about 45% faster.
-- **Second fresh start:** old research, reports, run logs and backups archived (nothing deleted); money ledger, the owner's switch and the allowance watch carried. Receipt: `data/operations/fresh-start-20261016/fresh-start.md` in the working-data folder.
-- **Live fixes during the day** ([implementation record, R13](../operations/implementation_2026-10-11.md#r13-same-day-live-fixes-after-the-second-fresh-start-16-october); loaded on 16 October at 11:09 UTC as one update, commit `9059304`; the Windows app was rebuilt and reinstalled at the same time and its self-test passed 33/33):
-  - **Google Trends works while the window stays minimised.** The first signed-in reads failed because Chrome draws nothing for a minimised window (`TRENDS_MINIMISED_NOT_RENDERED`). Each signed-in read now turns on Chrome's own "act as if focused" setting, so the page draws while the window stays minimised and the owner is not disturbed. Proven live: chart drawn, chart file of 54 rows saved. A chart file is used only when Chrome reports the download finished.
-  - **Dropdash reads its real pages**, seen signed in for the first time: the home page (21 categories, 6 products each) as the catalogue and "Profitable Products" (first 18 products) as its winning list; prices, MRP and stock come from the page's own price and stock boxes. Dropdash prices include GST and shipping (the site says so). Dropdash first waits out a back-off from the morning's failed reads under the old guessed settings, until about 14:18 UTC.
-  - **Saved answers no longer counted as fresh reads.** DeoDap/BaapStore answers served from the saved catalogue were counted as new reads, so the acquire stage failed (`PROGRAMME_ACQUISITION_COUNTS_INVALID`, 7 times) and later review groups lost their turn that round.
-  - **Power cut proofing.** A power cut at about 07:30 UTC left two saved browser files empty, and one saved Amazon bestseller read then failed its check on every round. Every file a browser read saves is now forced to disk before the read counts; a saved read whose files are proven lost (empty or all zeros) is set aside (nothing deleted) and read once more under the normal limits.
-  - **IndiaMART waits for the owner.** The research browser has never been signed in to IndiaMART (its read showed IndiaMART's own mobile-number sign-in page). A question that meets that page now waits calmly for the sign-in (it keeps its try limit) instead of failing; the one question already stopped that way is reopened.
-  - **Sign-in window seen correctly.** When exactly one sign-in window was open, the program counted it as closed (a Windows PowerShell quirk with single results), so a Trends read at 11:48 UTC collided with the owner's open sign-in window and failed. Fixed and loaded the same day (second update): research now waits while the window is open.
-  - **Clearer meter.** Its access-wait rows show the real reason (for example `OWNER_SIGN_IN_REQUIRED`, `TRENDS_MINIMISED_NOT_RENDERED`) instead of only "challenge: true".
-  - Earlier the same morning: DeoDap/BaapStore feed reads crashed on every round (`platforms_failed`, a socket handling bug since 14 October), fixed (`85ccb0c`); a test-only leak that failed one test in single-process runs, fixed (`2791256`).
-- **Report redesign:** plan and mock-ups ready for the owner ([plan](../client-preview/design/report-redesign-2026-10-16/plan.md)); not built until the owner approves.
+**Blockers right now:**
+- **AI weekly allowance at 100%** since 18:10 UTC (owner's ChatGPT Plus/Codex, shared with the owner's other Codex projects; research used under 2% of it). Every AI step waits until **22 October, 06:13 UTC**. Paid extra credits are never used without the owner.
+- **Dropdash signed out** at 18:37 UTC (its page showed the sign-in form). Owner action: **Sign in to research sites** → Dropdash tab → close the Chrome window.
+- **The demand gate** (opportunity "want" at least 5 points) and the requirement that every product pass every market check before it counts. This is a design choice, not a bug; the review proposes relaxing it.
 
-**Live check after loading (12:31 UTC):** no `PROGRAMME_ACQUISITION_COUNTS_INVALID` and no failed stage on the new code; the power-cut-damaged Amazon read was set aside at 11:13 and read again at 11:14. The owner opened the sign-in window at 11:18:50 UTC and it was still open at 12:31; Trends and IndiaMART reads wait for it to close.
+**Signed-in sites:** Google Trends passed its three-read check at 17:56 UTC (owner signed in). IndiaMART signed in and read since 17:45 UTC. Dropdash signed out (above).
 
-**Owner action needed (once, after the update is loaded):** click **Sign in to research sites** in the NeuraFlow Dropshipper window. In the **IndiaMART** tab, finish IndiaMART's sign-in with the mobile number and the one-time code IndiaMART texts to it; check the other tabs still show you signed in; then close the Chrome window. This is needed for IndiaMART, and the new sign-in also restarts the Trends check line (its first three reads after a sign-in must be complete).
+**Built on 16 October, not loaded** (all branches in `/home/anan/`, none pushed except `main`):
 
-**Live checks still open (W13):** Google Trends draws while minimised (one read proven on 16 October); its three-read check after the owner's next sign-in is still to pass. Dropdash's real pages are recognised on saved copies; its first live reads with the new settings come after its back-off (about 14:18 UTC). IndiaMART waits for the owner's sign-in. Still to watch: ten signed-in reads with no focus taken, Apify `map_meta_rows` fields, crowding calibration after 50 types, three-hour round time.
+| Work | Branch / folder | State |
+|---|---|---|
+| R14 report redesign (owner approved all plan section 14 options) + review fixes | `redesign` in `dropshipper-redesign` (`f37f8a2`); merged into `r10` | Done. Whole suite 6,107: 6,104 passed, 2 skipped, 1 known clock test; Chrome print 5/5; portal 303/303. EN and Hinglish fixture issues 25 pages each |
+| R15 signed-in sites (Dropdash plain Profitable list, weekly 21 categories, units-sold hint, first name removed, lost-read sweep, probe fixes) | `main` | **Live** since 16 October |
+| R16 rounds stay fast (stop copying the whole history on every read) | `speed` in `dropshipper-speed` (`76049fa`, on top of `r10` `ba7b849`) | Rounds 7–9× faster on copies of real data. Whole suite not yet run on the final commit |
+| R17 market checks first for passing types (+ review fixes M1–M5, m1–m9) | `evidence` in `dropshipper-evidence` (`69cb68c`, on top of `r10` `204c2b9`) | Fixes done, focused tests 386 OK. Whole suite not yet run. **Recommended to park** under the quick-pick direction |
+| Build copy | `r10` in `dropshipper-r10` (`204c2b9`) = R15 + R14 + R17 before its fixes | Integration copy only; do not fast-forward `main` to it as it is |
 
-Next actions, in order: (1) owner's sign-in (above); (2) watch the first rounds on the R13 code: Trends check line 3/3, Dropdash's first real reads, IndiaMART after the sign-in, no `PROGRAMME_ACQUISITION_COUNTS_INVALID`, the set-aside Amazon bestseller read replaced once; (3) remaining W13 live checks; (4) adopt store checkpoints once events exist; (5) research to 20 eligible types, two bilingual report sets (redesigned if the owner approves), portal deploy and private-delivery checks.
+Next actions, in order, once the owner answers: (1) decide the quick-pick direction (review questions 1–5); (2) integrate what is kept (R14 and R16 on `main`; one known one-line conflict in `source_coverage.py` if R17 is also kept), run the whole suite, load, restart; (3) build quick pick if approved; (4) first two bilingual report sets, portal deploy and private-delivery checks.
 
 ## Earlier fresh start — 13 October 2026 (history)
 
@@ -52,7 +48,7 @@ Complete the connected research programme and **two actual updated private repor
 | Verify private delivery | Ten private objects across the two sets and six byte-matched owner downloads through the existing connection. Renewing the existing owner sign-in is already approved if required. |
 | Retain final files | Include the actual finished reports in the separate final implementation backup. Earlier backup proof cannot cover files that did not yet exist. |
 
-Focused checks, the whole local suites (Plan R10 approval A1) and ordinary approved research are allowed. Hosted release gates, client publication/access changes, supplier contact, paid upgrades and credit purchases still need the owner. Last whole local run (16 October, on the R13 code): Python 6,026 tests, all passed (2 skipped); portal 303/303 (15 October; portal unchanged since). The deferred client email does not prevent owner-only draft work.
+Focused checks, the whole local suites (Plan R10 approval A1) and ordinary approved research are allowed. Hosted release gates, client publication/access changes, supplier contact, paid upgrades and credit purchases still need the owner. Last whole local runs (16 October): the R14+R15 merge in the build copy, Python 6,097 OK (2 skipped); the R14 review-fix branch 6,104 of 6,107 (1 known clock-dependent test, already fixed on `r10`); portal 303/303. The deferred client email does not prevent owner-only draft work.
 
 ## Completion checks
 

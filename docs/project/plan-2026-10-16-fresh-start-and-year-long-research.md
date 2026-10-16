@@ -14,7 +14,7 @@
 | P4 | Round speed and clarity (owner "yes", 15 October Q3) | "Review group N of M" in the status; restarted rounds skip finished stages; match stage about 45% faster | R12 |
 | P5 | Movers & Shakers leftovers (owner "yes", Q2) | The second fresh start removes every old record; the code no longer counts a deleted route's question as checked | R12 |
 | P6 | Second fresh start | Research records, reports, run logs and old backups archived (nothing deleted); money ledger, the owner's switch and the allowance watch carried; research started on the new code | Receipt `data/operations/fresh-start-20261016/fresh-start.md` (working-data folder) |
-| P7 | Report redesign | **Plan and mock-ups only, waiting for the owner** (a material visual redesign needs owner approval first) | [Report redesign plan](../client-preview/design/report-redesign-2026-10-16/plan.md) |
+| P7 | Report redesign | **Approved by the owner on 16 October (all recommended options) and built (R14), with review fixes; on branch `redesign`/`r10`, not yet loaded** | [Report redesign plan](../client-preview/design/report-redesign-2026-10-16/plan.md) |
 | P8 | Stale documents (W14) | Runner guide, benchmark plan/record, quick-commerce connection, client-preview blueprint brought up to date | — |
 | P9 | Same-day live fixes (found watching the first rounds) | DeoDap/BaapStore feed crash fixed; Trends draws while the window stays minimised (proven: chart and a 54-row file); Dropdash reads its real pages; saved catalogue answers no longer counted as fresh reads; browser files forced to disk and power-cut-damaged saved reads set aside and read once more; IndiaMART's sign-in page waits calmly for the owner's sign-in; the meter shows each wait's real reason | [Implementation record R13](../operations/implementation_2026-10-11.md#r13-same-day-live-fixes-after-the-second-fresh-start-16-october) |
 
@@ -27,7 +27,7 @@
 | L3 | The AI top-up only starts when fewer than 300 headings are unsearched, at most 6 calls a day | Keeps AI use for judging products, while guaranteeing the map never runs dry |
 | L4 | Medical devices (nebuliser, pulse oximeter, anti-choking device) left out; thermometers, posture aids and motion-sickness bands kept with the usual compliance note | Medical devices need regulatory approval; the others are ordinary consumer goods |
 | L5 | Old research archived on the Linux disk (`/home/anan/neuraflow-dropshipper-archive/2026-10-16-before-fresh-start/`), old backups beside the 13 October archive on D: | Same-disk moves are instant and keep D: (77 GB free) from filling |
-| L6 | The report redesign was not built | It is a large visual change; the owner approves the direction first. Reports are days away anyway (no product is report-ready yet) |
+| L6 | The report redesign was built later on 16 October, after the owner's approval | Not yet loaded: on 16 October the owner paused new building to simplify research ([research process review](research-process-review-2026-10-16.md)) |
 
 ## Open owner choices
 
