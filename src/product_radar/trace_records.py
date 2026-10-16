@@ -23,12 +23,13 @@ import os
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from .models import SafetyError, digest, timestamp
-from .research_memory import TABLES, load_event
+from .models import SafetyError, digest, identifier, timestamp
+from .research_memory import TABLES, ResearchMemory, load_event
 from .storage import load_json
 
 
 MEMORY_PARTS = ("data", "research", "captured")
+EVIDENCE_TYPE = "captured"
 RUNS_PARTS = ("data", "operations", "research-runs")
 BASELINE_PARTS = ("data", "operations", "meter-baseline.json")
 SPEND_PARTS = MEMORY_PARTS + ("spend_watch",)
@@ -137,7 +138,8 @@ def replay_events(events_dir):
     """Rebuild the saved research state in memory from the original events.
 
     Returns ``(state, timeline, facts)``. Every event must continue the chain
-    exactly as ``ResearchMemory`` requires; otherwise ``TraceError``.
+    with ``ResearchMemory``'s checks (sequence, file name, previous hash, own
+    hash, namespace, unique id, and its change rules); otherwise ``TraceError``.
     """
     events_dir = Path(events_dir)
     state = {table: {} for table in TABLES}
@@ -145,24 +147,26 @@ def replay_events(events_dir):
     if not events_dir.is_dir():
         return state, timeline, {"events": 0, "first_event_at": None, "last_event_at": None}
     names = sorted(entry.name for entry in os.scandir(events_dir) if entry.name.endswith(".json"))
-    head, sequence, first, last = "0" * 64, 0, None, None
+    head, sequence, first, last, seen = "0" * 64, 0, None, None, set()
     for name in names:
         event = load_event(events_dir / name)
         try:
             body = {key: value for key, value in event.items() if key != "hash"}
-            if (event["seq"] != sequence + 1 or name != f"{event['seq']:08d}.json"
-                    or event["previous"] != head or digest(body) != event["hash"]):
+            if (type(event["seq"]) is not int or event["seq"] != sequence + 1 or name != f"{event['seq']:08d}.json"
+                    or event["previous"] != head or digest(body) != event["hash"]
+                    or event["evidence_type"] != EVIDENCE_TYPE or event["id"] in seen):
                 raise ValueError
+            identifier(event["id"])
             at = event["at"]
             timestamp(at)
+            # The programme's own change rules: exact fields, known table,
+            # unchanged dependency, and saved captures never rewritten.
+            ResearchMemory._apply(state, event["changes"])
             for change in event["changes"]:
-                table, record_id, value = change["table"], change["id"], change["value"]
-                if table not in state or not isinstance(value, dict):
-                    raise ValueError
-                state[table][record_id] = value
-                timeline.add(table, record_id, value, at, event["seq"])
+                timeline.add(change["table"], change["id"], state[change["table"]][change["id"]], at, event["seq"])
         except (KeyError, TypeError, ValueError, SafetyError):
             raise TraceError("TRACE_EVENTS_CHAIN_BROKEN:" + name) from None
+        seen.add(event["id"])
         head, sequence = event["hash"], event["seq"]
         first = first or at
         last = at
@@ -206,18 +210,37 @@ def _optional_json(path):
         return {"unreadable": True}
 
 
+def _attempt(folder):
+    return {name.removesuffix(".json"): _optional_json(folder / name) for name in AI_FILES}
+
+
 def load_ai_jobs(jobs_dir):
-    """One small record per AI job folder: request role, times, usage, outcome files."""
+    """One record per AI job folder: its files, and every attempt in order.
+
+    An automatic retry keeps its own files in ``retry-N`` (``retries.json``
+    counts them, as ``research_ai.current_attempt`` reads it); the top
+    folder keeps the original attempt. The last attempt holding any saved
+    file is the job's current state.
+    """
     jobs_dir = Path(jobs_dir)
     jobs = []
     if not jobs_dir.is_dir():
         return jobs
     for folder in sorted(path for path in jobs_dir.iterdir() if path.is_dir() and not path.is_symlink()):
-        files = {name: _optional_json(folder / name) for name in AI_FILES}
+        files = _attempt(folder)
+        attempts = [files]
+        retries = files.get("retries")
+        if isinstance(retries, list):
+            for number in range(1, len(retries) + 1):
+                retry = folder / f"retry-{number}"
+                if retry.is_dir() and not retry.is_symlink():
+                    attempt = _attempt(retry)
+                    if any(value is not None for name, value in attempt.items() if name != "retries"):
+                        attempts.append(attempt)
         jobs.append({"folder": folder.name, "present": sorted(name for name, value in files.items() if value is not None),
                      "other_files": sorted(path.name for path in folder.iterdir()
                                            if path.is_file() and path.name not in AI_FILES),
-                     **{name.removesuffix(".json"): value for name, value in files.items()}})
+                     "attempts": attempts, **files})
     return jobs
 
 

@@ -35,6 +35,19 @@ class TraceRecordsTest(unittest.TestCase):
         self.assertEqual(timeline.history[("concepts", fx.A)][0][2]["label"], "Folding test rack")
         self.assertEqual(timeline.first_at("concepts", "missing"), None)
 
+    def test_replay_matches_the_programmes_own_read(self):
+        from product_radar.research_memory import ResearchMemory
+        state, _, _ = records.replay_events(self.memory / "events")
+        self.assertEqual(state, ResearchMemory(self.memory, None).snapshot())
+
+    def test_a_change_the_programme_would_refuse_stops_the_trace(self):
+        folder = Path(self.temp.name) / "rewrite" / "events"
+        capture = {"source": "meta", "reference": "x"}
+        fx.write_events(folder, [(fx.T1, [("captures", "cap-1", capture)]),
+                                 (fx.T2, [("captures", "cap-1", {**capture, "source": "changed"})])])
+        with self.assertRaisesRegex(records.TraceError, "00000002.json"):
+            records.replay_events(folder)
+
     def test_unchanged_summary_is_kept_once(self):
         timeline = records.Timeline()
         timeline.add("concepts", "c", {"status": "provisional"}, fx.T1, 1)
@@ -75,7 +88,9 @@ class TraceRecordsTest(unittest.TestCase):
 
     def test_ai_job_folders_are_read_and_bad_files_marked(self):
         jobs = {job["folder"]: job for job in records.load_ai_jobs(self.memory / "ai_jobs")}
-        self.assertIn("result.json", jobs["job-a"]["present"])
+        self.assertIn("result", jobs["job-a"]["present"])
+        self.assertEqual(len(jobs["job-r"]["attempts"]), 2)        # original + retry-1
+        self.assertEqual(len(jobs["job-d"]["attempts"]), 1)        # retry recorded, its folder never written
         self.assertEqual(jobs["job-h"]["intent"], {"unreadable": True})
         self.assertEqual(jobs["job-g"]["other_files"], ["supplier_scoped_reference_map.json"])
         self.assertEqual(records.load_ai_jobs(Path(self.temp.name) / "none"), [])

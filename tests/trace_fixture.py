@@ -31,10 +31,11 @@ def concept(label, category="Home and Kitchen"):
             "status": "provisional"}
 
 
-def task(route, source, status, reason, targets, results=None, prepared_at=T1):
+def task(route, source, status, reason, targets, results=None, prepared_at=T1, **values):
     return {"kind": "all_source_task_v1", "route": route, "source": source, "status": status, "reason": reason,
             "targets": {target: "hash" for target in targets}, "target_results": results or {},
-            "prepared_at": prepared_at, "dispatched_at": None, "tries": 0}
+            "prepared_at": prepared_at, "dispatched_at": None, "tries": 0, "attempt_refs": [],
+            "dispatch_started": False, **values}
 
 
 def owner(route, acquisition_id, state, created_at=T1):
@@ -71,18 +72,19 @@ def events():
         (T1, [("batch_runs", "discovery-wave-1", wave),
               ("batch_runs", "wider-1", {"kind": "wider-discovery-read-v1", "route": "tradeindia",
                                          "lane": "supplier-listings", "state": "read", "candidates": 3}),
-              ("observations", "obs-1", {"source": "meta", "semantic_id": "item-1", "capture_id": "cap-2",
+              ("observations", "obs-1", {"source": "meta", "source_item": "ad-1", "observed_at": T1, "semantic_id": "item-1", "capture_id": "cap-2",
                                          "semantic": {"body": "Invented folding rack advert"}, "facts": {}}),
-              ("observations", "obs-2", {"source": "deodap", "semantic_id": "item-2", "capture_id": "cap-1",
+              ("observations", "obs-2", {"source": "deodap", "source_item": "deodap-1", "observed_at": T1, "semantic_id": "item-2", "capture_id": "cap-1",
                                          "semantic": {"title": "Invented folding rack"},
                                          "facts": {"list_type": "dropship_discovery_list"}}),
-              ("observations", "obs-3", {"source": "amazon", "semantic_id": "item-3", "capture_id": "cap-1",
+              ("observations", "obs-3", {"source": "amazon", "source_item": "asin-1", "observed_at": T1, "semantic_id": "item-3", "capture_id": "cap-1",
                                          "semantic": {"title": "Invented rack card"}, "facts": {"list_type": "product_search",
                                                                                                 "query": "folding rack"}}),
               ("captures", "cap-1", {"source": "deodap", "reference": {"request": {"term": "rack", "lane": "lists"}}}),
               ("captures", "cap-2", {"source": "meta", "reference": "/somewhere/receipt.json"})]),
-        (T1, [("descriptions", "item-1", {"job_id": "job-a", "result": {"kind": "product", "products": [{"label": "x"}]}}),
-              ("descriptions", "item-2", {"job_id": "job-a", "result": {"kind": "service", "products": []}}),
+        (T1, [("descriptions", "item-1", {"job_id": "job-a", "result": {"kind": "product", "reason": "One product.",
+                                                                  "products": [{"label": "x"}]}}),
+              ("descriptions", "item-2", {"job_id": "job-a", "result": {"kind": "service", "reason": "A service.", "products": []}}),
               ("concepts", A, concept("Folding test rack")),
               ("concepts", B, concept("Quiet test lamp")),
               ("concepts", C, concept("Waiting test mat")),
@@ -121,6 +123,13 @@ def events():
               ("query_tasks", "task-5", task("meta-ads", "meta", "completed_no_results", "No ads.", [B],
                                              {B: {"state": "completed_no_results"}})),
               ("query_tasks", "task-6", task("google-maps", "supplier", "prepared", "Prepared; no source attempt yet.", [C])),
+              ("query_tasks", "task-7", task("deodap", "dropship-platforms", "acquired", "Saved catalogue items matched.", [A],
+                                             {A: {"state": "interpretation_pending"}})),
+              ("query_tasks", "task-8", task("blinkit", "quickcommerce", "prepared",
+                                             "QUICKCOMMERCE_RESERVED_CROWDING_NOT_CHECKED", [A])),
+              ("query_tasks", "task-9", task("meta-ads", "meta", "blocked", "SOURCE_ACCESS_PROBE_PENDING", [C])),
+              ("query_tasks", "task-10", task("google-trends", "trends", "failed", "Native capture failed.", [C],
+                                              attempt_refs=["source-acquisition-3"], dispatch_started=True)),
               ("query_tasks", "question-1", {"kind": "research-question-v2", "route": "google-trends",
                                              "prepared_at": T1, "progress": {"acquisition": "prepared",
                                                                              "reason": "SOURCE_ACCESS_PROBE_PENDING"}}),
@@ -155,11 +164,11 @@ def events():
                                             "reason": "Saved."}),
               ("source_checks", "image-2", {"kind": "public_product_image", "state": "failed", "concept_id": B,
                                             "reason": "PRODUCT_IMAGE_TRANSPORT_FAILED"}),
-              ("batch_runs", "programme-1", {"kind": "research-programme-v1", "status": "running", "concepts": [A, B, C]})]),
-        (T4, [("issue_reservations", "reservation-1", {"status": "reserved", "concept_ids": [A]}),
+              ("batch_runs", "turn-1", {"kind": "work-turn-v1", "state": "open", "concepts": [A, B, C]})]),
+        (T4, [("issue_reservations", "issue-reservation-1", {"state": "reserved", "client_id": "default",
+                                                              "issue_id": "issue-1", "products": [{"concept_id": A}]}),
               ("published_history", "published-1", {"status": "published", "concept_id": "concept-old"}),
-              ("batch_runs", "programme-1", {"kind": "research-programme-v1", "status": "work_remaining",
-                                             "concepts": [A, B, C]})]),
+              ("batch_runs", "turn-1", {"kind": "work-turn-v1", "state": "closed", "concepts": [A, B, C]})]),
     ]
 
 
@@ -240,6 +249,12 @@ def write_ai_jobs(folder):
          failure={"code": "AI_INTERRUPTED_REVIEW_SAVED_JOB", "at": T3, "usage": None},
          retries=[{"reason": "x", "previous_failure": "AI_RATE_LIMITED", "at": T2}])
     _job(folder, "job-e", intent=intent("F", "research-f-v4"))
+    _job(folder, "job-r", intent=intent("C", "research-c-query-profile-v3"),
+         failure={"code": GUARD_CODES[0], "at": T1, "usage": None},
+         retries=[{"reason": "allowance read again", "previous_failure": GUARD_CODES[0], "at": T2}])
+    _job(folder / "job-r", "retry-1", intent=intent("C", "research-c-query-profile-v3", T2),
+         runner_execution={"started_at": T2}, result={"completed_at": "2026-10-16T07:00:50+00:00", "usage": usage},
+         completion={"exit_code": 0, "usage": usage})
     _job(folder, "job-f", derived_result={"answer": "saved"})
     _job(folder, "job-g", **{"supplier_scoped_reference_map.json": {"map": {}}})
     _job(folder, "job-h", intent="{not json", result={"completed_at": T0})

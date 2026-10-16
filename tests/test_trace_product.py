@@ -45,7 +45,7 @@ class TraceProductTest(unittest.TestCase):
         self.assertEqual([row["point"] for row in report["checklist"]], ["Small in size", "Easy to ship"])
         self.assertEqual(report["checklist_meets"], 7)
         questions = {row["task_id"]: row for row in report["questions"]}
-        self.assertEqual(sorted(questions), ["task-1", "task-3", "task-4"])
+        self.assertEqual(sorted(questions), ["task-1", "task-3", "task-4", "task-7", "task-8"])
         self.assertEqual([change["status"] for change in questions["task-1"]["changes"]],
                          ["prepared", "dispatching", "acquired"])
         self.assertEqual(questions["task-1"]["answer_for_this_type"], "interpretation_pending")
@@ -54,7 +54,7 @@ class TraceProductTest(unittest.TestCase):
         self.assertEqual((report["score"]["total"], report["score"]["label"]), (52, "sweet_spot"))
         self.assertEqual(report["score"]["parts"]["room"]["points"], 25)
         self.assertTrue(report["report_ready"])
-        self.assertEqual(report["allocations"], ["reservation-1"])
+        self.assertEqual(report["allocations"], ["issue-reservation-1"])
         self.assertEqual([row["stage"] for row in report["problems"]], ["fit_review"])
         kinds = [row["kind"] for row in report["timeline"]]
         self.assertNotIn("research-programme-v1", kinds)

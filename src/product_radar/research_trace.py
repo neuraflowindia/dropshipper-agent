@@ -110,7 +110,7 @@ def parser():
 
 
 def _out_path(value, data_root):
-    path = Path(value).absolute()
+    path, data_root = Path(value).resolve(), Path(data_root).resolve()
     if path == data_root or data_root in path.parents:
         raise TraceError("TRACE_OUTPUT_INSIDE_RESEARCH_DATA")
     return path

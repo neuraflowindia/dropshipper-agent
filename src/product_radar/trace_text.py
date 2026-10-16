@@ -192,7 +192,10 @@ def _ai_line(bucket):
                          for name in OUTCOMES if bucket["outcomes"].get(name))
     return (f"{number(bucket['jobs'])} jobs ({outcomes}); tokens in {number(bucket['input_tokens'])} "
             f"(cached {number(bucket['cached_input_tokens'])}), out {number(bucket['output_tokens'])}; "
-            f"AI time {duration(bucket['total_wall_seconds'])} in total, median {duration(bucket['median_wall_seconds'])} per job")
+            f"AI time {duration(bucket['total_wall_seconds'])} in total, median {duration(bucket['median_wall_seconds'])} per job"
+            + (f"; {number(bucket['retried_jobs'])} retried (earlier attempts: "
+               + ", ".join(f"{number(n)} {OUTCOME_WORDS[name].lower()}" for name, n in bucket["earlier_attempts"].items())
+               + ")" if bucket.get("retried_jobs") else ""))
 
 
 def ai_text(report, *, short=False):

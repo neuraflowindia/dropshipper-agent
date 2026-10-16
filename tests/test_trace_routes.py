@@ -19,6 +19,9 @@ class TraceRoutesTest(unittest.TestCase):
         cls.store = load_store(root)
         cls.store.run_rows.append({"at": fx.T3, "event": "source_outcome", "route": "deodap", "state": "acquired",
                                    "actual_attempt": True, "timings": {"handler": 0.01}})
+        # One line that the meter counts both as a failure and as a refusal.
+        cls.store.run_rows.append({"at": fx.T3, "event": "source_outcome", "route": "indiamart", "state": "blocked",
+                                   "actual_attempt": True, "error_type": "AccessRefused", "reason": "SIGN_IN_WALL"})
         cls.report = routes_report(cls.store, fx.START)
         cls.routes = {row["route"]: row for row in cls.report["routes"]}
 
@@ -56,6 +59,9 @@ class TraceRoutesTest(unittest.TestCase):
         pages = self.routes["company-pages"]["run_logs"]
         self.assertEqual((pages["failures"], pages["reused_saved_failures"]), ({"SOURCE_ACTION_TIMEOUT": 1}, 1))
         self.assertNotIn("records", self.routes["company-pages"])
+        both = self.routes["indiamart"]["run_logs"]
+        self.assertEqual((both["failures"], both["access_blocks"], both["waits"]),
+                         ({"SIGN_IN_WALL": 1}, {"SIGN_IN_WALL": 1}, {}))
 
     def test_catalogue_platforms(self):
         self.assertIn("saved copy", self.routes["deodap"]["note"])
@@ -64,14 +70,15 @@ class TraceRoutesTest(unittest.TestCase):
         self.assertEqual(dict(deodap["failures"]), {"DROPSHIP_PAGE_LAYOUT_UNRECOGNISED": 1})
         self.assertEqual((deodap["median_seconds"], deodap["last_success_at"]), (15.0, fx.T1))
         dropdash = self.report["platforms"]["dropdash"]
-        self.assertEqual((dropdash["reads"], dropdash["wait_now"], dropdash["failures_in_a_row"]),
-                         (0, "OWNER_SIGN_IN_REQUIRED", 2))
+        self.assertEqual((dropdash["reads"], dict(dropdash["states"]), dropdash["wait_now"], dropdash["failures_in_a_row"]),
+                         (1, {"unreadable": 1}, "OWNER_SIGN_IN_REQUIRED", 2))
         self.assertIsNone(self.report["platforms"]["baapstore"]["wait_now"])
 
     def test_period_filter(self):
         later = routes_report(self.store, fx.T4)
         self.assertEqual(later["routes"], [])
         self.assertEqual(later["platforms"]["deodap"]["reads"], 0)
+        self.assertEqual(later["platforms"]["dropdash"]["reads"], 1)   # an unreadable read has no time: always shown
 
 
 if __name__ == "__main__":

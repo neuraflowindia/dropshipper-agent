@@ -95,6 +95,9 @@ class ResearchTraceCliTest(unittest.TestCase):
             code, _ = self.run_cli("routes", "--data-root", str(self.root), "--out", str(self.root / "x.txt"))
             self.assertEqual(code, 1)
             self.assertIn("TRACE_OUTPUT_INSIDE_RESEARCH_DATA", error.getvalue())
+            code, _ = self.run_cli("routes", "--data-root", str(self.root), "--out",
+                                   str(Path(self.temp.name) / "elsewhere" / ".." / "store" / "y.txt"))
+            self.assertEqual(code, 1)
             code, _ = self.run_cli("routes", "--data-root", str(self.root), "--since", "yesterday")
             self.assertEqual(code, 1)
             code, _ = self.run_cli("routes", "--data-root", str(Path(self.temp.name) / "missing"))
@@ -116,6 +119,16 @@ class RealJudgementTest(unittest.TestCase):
             code = cli.main(["funnel", "--data-root", str(root), "--as-of", fx.AS_OF], stdout=out)
         self.assertEqual(code, 0)
         self.assertIn("RESEARCH FUNNEL", out.getvalue())
+
+    def test_programme_functions_never_write_into_the_data_folder(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            fx.build(root)
+            before = tree(root)
+            for argv in (["funnel"], ["routes"], ["ai"], ["product", "rack"], ["summary", "--json"]):
+                code = cli.main([*argv, "--data-root", str(root), "--as-of", fx.AS_OF], stdout=io.StringIO())
+                self.assertEqual(code, 0, argv)
+            self.assertEqual(tree(root), before)
 
     def test_script_entry_point(self):
         with tempfile.TemporaryDirectory() as folder:

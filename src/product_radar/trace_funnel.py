@@ -20,6 +20,7 @@ from types import SimpleNamespace
 from . import trace_labels as words
 from .models import SafetyError
 from .trace_records import at_or_after, day_of, day_span, problem_outcome
+from .trace_routes import in_period
 
 ANSWERED = ("acquired", "completed_no_results", "insufficient")
 PLAIN_PREPARED = "Prepared; no source attempt yet."
@@ -163,8 +164,9 @@ def discovery_step(store, since):
     for route, value in sorted(store.platforms.items()):
         refresh = value["refresh"]
         full = (refresh.get("completed") or {}).get("full") or {}
-        platform_rows.append(entry(route, words.route(route) + ": catalogue pages read / products listed in last full read",
-                                   f"{len(value['reads'])} / {full.get('items', 'not finished')}"))
+        pages = sum(1 for row in value["reads"] if in_period(row, since))
+        platform_rows.append(entry(route, words.route(route) + ": catalogue pages read in this period / products "
+                                   "listed in the last full read", f"{pages} / {full.get('items', 'not finished')}"))
     return step("discovery", "2. Searches run to find product ideas (discovery)", counts=[
         entry("heading_searches", "Heading searches planned (Meta ads, Google Trends)", sum(planned.values())),
         entry("wider_searches", "Wider searches (supplier listings, rising ads)", sum(sum(c.values()) for c in wider.values())),
@@ -320,7 +322,11 @@ def _matching(code):
 
 def definitions_step(store, judged):
     from .functional_types import functional_type_inventory
-    inventory = functional_type_inventory(store.state)
+    try:
+        inventory = functional_type_inventory(store.state)
+    except JUDGEMENT_ERRORS as error:
+        return step("definitions", "6. AI defines each product type (identity)", notes=[
+            "Could not read: " + words.reason(str(error) if isinstance(error, SafetyError) else type(error).__name__)])
     reviews = Counter(bool(row.get("accepted")) for record_id, row in _kinds(store, "source_checks", "functional-definition-v1"))
     codes = Counter()
     if judged["pool"]:
@@ -354,7 +360,7 @@ def checklist_step(store, judged, since=None):
         entry("passing", "Types that pass (5+ Meets)", meter.get("assessment_passing_types")),
         entry("below", "Below the pass mark", codes["below_checklist_threshold"]),
         entry("pending", "Information still pending", codes["fit_information_pending"]),
-        entry("not_filled", "Checklist not filled yet", codes["checklist_review_required"])],
+        entry("not_filled", "Checklist missing or needs a fresh review", codes["checklist_review_required"])],
         tables=[table("Number of Meets per type (out of 10)", meets, lambda code: f"{code} Meets", by_key=True),
                 table("Types whose checklist could not run, by reason", blocked, problem_label)])
 
@@ -371,7 +377,7 @@ def supplier_step(store, judged, since):
             with_leads += bool(decision.get("supplier_leads_found"))
         status.update(fact.get("supplier_search_status") or "not recorded" for fact in pool["facts_by_concept"].values())
     for record_id, row in _kinds(store, "query_tasks", "all_source_task_v1"):
-        if row.get("source") == "supplier" and _new(store, "query_tasks", record_id, since):
+        if route_group(row) == "supplier" and _new(store, "query_tasks", record_id, since):
             routes[row["route"]][_task_outcome(row)] += 1
     tables = [table("Supplier search status per type", status, str)]
     for route, counter in sorted(routes.items()):
@@ -400,12 +406,38 @@ def photo_step(store, judged):
                       str)])
 
 
+GROUP_TITLES = {
+    "demand": "Demand checks (these count as market signals)",
+    "quickcommerce": "Quick-delivery stock checks (cost a credit; not a market vote)",
+    "dropship": "Dropshipping-platform catalogue checks (supplier and list presence; not a market vote)",
+    "supplier": "Supplier searches",
+    "other": "Other websites",
+}
+
+
+def route_group(row):
+    """Which kind of check a product question is, by the programme's own route table."""
+    from .source_coverage import ROUTES
+    route = ROUTES.get(row.get("route"))
+    source = route["source"] if route else row.get("source")
+    if route and route.get("demand_group"):
+        return "demand"
+    return {"quickcommerce": "quickcommerce", "dropship-platforms": "dropship", "supplier": "supplier"}.get(source, "other")
+
+
+def was_asked(row):
+    """A question counts as asked only once something was actually sent (or answered)."""
+    return bool(row.get("attempt_refs")) or row.get("dispatch_started") is True or row.get("status") in ANSWERED
+
+
 def _task_outcome(row):
     status = row.get("status")
     reason = row.get("reason")
     if status == "prepared":
         return "not asked yet" if reason in (None, PLAIN_PREPARED) else "waiting: " + str(reason)
-    if status in ("blocked", "failed") and isinstance(reason, str) and words.reason(reason).endswith("]"):
+    if status == "blocked" and not was_asked(row):
+        status = "held"
+    if status in ("blocked", "held", "failed") and isinstance(reason, str) and words.reason(reason).endswith("]"):
         return f"{status}: {reason}"
     return status
 
@@ -414,32 +446,42 @@ def _outcome_label(code):
     if code == "not asked yet":
         return "Not asked yet [prepared]"
     head, _, tail = code.partition(": ")
-    if tail:
-        return words.state(head if head != "waiting" else "waiting") + " — " + words.reason(tail)
-    return words.state(code)
+    text = "Held back before anything was sent [blocked]" if head == "held" else words.state(head)
+    return text + (" — " + words.reason(tail) if tail else "")
 
 
 def market_step(store, since):
-    routes, judged, created = defaultdict(Counter), defaultdict(Counter), Counter()
+    groups = defaultdict(lambda: {"created": Counter(), "asked": Counter(), "outcomes": defaultdict(Counter),
+                                  "judged": defaultdict(Counter)})
     for record_id, row in _kinds(store, "query_tasks", "all_source_task_v1"):
-        if row.get("source") == "supplier" or not _new(store, "query_tasks", record_id, since):
+        group = route_group(row)
+        if group == "supplier" or not _new(store, "query_tasks", record_id, since):
             continue
-        route = row["route"]
-        created[route] += 1
-        routes[route][_task_outcome(row)] += 1
+        item, route = groups[group], row.get("route")
+        item["created"][route] += 1
+        item["asked"][route] += was_asked(row)
+        item["outcomes"][route][_task_outcome(row)] += 1
         for result in (row.get("target_results") or {}).values():
             if isinstance(result, dict):
-                judged[route][result.get("state")] += 1
-    asked = {route: sum(n for code, n in counter.items() if not code.startswith(("not asked", "waiting")))
-             for route, counter in routes.items()}
-    tables = [table("Questions created, by website", created, words.route),
-              table("Questions actually asked (sent or answered), by website", Counter(asked), words.route)]
-    for route in sorted(routes):
-        tables.append(table("Questions to " + words.route(route) + ", by outcome", routes[route], _outcome_label))
-        tables.append(table("Answers from " + words.route(route) + ", by AI judgement", judged[route], words.state))
-    return step("market", "10. Market checks per website (one question per product type)", counts=[
-        entry("created", "Market questions created", sum(created.values())),
-        entry("asked", "Market questions asked", sum(asked.values()))], tables=tables)
+                item["judged"][route][result.get("state")] += 1
+    counts, tables = [], []
+    for group in ("demand", "quickcommerce", "dropship", "other"):
+        if group not in groups:
+            continue
+        item = groups[group]
+        counts.append(entry(group, GROUP_TITLES[group] + ": created / actually asked",
+                            f"{sum(item['created'].values())} / {sum(item['asked'].values())}"))
+        tables.append(table(GROUP_TITLES[group] + " — questions created, by website", item["created"], words.route))
+        tables.append(table(GROUP_TITLES[group] + " — questions actually asked (something sent or answered)",
+                            +item["asked"], words.route))
+        for route in sorted(item["outcomes"]):
+            tables.append(table("Questions to " + words.route(route) + ", by outcome", item["outcomes"][route],
+                                _outcome_label))
+            tables.append(table("Answers from " + words.route(route) + ", by AI judgement", item["judged"][route],
+                                words.state))
+    return step("market", "10. Market checks per website (one question per product type)", counts=counts,
+                tables=tables, notes=["'Actually asked' means a request was sent (or an answer saved); a question held "
+                                      "back before sending is not counted as asked."])
 
 
 def crowding_step(store):
@@ -512,13 +554,19 @@ def eligible_step(store, judged):
 
 
 def allocation_step(store, judged):
-    reservations = Counter(row.get("status") for row in store.state["issue_reservations"].values())
-    published = Counter(row.get("status") for row in store.state["published_history"].values())
+    """Report allocations: one saved record per report (issue) with its products."""
+    by_state, types = Counter(), set()
+    for row in store.state["issue_reservations"].values():
+        by_state[row.get("state")] += 1
+        types.update(product.get("concept_id") for product in row.get("products") or [] if isinstance(product, dict))
+    published = {row.get("concept_id") for row in store.state["published_history"].values()
+                 if row.get("status") == "published"}
     return step("allocation", "16. Allocated to reports, and reports produced", counts=[
-        entry("allocated", "Types allocated to a report", sum(reservations.values())),
-        entry("published", "Types published to the client", published.get("published", 0)),
+        entry("allocated", "Types allocated to a report", len(types - {None})),
+        entry("reports_allocated", "Reports with allocated products", sum(by_state.values())),
+        entry("published", "Types published to the client", len(published - {None})),
         entry("reports", "Report sets produced", (judged["meter"] or {}).get("report_sets_produced"))],
-        tables=[table("Report allocations by status", reservations, str)])
+        tables=[table("Reports by allocation state", by_state, str)])
 
 
 def per_day(store, since, until):

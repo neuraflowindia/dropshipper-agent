@@ -106,27 +106,39 @@ def log_reads(store, since):
             item["fresh"][state] += 1
             if state != "insufficient":
                 item["last_success_at"] = _latest(item["last_success_at"], row["at"])
-        access = _access_outcome("source_outcome", row)
-        if access == "block":
-            item["blocks"][reason] += 1
-        elif state in _WAIT_STATES or access == "held":
-            item["waits"][reason] += 1
-        elif row.get("error_type") or state == "failed":
-            # The meter's rule: an earlier saved failure shown again (no new
-            # visit, nothing newly reported) is not a new failure.
-            if (row.get("outcome_reused") is True and row.get("actual_attempt") is False
+        # The owner meter's own three rules (run_log_summary._row_into); they
+        # are independent, so one line can be both a failure and a block.
+        if row.get("error_type") or state == "failed":
+            # An earlier saved failure shown again (no new visit, nothing
+            # newly reported) is not a new failure.
+            if (state == "failed" and row.get("outcome_reused") is True and row.get("actual_attempt") is False
                     and not row.get("error_reported")):
                 item["reused_failures"] += 1
             else:
                 item["failures"][reason] += 1
+        access = _access_outcome("source_outcome", row)
+        if access == "block":
+            item["blocks"][reason] += 1
+        if state in _WAIT_STATES or access == "held":
+            item["waits"][reason] += 1
     return routes
 
 
+def in_period(read, since):
+    """A saved catalogue read inside the period; an unreadable one (no time) always counts."""
+    when = read.get("read_at") or read.get("checked_at")
+    return not when or at_or_after(when, since)
+
+
 def platform_reads(store, since):
-    """Per dropshipping platform, from its own saved catalogue reads."""
+    """Per dropshipping platform, from its own saved catalogue reads.
+
+    A page saved as "read" whose parsing later failed still shows as read
+    here (the failure is kept only in the platform's wait record below).
+    """
     result = {}
     for route, value in sorted(store.platforms.items()):
-        reads = [row for row in value["reads"] if at_or_after(row.get("read_at") or row.get("checked_at") or "", since)]
+        reads = [row for row in value["reads"] if in_period(row, since)]
         refresh = value["refresh"]
         last = None
         for row in reads:

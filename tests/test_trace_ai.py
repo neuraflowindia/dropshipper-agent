@@ -29,30 +29,38 @@ class TraceAiTest(unittest.TestCase):
         outcomes = {job["folder"]: classify(job)["outcome"] for job in self.store.ai_jobs}
         self.assertEqual(outcomes, {"job-a": "finished", "job-b": "refused", "job-c": "finished", "job-d": "failed",
                                     "job-e": "no_answer_saved", "job-f": "derived_no_ai_call", "job-g": "not_started",
-                                    "job-h": "finished", "job-old": "finished", "quote-repair-1": "repair_claim"})
+                                    "job-h": "finished", "job-old": "finished", "job-r": "finished",
+                                    "quote-repair-1": "repair_claim"})
+        job_r = classify(next(job for job in self.store.ai_jobs if job["folder"] == "job-r"))
+        self.assertEqual((job_r["attempts"], job_r["earlier_outcomes"], job_r["wall_seconds"], job_r["created_at"]),
+                         (2, ["refused"], 20.0, fx.T1))
         job_a = classify(next(job for job in self.store.ai_jobs if job["folder"] == "job-a"))
         self.assertEqual((job_a["wall_seconds"], job_a["input_tokens"], job_a["cached_input_tokens"]), (30.0, 1000, 100))
         self.assertEqual((job_a["purpose"], job_a["items"], job_a["exit_code"]), ("A", 2, 0))
         job_d = classify(next(job for job in self.store.ai_jobs if job["folder"] == "job-d"))
-        self.assertEqual((job_d["retries"], job_d["failure_code"], job_d["wall_seconds"]),
+        self.assertEqual((job_d["attempts"], job_d["failure_code"], job_d["wall_seconds"]),
                          (1, "AI_INTERRUPTED_REVIEW_SAVED_JOB", 7200.0))
 
     def test_per_step_and_totals(self):
         self.assertEqual(set(self.steps), {"research-abe-v1", "research-b-functional-v2", "research-e-fit10-functional-v5",
-                                           "research-e-source-relevance-v2", "research-f-v4"})
+                                           "research-e-source-relevance-v2", "research-f-v4",
+                                           "research-c-query-profile-v3"})
+        retried = self.steps["research-c-query-profile-v3"]
+        self.assertEqual((retried["retried_jobs"], retried["earlier_attempts"], retried["outcomes"]),
+                         (1, {"refused": 1}, {"finished": 1}))
         self.assertEqual(self.steps["research-b-functional-v2"]["outcomes"], {"refused": 1})
         self.assertEqual(self.steps["research-b-functional-v2"]["failures"], {GUARD_CODES[0]: 1})
         self.assertIn("Name the products", self.steps["research-abe-v1"]["label"])
         total = self.report["total"]
-        self.assertEqual(total["jobs"], 5)
-        self.assertEqual(total["outcomes"], {"finished": 2, "failed": 1, "refused": 1, "no_answer_saved": 1})
-        self.assertEqual((total["input_tokens"], total["cached_input_tokens"], total["output_tokens"]), (2000, 200, 100))
-        self.assertEqual((total["total_wall_seconds"], total["median_wall_seconds"], total["timed_jobs"]), (7250.0, 30.0, 3))
+        self.assertEqual(total["jobs"], 6)
+        self.assertEqual(total["outcomes"], {"finished": 3, "failed": 1, "refused": 1, "no_answer_saved": 1})
+        self.assertEqual((total["input_tokens"], total["cached_input_tokens"], total["output_tokens"]), (3000, 300, 150))
+        self.assertEqual((total["total_wall_seconds"], total["median_wall_seconds"], total["timed_jobs"]), (7270.0, 25.0, 4))
         self.assertEqual(self.report["other_ai_folders"], {"derived_no_ai_call": 1, "not_started": 1, "repair_claim": 1})
 
     def test_by_day_waits_and_allowance(self):
-        self.assertEqual({row["day"]: row["jobs"] for row in self.report["by_day"]}, {"2026-10-16": 4, "2026-10-17": 1})
-        self.assertEqual(len(self.report["by_day_and_step"]), 5)
+        self.assertEqual({row["day"]: row["jobs"] for row in self.report["by_day"]}, {"2026-10-16": 5, "2026-10-17": 1})
+        self.assertEqual(len(self.report["by_day_and_step"]), 6)
         self.assertEqual(self.report["round_waits_for_ai"], {"WORK_TURN_MODEL_LIMIT": 1})
         stops = {(row["stage"], row["reason"], row["later"]): row["count"]
                  for row in self.report["ai_steps_that_could_not_start"]}

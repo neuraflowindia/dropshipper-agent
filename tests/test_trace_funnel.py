@@ -25,6 +25,13 @@ def rows(step, title_start):
     return {row["code"]: row["value"] for row in table["rows"]}
 
 
+def _store_with_task(store, values):
+    import copy
+    changed = copy.copy(store)
+    changed.state = {**store.state, "query_tasks": {"task-x": {**fx.task("x", "x", "prepared", None, [fx.A]), **values}}}
+    return changed
+
+
 class TraceFunnelTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -118,14 +125,23 @@ class TraceFunnelTest(unittest.TestCase):
                          {"complete": 1, "attempted": 1, "not recorded": 1})
         self.assertEqual(rows(self.steps["suppliers"], "Supplier questions to IndiaMART"),
                          {"failed: SUPPLIER_NATIVE_READ_FAILED": 1})
-        self.assertEqual(rows(self.steps["suppliers"], "Supplier questions to TradeIndia"), {"blocked": 1})
+        self.assertEqual(rows(self.steps["suppliers"], "Supplier questions to TradeIndia"), {"held": 1})
+        self.assertEqual(funnel_module._outcome_label("held: SOURCE_ACCESS_PROBE_PENDING"),
+                         "Held back before anything was sent [blocked] — Waiting: one test read must succeed after a "
+                         "refusal before others go [SOURCE_ACCESS_PROBE_PENDING]")
         self.assertEqual(rows(self.steps["suppliers"], "Supplier questions to Google Maps"), {"not asked yet": 1})
         self.assertEqual(by_key(self.steps["photos"]), {"downloaded": 1, "candidates": 1, "chosen": 1, "downloads": 2})
 
     def test_market_checks(self):
         step = self.steps["market"]
-        self.assertEqual(by_key(step), {"created": 3, "asked": 2})
-        self.assertEqual(rows(step, "Questions to Google Trends"), {"waiting: OWNER_SIGN_IN_WINDOW_OPEN": 1})
+        self.assertEqual(by_key(step), {"demand": "5 / 3", "quickcommerce": "1 / 0", "dropship": "1 / 1"})
+        self.assertEqual(rows(step, "Questions to Google Trends"), {"waiting: OWNER_SIGN_IN_WINDOW_OPEN": 1, "failed": 1})
+        self.assertEqual(rows(step, "Questions to Meta"), {"completed_no_results": 1,
+                                                            "held: SOURCE_ACCESS_PROBE_PENDING": 1})
+        self.assertEqual(rows(step, "Questions to Blinkit"), {"waiting: QUICKCOMMERCE_RESERVED_CROWDING_NOT_CHECKED": 1})
+        self.assertEqual(rows(step, "Answers from DeoDap"), {"interpretation_pending": 1})
+        self.assertEqual(rows(step, "Demand checks (these count as market signals) — questions actually asked"),
+                         {"amazon-search": 1, "meta-ads": 1, "google-trends": 1})
         self.assertEqual(rows(step, "Questions to Amazon search"), {"acquired": 1})
         self.assertEqual(rows(step, "Answers from Amazon search"), {"interpretation_pending": 1})
         self.assertEqual(rows(step, "Answers from Meta"), {"completed_no_results": 1})
@@ -145,15 +161,17 @@ class TraceFunnelTest(unittest.TestCase):
     def test_eligible_and_allocation(self):
         self.assertEqual(by_key(self.steps["eligible"]), {"eligible": 1, "meter": 1})
         self.assertEqual(self.steps["eligible"]["notes"], [f"Folding test rack ({fx.A})"])
-        self.assertEqual(by_key(self.steps["allocation"]), {"allocated": 1, "published": 1, "reports": 0})
+        self.assertEqual(by_key(self.steps["allocation"]), {"allocated": 1, "reports_allocated": 1, "published": 1,
+                                                            "reports": 0})
+        self.assertEqual(rows(self.steps["allocation"], "Reports by allocation state"), {"reserved": 1})
 
     def test_per_day_uses_india_days(self):
         days = {row["day"]: row for row in self.report["per_day"]}
         self.assertEqual(sorted(days), ["2026-10-16", "2026-10-17"])
         first, second = days["2026-10-16"], days["2026-10-17"]
-        self.assertEqual((first["raw_results"], first["product_types_created"], first["questions_created"]), (3, 4, 6))
+        self.assertEqual((first["raw_results"], first["product_types_created"], first["questions_created"]), (3, 4, 10))
         self.assertEqual((first["questions_answered"], first["website_reads_sent"], first["headings_first_searched"]),
-                         (2, 3, 3))
+                         (3, 3, 3))
         self.assertEqual((first["crowding_results"], first["photos_saved"], first["definitions_accepted"]), (1, 1, 1))
         self.assertEqual((first["ai_jobs_finished"], second["ai_jobs_finished"]), (1, 1))
         self.assertEqual((first["rounds_finished"], second["rounds_finished"]), (1, 1))
@@ -167,6 +185,23 @@ class TraceFunnelTest(unittest.TestCase):
         self.assertEqual(by_key(steps["eligible"])["eligible"], None)
         self.assertEqual(by_key(steps["scores"])["scored"], 0)
         self.assertEqual(report["errors"], {"report_pool": "X"})
+
+    def test_route_groups_and_asked_rule(self):
+        self.assertEqual(funnel_module.route_group({"route": "meta-ads-depth"}), "demand")
+        self.assertEqual(funnel_module.route_group({"route": "zepto"}), "quickcommerce")
+        self.assertEqual(funnel_module.route_group({"route": "dropdash"}), "dropship")
+        self.assertEqual(funnel_module.route_group({"route": "google-suppliers"}), "supplier")
+        self.assertEqual(funnel_module.route_group({"route": "new-site", "source": "x"}), "other")
+        self.assertFalse(funnel_module.was_asked({"status": "blocked", "attempt_refs": []}))
+        self.assertTrue(funnel_module.was_asked({"status": "blocked", "attempt_refs": ["a"]}))
+        self.assertTrue(funnel_module.was_asked({"status": "dispatching", "dispatch_started": True}))
+        other = funnel_module.market_step(_store_with_task(self.store, {"route": "new-site", "source": "x"}), None)
+        self.assertEqual(by_key(other)["other"], "1 / 0")
+
+    def test_unreadable_definitions_are_named(self):
+        with patch("product_radar.functional_types.functional_type_inventory", side_effect=KeyError("x")):
+            step = funnel_module.definitions_step(self.store, fx.judged())
+        self.assertIn("KeyError", step["notes"][0])
 
     def test_crowding_unreadable_is_named(self):
         with patch("product_radar.crowding.crowding_summary", side_effect=SafetyError("CROWDING_BAD")):
