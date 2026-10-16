@@ -54,9 +54,12 @@ def _examples(product, language):
         source = " · ".join(part for part in (label, row["seller"], row["pack"] and words["ex_pack"].format(p=row["pack"]),
                                                words["seen"].format(d=short_date(row["observed_at"]))) if part)
         (leads if row["source"] in SUPPLIER_LISTING_LABELS else shops).append((figure, row["title"], source, row["url"]))
+    retained = product.get("example_coverage", {}).get("omitted_offers", 0)
+    notes = [words["ex_retained"].format(n=retained)] if retained else []
+    if product.get("example_selection") and shown:
+        notes.append(words["ex_fewer"])
     return {"rows": shown, "shops": shops, "leads": leads, "more": len(rows) - len(shown),
-            "omitted_for_size": bool(product.get("example_selection")),
-            "retained": product.get("example_coverage", {}).get("omitted_offers", 0)}
+            "omitted_for_size": bool(product.get("example_selection")), "retained": retained, "notes": notes}
 
 
 def _term(supplier, field):
@@ -163,14 +166,6 @@ def product_view(product, prose, dataset, language, image):
             seen.add((ref["url"], ref["observed_at"][:10]))
             sources.append((pages.source_name(ref["source"]), ref["url"], short_date(ref["observed_at"])))
     view["sources"] = sources
-    examples = view["examples"]
-    if examples is not None:
-        notes = []
-        if examples["retained"]:
-            notes.append(words["ex_retained"].format(n=examples["retained"]))
-        if examples["omitted_for_size"] and examples["rows"]:
-            notes.append(words["ex_fewer"])
-        examples["notes"] = notes
     return view
 
 
@@ -201,6 +196,4 @@ def render_document(issue, dataset, narrative, language, *, logo, images):
 
 def examples_html(product, language):
     """The example-listing block of one product's market page (also used by tests)."""
-    view = {"bulk": None, "prices": None, "examples": _examples(product, language)}
-    view["examples"]["notes"] = []
-    return pages._prices_section(view, TEXT[language])
+    return pages._prices_section({"bulk": None, "prices": None, "examples": _examples(product, language)}, TEXT[language])

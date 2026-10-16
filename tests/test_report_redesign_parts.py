@@ -541,3 +541,39 @@ class ContextViewTests(unittest.TestCase):
         with self.assertRaisesRegex(SafetyError, "LIVE_REPORT_VISUAL_FACTS_CHANGED"):
             visuals.qc_view(score, context, dict(checks, as_of="2026-10-06T10:00:00+00:00"))
         self.assertIsNone(visuals.qc_view(score, None, None)["rows"])
+
+
+class SupplierAndExampleViewTests(unittest.TestCase):
+    def test_term_cells_keep_conflicts_and_optional_subscriptions(self):
+        from product_radar import report_view
+        from product_radar.live_outputs import SUPPLIER_TERMS_DISPLAY_VERSION, LEGACY_SUPPLIER_TERMS_DISPLAY_VERSION
+        supplier = {"subscription": "not_stated", "terms": [
+            {"field": "cod", "basis": "conflicting", "value": "Conflicting"},
+            {"field": "white_label", "basis": "observed", "value": "Yes"},
+            {"field": "neutral_packaging", "basis": "inferred", "value": "Yes"},
+            {"field": "subscription_requirement", "basis": "observed", "value": "Optional"}]}
+        self.assertEqual(report_view._term(supplier, "cod"), "conflicting")
+        self.assertEqual(report_view._term(supplier, "white_label"), "yes")
+        self.assertEqual(report_view._term(supplier, "neutral_packaging"), "not_stated")  # an estimate is not a stated term
+        self.assertEqual(report_view._subscription(supplier, SUPPLIER_TERMS_DISPLAY_VERSION), "optional")
+        self.assertEqual(report_view._subscription(supplier, LEGACY_SUPPLIER_TERMS_DISPLAY_VERSION), "not_stated")
+        conflicting = dict(supplier, terms=[{"field": "subscription_requirement", "basis": "conflicting", "value": "Conflicting"}])
+        self.assertEqual(report_view._subscription(conflicting, SUPPLIER_TERMS_DISPLAY_VERSION), "conflicting")
+        self.assertEqual(report_view._subscription(dict(supplier, subscription="subscription_stated"), SUPPLIER_TERMS_DISPLAY_VERSION), "yes")
+
+    def test_example_notes_name_retained_and_size_limited_examples(self):
+        from product_radar import report_view
+        rows = [{"title": f"Listing {n}", "source": "indiamart" if n > 6 else "amazon", "seller": None, "pack": "Pack of two",
+                 "price": {"displayed": "₹1" + str(n)} if n % 2 else None, "observed_at": "2026-10-08T09:00:00+00:00",
+                 "url": None} for n in range(8)]
+        product = {"concept_id": "c1", "example_products": rows, "example_coverage": {"omitted_offers": 3},
+                   "example_selection": {"requested_limit": 20}}
+        view = report_view._examples(product, "en")
+        self.assertEqual((len(view["rows"]), view["more"], view["retained"]), (6, 2, 3))
+        self.assertEqual(view["shops"][0][2], "Amazon India · pack: Pack of two · seen 8 Oct")
+        self.assertEqual(view["shops"][0][0], copy_text.TEXT["en"]["no_quote"])
+        self.assertEqual(view["notes"], ["3 further retained examples are not shown in this report.",
+                                         "Fewer examples are shown to keep the report file small."])
+        html = report_view.examples_html(product, "hi-Latn")
+        self.assertIn("2 aur example listings workbook mein hain.", html)
+        self.assertIn("3 aur rakhe gaye examples is report mein nahi dikhaye gaye.", html)
