@@ -143,8 +143,10 @@ def _problem(part):
 def housekeeping_line(root):
     """One short plain line when backup or store tidying is stuck, else ``None``.
 
-    Read from the latest backup clean-up record and the latest daily store
-    tidying record only; nothing is changed.
+    Read from the latest backup clean-up record, the latest daily store
+    tidying record and the latest saved-read check (``saved_read_sweep``:
+    pages lost to a power cut twice, or changed on disk) only; nothing is
+    changed.
     """
     from .backup_retention import latest_record
     parts = []
@@ -171,4 +173,8 @@ def housekeeping_line(root):
             problem = _problem(store.get(name))
             if problem:
                 parts.append(f"{label} is paused: {_plain(problem)}.")
+    from .saved_read_sweep import sweep_line
+    lost = sweep_line(root)
+    if lost:
+        parts.append(lost)
     return " ".join(parts) or None

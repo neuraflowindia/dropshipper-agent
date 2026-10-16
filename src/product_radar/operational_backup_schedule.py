@@ -281,6 +281,10 @@ def create_backup_housekeeping_step(root):
         from .programme import _control_path, programme_service_state
         if not programme_service_state(memory)["enabled"]:
             return _result("owner_paused", reason="LOCAL_BACKUP_OWNER_PAUSED")
+        # Saved reads a power cut emptied are set aside first (once a day and
+        # after each start), so the backup names their lost files as absent.
+        from .saved_read_sweep import run_due_saved_read_sweep
+        run_due_saved_read_sweep(memory, root=root)
         # The last source stage may have taken minutes. Decide the India day
         # from the present time, not the earlier cycle's entry timestamp.
         result = run_due_operational_backup(memory, root=root,

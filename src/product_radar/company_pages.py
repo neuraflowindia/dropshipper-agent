@@ -211,11 +211,12 @@ def _record_original(memory, aid, request, folder, at):
 
 
 def _browser_basis(state, url):
-    from .source_acquisitions import _owners, _response
+    from .source_acquisitions import _owners, saved_response_or_replacement
     from .source_coverage import source_response_closed
     owners = _owners(state, physical_request_fingerprint("company-pages", _request(url, "public-http")))
     if not owners: return None
-    aid, owner = owners[-1]; response = _response(state, owner)
+    # A plain read whose saved files a power cut emptied is no basis (it is read again first).
+    aid, owner = owners[-1]; response = saved_response_or_replacement(state, owner)[0]
     if (not response or response.get("bridge_contract") != BRIDGE or not source_response_closed(response)
             or response["source_state"] == "blocked" or response["dispatch_started"] is not True
             or response["access"].get("http_status") not in (None, 200)
@@ -469,8 +470,13 @@ def company_unstarted_continuation(memory, context, *, state=None):
 
 
 def company_source_hints(memory):
-    """Pure wake hints for all real leaves of one composite company caller."""
-    from .source_acquisitions import _record, _response
+    """Pure wake hints for all real leaves of one composite company caller.
+
+    A saved company page whose recorded files a power cut emptied (or that is
+    already set aside for that) is ready for its one fresh read, as in the
+    other routes (``saved_response_or_replacement``); any other change to
+    saved bytes still raises."""
+    from .source_acquisitions import _record, saved_response_or_replacement
     from .source_coverage import acquisition_access_scope, source_access_wait
     root = safe_path(memory.root / "supplier_routes" / "company_shared")
 
@@ -544,11 +550,13 @@ def company_source_hints(memory):
         represented = set()
         for aid, owner in owners:
             request = owner["binding"]["request"]; represented.add(request["url"])
-            response = _response(state, owner)
+            response, replace = saved_response_or_replacement(state, owner)
+            if replace and not context.get("reconciling"):
+                ready = True  # the next claim sets the lost read aside and reads the page once more
             wait = source_access_wait(state, acquisition_access_scope(owner, response, state=state), as_of=at)
             if wait and wait["phase"] == "waiting": waits.append(wait["next_retry_at"])
             pending = owner["active_dispatch_intent_id"] or (root / aid / "legacy-origin.json").is_file()
-            if pending:
+            if pending and not replace and owner["state"] != "set_aside":  # a lost original is no pending reply
                 try:
                     original, _ = _load_original(root / aid, aid, request)
                     if _closed(original, request["transport"]) and (not response or not _closed_from_response(response)

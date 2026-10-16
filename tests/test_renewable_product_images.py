@@ -370,6 +370,32 @@ class RenewableImageTests(unittest.TestCase):
         Path(usable["image"]["path"]).unlink()
         self.assertTrue(product_image_readiness(self.memory, self.cid, self.candidate, as_of=self.at)["local_saved"])
 
+    def test_a_saved_photo_reply_lost_in_a_power_cut_is_read_once_more(self):
+        # R15: the photo lane's own readiness and read use the set-aside path, like the other routes.
+        from product_radar.saved_read_sweep import sweep_damaged_reads
+        self.capture()
+        (aid, owner), = self.owners()
+        path = _renewable_response_path(self.memory, aid)
+        path.write_bytes(b"\x00" * path.stat().st_size)  # a cut-short write left only zero bytes
+        self.assertEqual(sweep_damaged_reads(self.memory, as_of=self.later(60))["set_aside"], 1)
+        hint = product_image_readiness(self.memory, self.cid, self.candidate, as_of=self.later(120))
+        self.assertTrue(hint["ready"])
+        self.fetch_at = self.later(180)
+        self.capture(at=self.later(180))
+        self.assertEqual(len(self.calls), 2)  # the one fresh read
+        owners = dict(self.owners())
+        self.assertEqual(owners[aid]["state"], "set_aside")
+        (fresh,) = [row for rid, row in owners.items() if rid != aid]
+        self.assertEqual((fresh["binding"]["generation"], fresh["binding"]["damage_recovery"]["acquisition_id"]), (2, aid))
+        self.assertIsNotNone(current_public_image(self.memory.snapshot(), self.cid, [self.candidate], media_root=self.media))
+        # A replacement lost again is never read a third time.
+        fresh_id = next(rid for rid in owners if rid != aid)
+        fresh_path = _renewable_response_path(self.memory, fresh_id)
+        fresh_path.write_bytes(b"")
+        sweep_damaged_reads(self.memory, as_of=self.later(240))
+        hint = product_image_readiness(self.memory, self.cid, self.candidate, as_of=self.later(300))
+        self.assertEqual((hint["ready"], hint["reason"]), (False, "SOURCE_ACQUISITION_DAMAGE_REPEATED"))
+
     def test_due_probe_changed_destination_closes_only_owned_probe_not_other_host_refusal(self):
         target = "https://blocked.example.org/photo.png"
         transport = test_public_pages.Transport([

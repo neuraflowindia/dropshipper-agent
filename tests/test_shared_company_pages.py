@@ -81,6 +81,30 @@ class SharedCompanyTests(unittest.TestCase):
         self.assertEqual(raw.read_bytes(), before)
         self.assertEqual(restarted.snapshot()["observations"], {})
 
+    def test_a_saved_company_page_lost_in_a_power_cut_is_ready_and_read_once_more(self):
+        # R15: the company-page readiness check takes the set-aside path, like the other routes.
+        from product_radar.company_pages import company_source_hints
+        reader = OwnedReader()
+        self.fetcher(reader)({"id": "page-one", "url": URL})
+        (page,) = (self.memory.root / "supplier_routes" / "company_shared").glob("*/page.json")
+        page.write_bytes(b"")  # a cut-short write left the saved original empty
+        due_hint, _ = company_source_hints(self.memory)
+        context = {"task_id": "no-such-task", "request": {"candidate_urls": {"paper": [URL]}}, "as_of": LATER}
+        self.assertTrue(due_hint(context)["ready"])
+        self.assertFalse(due_hint(dict(context, reconciling=True))["ready"])  # replaying saved replies only: not this
+        later = OwnedReader(at=LATER)
+        self.fetcher(later, owner="second", at=LATER)({"id": "page-two", "url": URL})
+        self.assertEqual((len(reader.calls), len(later.calls)), (1, 1))  # one fresh read, nothing more
+        owners = sorted((row["binding"]["generation"], row["state"]) for row in self.memory.snapshot()["batch_runs"].values()
+                        if row.get("kind") == "source-acquisition-owner-v1")
+        self.assertEqual(owners, [(1, "set_aside"), (2, "response_saved")])
+        self.assertEqual(page.read_bytes(), b"")  # nothing deleted or rewritten
+        # A changed (not emptied) saved page is still refused, as before.
+        (fresh,) = [path for path in (self.memory.root / "supplier_routes" / "company_shared").glob("*/page.json") if path != page]
+        fresh.write_text('{"edited": true}')
+        with self.assertRaisesRegex(SafetyError, "SOURCE_ACQUISITION_ARTIFACT_CHANGED"):
+            due_hint(context)
+
     def test_unknown_original_does_not_repeat_or_switch_to_browser(self):
         reader = OwnedReader(closed=False)
         for fetcher in (self.fetcher(reader, browser_reader=forbidden),

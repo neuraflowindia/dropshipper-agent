@@ -581,7 +581,7 @@ def _image_wait_guard(state, binding, *, acquisition_id, probe_id=None, as_of, d
 
 def _read_renewable_image(memory, url, media_root, fetcher, as_of):
     from .source_acquisitions import (_owners, _record, _response, claim_source_acquisition,
-        mark_source_dispatching, record_image_response, source_image_recovery)
+        mark_source_dispatching, record_image_response, saved_response_or_replacement, source_image_recovery)
     from .research_questions import physical_request_fingerprint
     from .source_coverage import (acquisition_access_scope, source_access_wait,
         marketplace_access_admission, _record_marketplace_access)
@@ -599,13 +599,17 @@ def _read_renewable_image(memory, url, media_root, fetcher, as_of):
     state = memory.snapshot()
     prior_id, prior = owners[-1] if owners else (None, None)
     prior_path = _renewable_response_path(memory, prior_id) if prior_id else None
-    # A late atomic original response is local replay even while the host waits.
-    if prior_path is not None and prior_path.exists():
+    # A late atomic original response is local replay even while the host waits;
+    # a saved one a power cut emptied (or already set aside) is not replayed.
+    if (prior_path is not None and prior_path.exists() and prior["state"] != "set_aside"
+            and not saved_response_or_replacement(state, prior)[1]):
         record_image_response(memory, prior_id, response_path=prior_path, as_of=as_of)
         state = memory.snapshot(); prior = _record(state, prior_id)
         _record_marketplace_access(memory, prior_id, prior["active_response_id"], as_of=as_of)
         state = memory.snapshot(); prior = _record(state, prior_id)
-    response = _response(state, prior) if prior is not None else None
+    # A saved read whose files a power cut emptied is no reply: the claim below sets it
+    # aside and reserves its one fresh read (``saved_response_or_replacement``).
+    response = saved_response_or_replacement(state, prior)[0] if prior is not None else None
     scope = acquisition_access_scope(prior, response) if prior is not None else acquisition_access_scope(
         {"binding": {"route": "public_image_http", "request": request}})
     wait = source_access_wait(state, scope, as_of=as_of)
@@ -913,6 +917,13 @@ def product_image_readiness(memory, concept_id, candidate, *, as_of=None, state=
             result.update(ready=True, local_saved=True)
             return result
         if owner["state"] == "reserved" and not owner["stage_ids"]:
+            result["ready"] = True
+        elif owner["state"] == "set_aside":
+            # Its saved files were lost (a power cut): one fresh read may replace it, not a lost replacement.
+            from .source_acquisitions import damage_replacement_allowed
+            if not damage_replacement_allowed(owner):
+                result["reason"] = "SOURCE_ACQUISITION_DAMAGE_REPEATED"
+                return result
             result["ready"] = True
         elif not owner["active_response_id"]:
             result["reason"] = "PRODUCT_IMAGE_ORIGINAL_RESPONSE_PENDING"
