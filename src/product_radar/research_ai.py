@@ -678,6 +678,7 @@ def g_contract(payload, declared_version=None):
     payload = {} if payload is None else payload
     if not isinstance(payload, dict):
         raise SafetyError("AI_G_CONTRACT_INVALID")
+    from .report_narration import WRITING_LIMITS_TEXT
     if "recommendation_contract" in payload or "writing_contract" in payload:
         from .report_examples import RECOMMENDATION_CONTRACT
         if (payload.get("recommendation_contract") != RECOMMENDATION_CONTRACT
@@ -693,12 +694,14 @@ def g_contract(payload, declared_version=None):
                     "Example listings, seller changes and photographs do not make separate recommendations. "
                     "The source_english for a Roman Hinglish item is its own already accepted English row, "
                     "not permission to add another item's benefit or fill an unverified fact. "
-                    "Copy issue_id and item id exactly. No browsing, collection, tools or new assessment.")}
+                    "Copy issue_id and item id exactly. No browsing, collection, tools or new assessment."
+                    + WRITING_LIMITS_TEXT)}
     if "fit_policy_id" in payload:
         if (payload["fit_policy_id"] != FIT_POLICY_ID or declared_version not in (None, FIT_NARRATION_PROMPT_VERSION)
                 or ("criterion_ids" in payload and payload["criterion_ids"] != list(ACTIVE_CRITERION_IDS))):
             raise SafetyError("AI_G_CONTRACT_INVALID")
-        return {"version": FIT_NARRATION_PROMPT_VERSION, "schema": FIT_G_SCHEMA, "instructions": FIT_G_INSTRUCTIONS}
+        return {"version": FIT_NARRATION_PROMPT_VERSION, "schema": FIT_G_SCHEMA,
+                "instructions": FIT_G_INSTRUCTIONS + WRITING_LIMITS_TEXT}
     version = NARRATION_PROMPT_VERSION if declared_version is None else declared_version
     if version not in ("research-g-v1", "research-g-v2") or "criterion_ids" in payload:
         raise SafetyError("AI_G_CONTRACT_INVALID")

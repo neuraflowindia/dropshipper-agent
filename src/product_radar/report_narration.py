@@ -18,6 +18,16 @@ from .report_examples import RECOMMENDATION_CONTRACT
 from .work_turns import new_model_work_wait
 
 LANGUAGES = ("en", "hi-Latn")
+# Writing budgets in characters (owner choice 3, 16 October 2026): what fits
+# one product's first report page, Roman Hinglish running about 15% longer.
+# The title and the code-owned limitation (copied exactly) keep their limits.
+WRITING_LIMITS = {"en": {"reason": 320, "point": 90, "update_sentence": 130, "checklist": 90},
+                  "hi-Latn": {"reason": 360, "point": 105, "update_sentence": 150, "checklist": 105}}
+TITLE_LIMIT, LIMITATION_LIMIT = 100, 1000
+WRITING_LIMITS_TEXT = (
+    " Keep the writing short enough for one product page: in English the reason is at most 320 characters, each point "
+    "at most 90, the update_sentence at most 130 and each checklist phrase at most 90; in Roman Hinglish at most 360, "
+    "105, 150 and 105. Count placeholders as written (for example {{title}}).")
 PLACEHOLDERS = ("title", "rank", "kpi_matches", "date", "retail_price", "supplier_price")
 SUPPLIER_ASSERTION = re.compile(
     r"\b(suppliers?|dispatch|subscription|moq|cod)\b[^.!?]{0,80}\b"
@@ -407,16 +417,18 @@ def validate_narration_result(item, value, *, declared_version=None):
                 or sorted(row.get("id") for row in phrases) != wanted):
             raise SafetyError("AI_REPORT_CHECKLIST_PHRASES_INVALID")
         for row in phrases:
-            _plain(row["text"], "checklist", 220)
+            _plain(row["text"], "checklist", WRITING_LIMITS[item["language"]]["checklist"])
             if not row["text"].strip() or item["language"] == "hi-Latn" and re.search(r"[\u0900-\u097f]", row["text"]):
                 raise SafetyError("AI_REPORT_CHECKLIST_PHRASES_INVALID")
     refs = {f["id"] for f in item["facts"]}
     if len(set(value["references"])) != len(value["references"]) or not set(value["references"]) <= refs:
         raise SafetyError("AI_REPORT_FACT_REFERENCE_INVALID")
-    for field, maximum in (("title", 100), ("reason", 450), ("limitation", 1000), ("update_sentence", 250)):
+    limits = WRITING_LIMITS[item["language"]]
+    for field, maximum in (("title", TITLE_LIMIT), ("reason", limits["reason"]), ("limitation", LIMITATION_LIMIT),
+                           ("update_sentence", limits["update_sentence"])):
         _plain(value[field], field, maximum)
     for point in value["points"]:
-        _plain(point, "point", 220)
+        _plain(point, "point", limits["point"])
         if not point.strip():
             raise SafetyError("AI_REPORT_POINTS_INVALID")
     if item["language"] == "hi-Latn" and any(re.search(r"[\u0900-\u097f]", s) for s in
