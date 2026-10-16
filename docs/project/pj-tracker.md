@@ -1,15 +1,15 @@
 # Project tracker
 
-Latest state: **16 October 2026, 11:09 UTC** — **research running on the new code since the second fresh start; the same-day live fixes (R13) are loaded.** At the owner's request research restarted from scratch at **06:58:54 UTC on 16 October** (the meter's new start). Code `main` = `r10` (Plan R10 from 15 October plus Plan R11/R12 and the R13 live fixes of 16 October). This is the sole current progress summary. Requirements belong to the [product contract](../product/india_dropshipping_product_opportunity_radar_product_brief.md); technical changes and receipts belong to the [implementation record](../operations/implementation_2026-10-11.md) (fresh starts: R08 and Plan R11; Plan R10: R10; durability: R11; product map and round speed: R12; same-day live fixes: R13); the 16 October programme is [Plan R11](plan-2026-10-16-fresh-start-and-year-long-research.md).
+Latest state: **16 October 2026, 12:31 UTC** — **research running on the new code since the second fresh start; the same-day live fixes (R13) are loaded.** At the owner's request research restarted from scratch at **06:58:54 UTC on 16 October** (the meter's new start). Code `main` = `r10` (Plan R10 from 15 October plus Plan R11/R12 and the R13 live fixes of 16 October). This is the sole current progress summary. Requirements belong to the [product contract](../product/india_dropshipping_product_opportunity_radar_product_brief.md); technical changes and receipts belong to the [implementation record](../operations/implementation_2026-10-11.md) (fresh starts: R08 and Plan R11; Plan R10: R10; durability: R11; product map and round speed: R12; same-day live fixes: R13); the 16 October programme is [Plan R11](plan-2026-10-16-fresh-start-and-year-long-research.md).
 
 ## Current position — 16 October 2026
 
 | Measure (owner meter) | Count |
 |---|---:|
-| Candidates / accepted narrow types / assessed / passing | rebuilding from 0 since 06:58:54 UTC |
-| **Report-eligible types** (need 20 across the two sets) | **0** |
+| Candidates / accepted narrow types / assessed / passing (12:31 UTC) | 28 / 23 / 23 / 20 (rebuilding since 06:58:54 UTC) |
+| **Report-eligible types** (need 20 across the two sets) | **1** |
 | Report sets produced | 0 / 2 |
-| Product map | **1,694 headings in 55 sub-areas** (was 224 in 48); grows by itself (AI top-up below 300 unsearched headings) |
+| Product map | **1,705 headings in 55 sub-areas** (was 224 in 48; 1,681 not searched yet); grows by itself (AI top-up below 300 unsearched headings) |
 | Provider (Apify) money since the fresh start | USD 0 |
 
 **What changed on 16 October** ([Plan R11](plan-2026-10-16-fresh-start-and-year-long-research.md)):
@@ -27,6 +27,8 @@ Latest state: **16 October 2026, 11:09 UTC** — **research running on the new c
   - **Clearer meter.** Its access-wait rows show the real reason (for example `OWNER_SIGN_IN_REQUIRED`, `TRENDS_MINIMISED_NOT_RENDERED`) instead of only "challenge: true".
   - Earlier the same morning: DeoDap/BaapStore feed reads crashed on every round (`platforms_failed`, a socket handling bug since 14 October), fixed (`85ccb0c`); a test-only leak that failed one test in single-process runs, fixed (`2791256`).
 - **Report redesign:** plan and mock-ups ready for the owner ([plan](../client-preview/design/report-redesign-2026-10-16/plan.md)); not built until the owner approves.
+
+**Live check after loading (12:31 UTC):** no `PROGRAMME_ACQUISITION_COUNTS_INVALID` and no failed stage on the new code; the power-cut-damaged Amazon read was set aside at 11:13 and read again at 11:14. The owner opened the sign-in window at 11:18:50 UTC and it was still open at 12:31; Trends and IndiaMART reads wait for it to close.
 
 **Owner action needed (once, after the update is loaded):** click **Sign in to research sites** in the NeuraFlow Dropshipper window. In the **IndiaMART** tab, finish IndiaMART's sign-in with the mobile number and the one-time code IndiaMART texts to it; check the other tabs still show you signed in; then close the Chrome window. This is needed for IndiaMART, and the new sign-in also restarts the Trends check line (its first three reads after a sign-in must be complete).
 
