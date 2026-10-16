@@ -474,8 +474,13 @@ class _SavedDefinitionRunner:
 
 
 def review_functional_definitions(memory, concept_ids, runner=None, *, as_of, limit=MAX_ITEMS, skip_concept_bindings=None,
-                                retry_seconds=300, retry_not_before=None):
-    """One finite batch, exact original recovery and atomic existing-definition acceptance."""
+                                retry_seconds=300, retry_not_before=None, read_state=None):
+    """One finite batch, exact original recovery and atomic existing-definition acceptance.
+
+    ``read_state`` (optional) returns the current research state; a caller
+    may pass one that keeps its copy until something is saved.
+    """
+    read = read_state or memory.snapshot
     from .research_ai import Jobs, current_attempt, prepare_closed_model_retry, prepared_closed_model_retry_hint
     from .work_turns import active_work_turn
     def jobs(selected_runner):
@@ -489,15 +494,16 @@ def review_functional_definitions(memory, concept_ids, runner=None, *, as_of, li
         callback = before_execution if callable(guard) and active_work_turn(memory) is not None else None
         return Jobs(memory, selected_runner, before_new_execution=callback)
     readiness = functional_definition_readiness(memory, concept_ids, as_of=as_of, limit=limit,
-        skip_concept_bindings=skip_concept_bindings, retry_seconds=retry_seconds, retry_not_before=retry_not_before)
+        skip_concept_bindings=skip_concept_bindings, retry_seconds=retry_seconds, retry_not_before=retry_not_before,
+        state=read())
     if not readiness["ready_concept_ids"]:
         return {"accepted": dict(readiness["current"]), "failures": dict(readiness["waiting"]), "prepared_count": 0,
             "bindings": readiness["bindings"], "skipped_concept_ids": readiness["skipped_concept_ids"],
             "client_publication_attempted": False}
-    prepared = prepare_functional_definition_reviews(memory.snapshot(), readiness["ready_concept_ids"], as_of=as_of, limit=limit)
+    prepared = prepare_functional_definition_reviews(read(), readiness["ready_concept_ids"], as_of=as_of, limit=limit)
     accepted = dict(readiness["current"]); failures = dict(readiness["waiting"])
     pending = {row["concept_id"]: row for row in prepared["prepared"]}
-    state = memory.snapshot(); originals, novel = {}, []
+    state = read(); originals, novel = {}, []
     for cid, row in pending.items():
         try: owner = _owner(state, row["item"])
         except SafetyError as error: failures[cid] = {"reason": str(error)}; continue
@@ -505,7 +511,7 @@ def review_functional_definitions(memory, concept_ids, runner=None, *, as_of, li
         else: originals.setdefault(owner, []).append(cid)
     outcomes = {}
     for owner, ids in originals.items():
-        request = state["jobs"][owner]["request"]
+        request = deepcopy(state["jobs"][owner]["request"])  # the read state is shared
         folder = current_attempt(safe_path(memory.root, "ai_jobs", owner))
         saved = any((folder / name).exists() for name in ("intent.json", "completion.json", "result.json"))
         retry = readiness["retry_hints"].get(owner)

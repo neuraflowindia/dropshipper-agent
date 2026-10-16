@@ -203,6 +203,26 @@ class DesktopControlTests(unittest.TestCase):
         self.assertEqual(summary["score_line"], "The opportunity score records could not be read. See the project log.")
         self.assertTrue(summary["line"].startswith("Sign-in needed: Google account"))
 
+    def test_sign_in_area_ends_with_the_product_map_runway_line(self):
+        from product_radar.storage import atomic_json
+        captured = self.root / "data/research/captured"
+        with patch.object(controls, "owned_programmes", return_value=[]):
+            self.assertEqual(controls.status(self.root)["sign_in"]["map_line"],
+                             "Product map: not measured yet (the product-map lane has not run).")
+        atomic_json(captured / "product_map/runway.json", {
+            "version": 1, "at": "2026-10-16T06:00:00+00:00", "headings": 2140, "unsearched": 1980,
+            "first_searched_last_7_days": 490, "pace_per_day": 70.0, "topup_threshold": 300})
+        with patch.object(controls, "owned_programmes", return_value=[]):
+            line = controls.status(self.root)["sign_in"]["map_line"]
+        self.assertEqual(line, "Product map: 2,140 headings, 1,980 not searched yet; about 70 searched a day lately, "
+                         "so roughly 4 weeks until every heading has had its first search. After that, headings are "
+                         "searched again for new ads, and the AI adds new headings whenever fewer than 300 are left "
+                         "unsearched.")
+        (captured / "product_map/runway.json").write_text("{corrupt")
+        summary = controls.sign_in_summary(self.root)  # a corrupt map record never hides the sign-in needs
+        self.assertEqual(summary["map_line"], "The product map records could not be read. See the project log.")
+        self.assertTrue(summary["line"].startswith("Sign-in needed: Google account"))
+
     def test_open_sign_in_window_is_rechecked_at_most_every_thirty_seconds(self):
         from product_radar import signed_in_browser
         signed_in_browser.note_sign_in_window(self.root, True, opened=True)
@@ -227,7 +247,8 @@ class DesktopControlTests(unittest.TestCase):
                                              "line": "The sign-in records could not be read. See the project log.",
                                              "platform_lines": [],
                                              "trends_line": "Google Trends: waiting for the owner to sign in.",
-                                             "score_line": "Opportunity score: no types scored yet."})
+                                             "score_line": "Opportunity score: no types scored yet.",
+                                             "map_line": "Product map: not measured yet (the product-map lane has not run)."})
 
     def test_sign_in_action_opens_the_window_and_returns_research_status(self):
         from product_radar import signed_in_browser

@@ -1226,9 +1226,9 @@ class _Selection:
             record = value.get("record")
             if not isinstance(record, dict) or set(value) != {"record", "record_hash", "previous_hash"} or digest(record) != value["record_hash"]:
                 self.note(self.unsafe, origin, "BACKUP_SELECTION_PROGRAMME_CONTROL_INVALID"); return
-            from .programme import _binding
+            from .programme import _binding, programme_from_state
             try:
-                original = self.state["batch_runs"].get(key("programme", record.get("programme_id")))
+                original = programme_from_state(self.state, self.state["batch_runs"].get(key("programme", record.get("programme_id"))))
                 if (not isinstance(original, dict) or _binding(original) != _binding(record)
                         or value["record_hash"] != digest(original) and value["previous_hash"] != digest(original)):
                     raise SafetyError("BACKUP_SELECTION_PROGRAMME_CONTROL_INVALID")

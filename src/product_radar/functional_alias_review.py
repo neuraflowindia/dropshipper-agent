@@ -430,10 +430,14 @@ def functional_alias_readiness(memory, state, concept_ids, *, as_of, runner_avai
 
 
 def match_functional_aliases(memory, concept_ids, runner=None, *, reviewed_at, limit=5, skip_group_ids=(),
-                             skip_group_bindings=None, retry_seconds=300, retry_not_before=None):
-    """Use existing acceptance authority after a finite local/B review batch."""
+                             skip_group_bindings=None, retry_seconds=300, retry_not_before=None, read_state=None):
+    """Use existing acceptance authority after a finite local/B review batch.
+
+    ``read_state`` (optional) returns the current research state; a caller
+    may pass one that keeps its copy until something is saved.
+    """
     from .functional_aliases import accept_functional_alias, alias_projection
-    groups, errors = _matching_groups(memory, memory.snapshot(), concept_ids, reviewed_at=reviewed_at,
+    groups, errors = _matching_groups(memory, (read_state or memory.snapshot)(), concept_ids, reviewed_at=reviewed_at,
                                      limit=min(limit, MAX_GROUPS), skip_group_ids=skip_group_ids,
                                      skip_group_bindings=skip_group_bindings,
                                      retry_seconds=retry_seconds, retry_not_before=retry_not_before)

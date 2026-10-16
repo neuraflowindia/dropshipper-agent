@@ -69,6 +69,64 @@ class VerifiedReplayCacheTests(unittest.TestCase):
             self.assertEqual(self.read_count(reads), 0)
         self.assertEqual(len(current["concepts"]), len(baseline["concepts"]) + 2)
 
+    def test_unchanged_snapshot_is_one_copy_until_something_is_saved(self):
+        from product_radar.research_memory import UnchangedSnapshot
+        self.assertIsNone(self.memory.verified_sequence())
+        self.seed(2)
+        self.assertEqual(self.memory.verified_sequence(), 2)
+        read = UnchangedSnapshot(self.memory)
+        with patch.object(self.memory, "snapshot", wraps=self.memory.snapshot) as copies:
+            first = read()
+            self.assertIs(read(), first)
+            self.assertEqual(copies.call_count, 1)
+            self.memory.put("concepts", "concept-new", {"number": 9, "reason": "Synthetic save."})
+            second = read()
+            self.assertEqual(copies.call_count, 2)
+            self.assertIn("concept-new", second["concepts"])
+            self.assertNotIn("concept-new", first["concepts"])
+            self.assertIs(read(), second)
+            # A replayed save that changes nothing keeps the same copy.
+            self.memory.put("concepts", "concept-new", {"number": 9, "reason": "Synthetic save."})
+            self.assertIs(read(), second)
+            # Another process's save is taken in by this process's next read.
+            self.fresh_memory().put("concepts", "external", {"value": 1})
+            self.assertIs(read(), second)
+            self.assertIn("external", self.memory.snapshot()["concepts"])
+            self.assertIn("external", read()["concepts"])
+        supplied = self.memory.snapshot_with_provenance()
+        self.assertIs(UnchangedSnapshot(self.memory, supplied)(), supplied["state"])
+        # A supplied copy is used only with its own position; a save after it is read.
+        self.memory.put("concepts", "after-supplied", {"value": 2})
+        self.assertIn("after-supplied", UnchangedSnapshot(self.memory, supplied)()["concepts"])
+        for broken in ({"state": supplied["state"]}, dict(supplied, evidence_type="other"), "not a read"):
+            with self.assertRaisesRegex(SafetyError, "RESEARCH_SNAPSHOT_PROVENANCE_INVALID"):
+                UnchangedSnapshot(self.memory, broken)
+
+    def test_unchanged_snapshot_compares_the_head_and_a_lost_file_check_is_never_stale(self):
+        from product_radar.research_memory import UnchangedSnapshot
+        self.seed(2)
+        read = UnchangedSnapshot(self.memory)
+        first = read()
+        # Same count, different head (as after a replaced history): read again.
+        with patch.object(self.memory, "verified_position", return_value=(self.memory.verified_sequence(), "0" * 64)):
+            self.assertIsNot(read(), first)
+        second = read()
+        # The event is saved but its file check fails: the cache is dropped,
+        # so the next read takes the saved event in.
+        original = self.memory._fingerprint
+        def lost(path):
+            if path.name.endswith(".json") and path.parent.name == "events" and not lost.done:
+                lost.done = True
+                raise SafetyError("SAVED_FILE_UNAVAILABLE")
+            return original(path)
+        lost.done = False
+        with patch.object(self.memory, "_fingerprint", side_effect=lost):
+            with self.assertRaisesRegex(SafetyError, "SAVED_FILE_UNAVAILABLE"):
+                self.memory.put("concepts", "saved-unchecked", {"value": 3})
+        self.assertIsNone(self.memory.verified_position())
+        self.assertIn("saved-unchecked", read()["concepts"])
+        self.assertNotIn("saved-unchecked", second["concepts"])
+
     def test_local_commit_updates_verified_cache_without_loading_its_event_again(self):
         self.seed(3)
         with patch.object(memory_module, "load_event", wraps=memory_module.load_event) as reads:

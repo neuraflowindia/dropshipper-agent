@@ -140,6 +140,10 @@ def _fields(values):
         value = values.get(name)
         if type(value) in (int, float) and math.isfinite(value) and value >= 0:
             result[name] = round(value, 6)
+    # "Review group 5 of 16": a whole position inside a known count, or nothing.
+    position, count = values.get("group_position"), values.get("group_count")
+    if type(position) is int and type(count) is int and 1 <= position <= count <= 10000:
+        result.update(group_position=position, group_count=count)
     for name in ("dispatch_started", "dispatch_uncertain", "response_saved", "photo_applied", "useful_result", "stalled",
                  "actual_attempt", "outcome_reused"):
         if type(values.get(name)) is bool:
@@ -239,6 +243,8 @@ REASON_TEXT = {
     "PROGRAMME_LOCAL_FILE_FAILED": "a saved research file could not be read or written",
     "PROGRESS_WATCH_RESTART": "it stopped making progress, so it was stopped to be restarted automatically",
     "WORKER_EXIT_FAILED": "it stopped with an error",
+    "LOCAL_BACKUP_DISK_SPACE_LOW": "the project drive is nearly full, so the daily backup copy waits (research continues)",
+    "BACKUP_PRUNE_KEPT_SET_DAMAGED": "a kept backup copy is damaged, so no older copy was removed",
 }
 
 
@@ -298,6 +304,7 @@ class OperationRun:
         self.phase = None
         self.phase_started = None
         self.phase_deadline = None
+        self.group = None
         self.next_action = "continue_to_next_ready_step"
         self.last_reason = None
         self.counts = {"events": 0, "completed_results": 0, "failures": 0, "deferred": 0,
@@ -328,6 +335,21 @@ class OperationRun:
                 sys.stderr.flush()
             except Exception:
                 pass
+
+    def _track_group(self, event, values):
+        """Which review group a step is serving ("group 5 of 16"), if any.
+
+        A position belongs to the step and phase it arrived with: it ends when
+        a new stage starts, the step changes, that group's stage pass finishes
+        or that phase finishes (an AI call inside the group keeps it)."""
+        group = self.group
+        if group is not None and (event == "stage_started" or self.step != group["step"]
+                or event == "phase_finished" and (values.get("phase_state") == "finished"
+                                                  or values.get("phase") == group["phase"])):
+            self.group = None
+        if "group_position" in values:
+            self.group = {"step": self.step, "phase": self.phase,
+                          "position": values["group_position"], "total": values["group_count"]}
 
     def emit(self, event, **values):
         try:
@@ -376,6 +398,7 @@ class OperationRun:
                 self.phase_started = at if self.phase else None
                 self.phase_started_awake = awake if self.phase else None
                 self.phase_deadline = values.get("deadline_seconds") if self.phase else None
+            self._track_group(event, values)
             row = {"schema_version": 1, "run_id": self.run_id, **self.identity, "code_version": self.code_version,
                 "at": at, "elapsed_seconds": round(time.monotonic() - self.started, 6), "event": event, **values}
             if self.handler is not None:
@@ -406,6 +429,10 @@ class OperationRun:
                         status["message"] = ("Reviewed an earlier failed result from "
                             + _SITES.get(values["route"], "a product website")
                             + ". No new website request was made.")
+                status["group_progress"] = (None if self.group is None else
+                    {"step": self.group["step"], "position": self.group["position"], "total": self.group["total"]})
+                if self.group is not None:
+                    status["message"] += f" Review group {self.group['position']} of {self.group['total']}."
                 with diagnostic_source_work():
                     atomic_json(self.status_path, status)
         except Exception:
@@ -719,77 +746,10 @@ def operation_log_summary(root, *, since=None, max_bytes=512 * 1024 * 1024):
 
     Counts are log records (the same rules as the live counters), not unique
     requests, products or bills. Files last changed before ``since`` are skipped
-    unopened. Nothing is written and no record authorizes any action.
+    unopened. Each log is read once: later readings reuse a small disposable
+    speed copy of each unchanged log's totals (``run_log_summary``), so the
+    reading stays quick and bounded however old the logs get. The speed copy
+    is the only file written; no record authorizes any action.
     """
-    from collections import Counter
-    from datetime import datetime, timezone
-    start = timestamp(since) if since is not None else None
-    folder = safe_path(runtime_path(root, "data/operations/research-runs"))
-    totals, failures, waits, blocks, runs = Counter(), Counter(), Counter(), Counter(), set()
-    unreadable, scanned, truncated, first, last = 0, 0, False, None, None
-    paths = sorted(folder.glob("run-*.jsonl*")) if folder.is_dir() else []
-    for path in paths:
-        if path.is_symlink() or not path.is_file():
-            continue
-        if start is not None and datetime.fromtimestamp(path.stat().st_mtime, timezone.utc) < start:
-            continue
-        with path.open("rb") as stream:
-            for line in stream:
-                scanned += len(line)
-                if scanned > max_bytes:
-                    truncated = True
-                    break
-                try:
-                    row = json.loads(line)
-                    at = timestamp(row["at"])
-                    if not isinstance(row, dict) or not isinstance(row.get("event"), str):
-                        raise ValueError
-                except (ValueError, KeyError, TypeError, SafetyError):
-                    unreadable += 1
-                    continue
-                if start is not None and at < start:
-                    continue
-                first = at if first is None or at < first else first
-                last = at if last is None or at > last else last
-                if isinstance(row.get("run_id"), str):
-                    runs.add(row["run_id"])
-                totals["events"] += 1
-                event = row["event"]
-                if event in {"invocation_started", "invocation_finished", "invocation_interrupted", "invocation_failed"}:
-                    totals[event] += 1
-                reason = row.get("reason") if isinstance(row.get("reason"), str) else event
-                if row.get("useful_result") is True:
-                    totals["useful_results"] += 1
-                reused = (event == "source_outcome" and row.get("state") == "failed" and row.get("outcome_reused") is True
-                          and row.get("actual_attempt") is False and not row.get("error_reported"))
-                # Same rule as the live counter: a filtered empty error marker
-                # on a useful result (e.g. a saved usable photo) is not a failure.
-                if row.get("error_type") or row.get("state") == "failed":
-                    if reused:
-                        totals["reused_saved_failures"] += 1
-                    else:
-                        totals["failures"] += 1
-                        failures[reason[:120]] += 1
-                access = _access_outcome(event, row)
-                if access == "block":
-                    # A website actually refused a sent request (challenge,
-                    # 403/429, sign-in wall). Neither a local failure nor a wait.
-                    totals["access_blocks"] += 1
-                    blocks[row.get("route") if isinstance(row.get("route"), str) else "unknown"] += 1
-                if row.get("state") in _WAIT_STATES or access == "held":
-                    totals["waits"] += 1
-                    waits[reason[:120]] += 1
-        if truncated:
-            break
-    return {"state": "partial" if truncated or unreadable else "known", "since": since, "runs": len(runs),
-        "events": totals["events"], "useful_results": totals["useful_results"], "failures": totals["failures"],
-        "reused_saved_failures": totals["reused_saved_failures"], "waits": totals["waits"],
-        "access_blocks": totals["access_blocks"], "top_access_block_routes": dict(blocks.most_common(8)),
-        "invocations_started": totals["invocation_started"], "invocations_finished": totals["invocation_finished"],
-        "invocations_interrupted_or_failed": totals["invocation_interrupted"] + totals["invocation_failed"],
-        "top_failure_reasons": dict(failures.most_common(8)), "top_wait_reasons": dict(waits.most_common(8)),
-        "first_event_at": first.isoformat(timespec="seconds") if first else None,
-        "last_event_at": last.isoformat(timespec="seconds") if last else None,
-        "unreadable_lines": unreadable, "truncated": truncated,
-        "note": ("Log-record counts, not unique requests, products or bills. Waits include deliberate deferrals "
-                 "and questions held behind a website's earlier refusal; access blocks are refusals of sent requests.")}
+    from .run_log_summary import owner_totals
+    return owner_totals(root, since=since, max_bytes=max_bytes)

@@ -376,5 +376,71 @@ class MultipartBackupTests(unittest.TestCase):
         verify_operational_backup(saved["folder"])
 
 
+
+class ExistingObjectCheckTests(unittest.TestCase):
+    """A stored file kept from an earlier copy is checked by size while copying;
+    the final verification still reads and hashes every stored file."""
+
+    setUp = MultipartBackupTests.setUp
+    create = MultipartBackupTests.create
+    complete = MultipartBackupTests.complete
+
+    def stored_rows(self, folder):
+        plan = load_json(Path(folder) / "pending.json", 65536)
+        return list(parts._pages(self.destination, plan["descriptors"], contract="backup-descriptor-page-v3"))
+
+    def object_file(self, row):
+        return self.destination / "objects/v3" / (row["sha256"] + ".bin")
+
+    def test_next_copy_does_not_reread_existing_files_while_copying(self):
+        first = self.complete("set-one")
+        existing = {str(self.object_file(row)) for row in self.stored_rows(first["folder"])}
+        original, real_copy, copying, checked = parts._read, parts._copy_outcome, [], []
+        def watch(path, limit, **options):
+            if str(path) in existing and copying:
+                raise AssertionError("An existing stored file was read in full while copying")
+            return original(path, limit, **options)
+        def copy(destination, row):
+            copying.append(True)
+            try:
+                return real_copy(destination, row)
+            finally:
+                copying.pop(); checked.append(row["path"])
+        with patch.object(parts, "_read", side_effect=watch), patch.object(parts, "_copy_outcome", side_effect=copy):
+            second = self.complete("set-two")
+        self.assertEqual(len(checked), second["manifest"]["files"])
+        self.assertEqual(second["manifest"]["copy_failures"], 0)
+        self.assertEqual(verify_operational_backup(second["folder"])["backup_id"], "set-two")
+
+    def test_wrong_size_or_link_is_refused_for_records_and_limits_attachments(self):
+        first = self.complete("set-one")
+        rows = self.stored_rows(first["folder"])
+        research = next(row for row in rows if row["role"] == "research")
+        attachment = next(row for row in rows if row["role"] == "attachment")
+        self.object_file(research).write_bytes(b"Synthetic shorter bytes.")
+        with self.assertRaisesRegex(SafetyError, "BACKUP_PART_OBJECT_CHANGED"):
+            parts._copy_outcome(self.destination, research)
+        self.object_file(attachment).write_bytes(b"Synthetic shorter bytes.")
+        self.assertEqual(parts._copy_outcome(self.destination, attachment),
+                         {"path": attachment["path"], "stored": False, "reason": "BACKUP_PART_OBJECT_CHANGED"})
+        self.object_file(attachment).unlink()
+        self.object_file(attachment).symlink_to(self.object_file(research))
+        self.assertEqual(parts._copy_outcome(self.destination, attachment)["reason"], "SYMLINK_PATH_REFUSED")
+        with self.assertRaisesRegex(SafetyError, "BACKUP_FILE_UNAVAILABLE"):
+            parts._existing_object(self.destination / "objects/v3/missing.bin", {"sha256": "0" * 64, "bytes": 1})
+
+    def test_same_size_damage_is_caught_by_final_verification_and_never_published(self):
+        first = self.complete("set-one")
+        research = next(row for row in self.stored_rows(first["folder"]) if row["role"] == "research")
+        path = self.object_file(research)
+        raw = bytearray(path.read_bytes())
+        raw[-2] = ord("X") if raw[-2] != ord("X") else ord("Y")
+        path.write_bytes(bytes(raw))  # same size, different content
+        self.assertTrue(parts._copy_outcome(self.destination, research)["stored"])
+        with self.assertRaisesRegex(SafetyError, "BACKUP_PART_OBJECT_CHANGED"):
+            self.complete("set-two")
+        self.assertFalse((self.destination / "set-two/manifest.json").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

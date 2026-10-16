@@ -151,6 +151,27 @@ class InventoryIntakeTests(unittest.TestCase):
         self.assertEqual((row["binding"]["source"]["original_task_id"], row["binding"]["source"]["route"]),
                          (live_id, "meta-ads"))
 
+    def test_deleted_route_question_alone_is_not_a_completed_market_check(self):
+        from product_radar.source_coverage import prepare_source_tasks
+        prepared = prepare_source_tasks(self.memory, [{"route": "meta-ads", "request": {
+            "query": "synthetic sink caddy", "country": "IN"}, "concept_ids": ["first"]}],
+            run_id="existing-source-run", as_of=self.now)
+        live_id = prepared["task_ids"][0]; state = self.memory.snapshot(); live = state["query_tasks"][live_id]
+        deleted = dict(live, route="amazon-movers-and-shakers", request={"department": "kitchen"})
+        # The only questions about "first" are a deleted route's: one closed by
+        # a source pass as retired, one finished before the route was deleted.
+        # Neither is a market check this product had.
+        self.memory.commit("synthetic-deleted-route-only", [
+            change("query_tasks", live_id, dict(deleted, status="retired", reason="SOURCE_ROUTE_RETIRED",
+                   reconcile_required=False, next_retry_at=None), live),
+            change("query_tasks", "a-deleted-finished", dict(deleted, status="completed_no_results"))])
+        self.refresh(self.pool(eligible=[], needed_market_work=[{"concept_id": "first",
+            "code": "market_coverage_required", "reason": "Not enough current evidence.", "blocking": True}]))
+        state = self.memory.snapshot()
+        rows = [validate_inventory_work(state["batch_runs"][ref]) for ref in self.record["inventory_work_ids"]]
+        self.assertEqual([(row["binding"]["subject"]["concept_id"], row["binding"]["purpose"], row["binding"]["source"])
+                          for row in rows], [("first", "local_repair", None)])
+
     def test_canonical_binding_corruption_does_not_become_empty_inventory(self):
         self.refresh(); state = self.memory.snapshot(); ref = self.record["reporting_intake_ids"][0]
         changed = deepcopy(state); changed["batch_runs"][ref]["binding"]["meaning_hash"] = "f" * 64

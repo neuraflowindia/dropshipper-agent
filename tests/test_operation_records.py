@@ -266,6 +266,58 @@ class OperationRecordTests(unittest.TestCase):
             _observe({"model_pause": None}, {}, phase_state="runner_call_started", role="G")
             self.assertEqual(read_operation_status(self.root)["phase"], "model_call")
 
+    def test_review_group_position_shows_in_the_activity_until_that_group_finishes(self):
+        from product_radar.programme import _observe
+        match = "Checking whether products repeat earlier findings."
+        with operation_run(self.root) as recorder, operation_writer():
+            context = {"stage": "match", "review_scope_id": "group-5"}
+            _observe({"programme_id": "whole", "cycles": 0}, context, phase_state="started", group_position=5, group_count=16)
+            current = read_operation_status(self.root)
+            self.assertEqual(current["message"], match + " Review group 5 of 16.")
+            self.assertEqual(current["group_progress"], {"step": "match", "position": 5, "total": 16})
+            # An AI call inside the group keeps its position; its return too.
+            _observe({"programme_id": "whole"}, context, phase_state="runner_call_started", role="E")
+            self.assertEqual(read_operation_status(self.root)["message"],
+                             "Waiting for the AI to finish its answer. Review group 5 of 16.")
+            _observe({"programme_id": "whole"}, context, phase_state="runner_call_returned", role="E")
+            self.assertEqual(read_operation_status(self.root)["message"], match + " Review group 5 of 16.")
+            _observe({"programme_id": "whole"}, context, phase_state="finished", result={})
+            current = read_operation_status(self.root)
+            self.assertEqual((current["message"], current["group_progress"]), (match, None))
+            _observe({"programme_id": "whole"}, context, phase_state="started", group_position=6, group_count=16)
+            self.assertEqual(read_operation_status(self.root)["message"], match + " Review group 6 of 16.")
+            # A new stage without a position, or another step, ends it.
+            record_event("stage_started", stage="discovery")
+            self.assertIsNone(read_operation_status(self.root)["group_progress"])
+            record_event("stage_started", stage="fit", group_position=2, group_count=3)
+            record_event("source_outcome", stage="acquire", state="acquired")
+            self.assertIsNone(read_operation_status(self.root)["group_progress"])
+        rows = self.rows(recorder)
+        self.assertEqual([(row["group_position"], row["group_count"]) for row in rows if "group_position" in row],
+                         [(5, 16), (6, 16), (2, 3)])
+
+    def test_readiness_check_of_review_groups_shows_its_position_until_readiness_ends(self):
+        from product_radar.operations import record_heartbeat
+        with operation_run(self.root), operation_writer():
+            record_event("phase_started", stage="preparation", phase="readiness", deadline_seconds=1800)
+            record_heartbeat("readiness_progress", checkpoint="checking_review_scopes", group_position=3, group_count=16)
+            self.assertEqual(read_operation_status(self.root)["message"],
+                             "Preparing the next research step. Review group 3 of 16.")
+            # A nested local phase finishing is not the end of readiness.
+            record_event("phase_started", phase="research_lookup_save")
+            record_event("phase_finished", phase="research_lookup_save", next_phase="readiness")
+            self.assertEqual(read_operation_status(self.root)["group_progress"]["position"], 3)
+            record_event("phase_finished", stage="preparation", phase="readiness")
+            current = read_operation_status(self.root)
+            self.assertEqual((current["message"], current["group_progress"]), ("Preparing the next research step.", None))
+
+    def test_malformed_group_positions_are_not_recorded(self):
+        with operation_run(self.root) as recorder, operation_writer():
+            for position, count in ((0, 16), (17, 16), (True, 2), (1.0, 2), ("1", "2"), (1, None), (2, 20000)):
+                record_event("stage_started", stage="match", group_position=position, group_count=count)
+                self.assertIsNone(read_operation_status(self.root)["group_progress"])
+        self.assertFalse(any("group_position" in row or "group_count" in row for row in self.rows(recorder)))
+
     def test_status_write_failure_is_bounded_and_does_not_stop_work(self):
         notice = io.StringIO()
         with redirect_stderr(notice), operation_run(self.root) as recorder, operation_writer():

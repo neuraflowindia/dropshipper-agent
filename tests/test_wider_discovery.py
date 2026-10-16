@@ -56,6 +56,11 @@ AT = "2026-10-15T00:00:00+00:00"
 AFTER = {"discovery_position": "after", "priority_concept_ids": {}}
 META_SCOPE = source_access_scope(prepare_meta_query("anything")["url"])
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import frozen_research_config  # noqa: E402
+# Exact expectations use the r10 settings these tests were written against, not the growing live map.
+setUpModule, tearDownModule = frozen_research_config.module_fixtures()
+
 
 def later(at, seconds):
     return (timestamp(at) + timedelta(seconds=seconds)).isoformat()

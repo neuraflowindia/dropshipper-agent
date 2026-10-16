@@ -202,6 +202,39 @@ def _verify_segments(memory, root, files, previous=None):
     return ids
 
 
+def prefix_target(memory):
+    """The published checkpoint's event count when the next check needs it.
+
+    ``None`` when checkpoints are off, the pointer is unreadable (the check
+    then reports that itself) or this instance already verified that exact
+    checkpoint. Only a hint for keeping one copy during a cold replay.
+    """
+    try:
+        if not enabled(memory): return None
+        root = _pointer(memory)
+    except (SafetyError, OSError, KeyError, TypeError, ValueError, AttributeError):
+        return None
+    cache = getattr(memory, "_research_pages_verified", None)
+    if cache and cache["root"] == root: return None
+    return root["sequence"] or None
+
+
+def _captured_prefix(memory, root):
+    """The state at ``root``'s count kept by this call's own verified replay.
+
+    Accepted only when it is from the replay whose manifest this instance has
+    just verified (same files, same fingerprints, same namespace); otherwise
+    ``None`` and the caller replays the canonical prefix itself.
+    """
+    captured, verified = getattr(memory, "_replay_capture", None), memory._verified
+    if (not captured or verified is None or captured["sequence"] != root["sequence"]
+            or captured["evidence_type"] != memory.evidence_type
+            or verified["manifest"][:captured["sequence"]] != captured["manifest"]):
+        return None
+    memory._replay_capture = None
+    return captured["state"], captured["ids"], captured["head"]
+
+
 def _prefix(memory, sequence):
     """Canonical verification, never a checkpoint's self-hash assertion."""
     from .research_memory import TABLES, load_event
@@ -289,7 +322,10 @@ def check(memory, state, head, sequence, *, _verified_manifest=None):
         if root["sequence"] == sequence:
             actual_state, actual_head = state, head
         else:
-            actual_state, prefix_ids, actual_head = _prefix(memory, root["sequence"])
+            # The same canonical prefix, kept by the replay that just
+            # verified these files, or replayed again when not available.
+            actual_state, prefix_ids, actual_head = (_captured_prefix(memory, root)
+                                                     or _prefix(memory, root["sequence"]))
             if canonical(prefix_ids) != canonical(actual_ids): raise SafetyError("RESEARCH_CHECKPOINT_CANONICAL_MISMATCH")
         if actual_head != root["head"]: raise SafetyError("RESEARCH_CHECKPOINT_CANONICAL_MISMATCH")
         _verify_checkpoint_values(memory, checkpoint, actual_state, actual_ids, files)
@@ -451,6 +487,16 @@ def update(memory, state, head, sequence):
         raise SafetyError("RESEARCH_CHECKPOINT_CANONICAL_MISMATCH")
     files = {}
     _verify_checkpoint_values(memory, checkpoint, state, ids, files)
+    # Every event segment this pointer adds (newly written or reused) is read
+    # back too, so its file is checked again under the lock below: a page
+    # removed meanwhile (for example by the unused-page pruner) is never
+    # published; this update then fails and the next one writes it again.
+    stop, reference, seen = (current["last_segment"] if valid else None), last, set()
+    while reference is not None and reference != stop:
+        if reference["sha256"] in seen: raise SafetyError("RESEARCH_SEGMENT_CHAIN_INVALID")
+        seen.add(reference["sha256"])
+        row = _read(memory, reference, files)
+        reference = row.get("previous") if isinstance(row, dict) else None
     with memory.journal.locked(timeout=5):
         _, current_head, current_sequence, _ = memory._replay_state(copy_state=False)
         if (current_head, current_sequence) != (head, sequence): return False

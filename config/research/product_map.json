@@ -1,11 +1,10 @@
 {
   "schema_version": 1,
   "kind": "product-map-v1",
-  "target": {"headings_per_sub_area": 25},
-  "build": {"materials_per_call": 10, "stage_per_round": 30, "unbuilt_per_branch": 20, "examine_per_round": 400,
-            "product_type_min_items": 3, "retry_minutes": 30,
-            "min_batch": 5, "reexamine_after_headings": 25},
+  "target": {"headings_per_sub_area": 40},
+  "build": {"materials_per_call": 10, "stage_per_round": 30, "unbuilt_per_branch": 20, "examine_per_round": 400, "product_type_min_items": 3, "retry_minutes": 30, "min_batch": 5, "reexamine_after_headings": 25},
   "renewal": {"concepts_per_call": 5, "retry_minutes": 30},
+  "topup": {"min_unsearched_headings": 300, "headings_per_call": 12, "max_calls_per_day": 6, "retry_minutes": 60},
   "order": {"fresh_signal_days": 14, "rising_max_age_days": 14},
   "branch_words": {
     "branch-hk-sink-and-dish-organisation": ["sink", "dish rack", "dish drainer", "drying rack", "sponge holder", "soap dispenser", "sink caddy", "plate rack"],
@@ -52,9 +51,16 @@
     "branch-to-outdoor-food-and-campsite-organisation": ["camping stove", "cooler", "cool box", "camp chair", "outdoor table", "camp cookware"],
     "branch-to-outdoor-navigation-and-equipment": ["torch", "flashlight", "headlamp", "compass", "trekking pole", "hiking", "multitool", "binocular"],
     "branch-to-car-interior-and-in-car-organisation": ["car", "car organiser", "seat cover", "car cleaning", "sunshade", "car vacuum", "dashboard", "car seat cushion"],
-    "branch-to-bike-and-cycling-accessories": ["bike", "bicycle", "cycle", "cycling", "helmet", "bike cover", "motorcycle"],
+    "branch-to-bike-and-cycling-accessories": ["bike", "bicycle tool kit", "cycle tool kit", "bicycle", "cycle", "cycling", "helmet", "bike cover", "motorcycle"],
     "branch-to-fitness-yoga-and-home-workout": ["fitness", "yoga", "gym", "dumbbell", "resistance band", "workout", "exercise", "skipping rope", "yoga mat", "body weight scale", "weight scale", "gym bag"],
     "branch-to-picnic-and-day-outings": ["picnic", "beach", "picnic basket", "picnic mat", "cooler bag", "day trip"],
-    "branch-to-sports-and-outdoor-games": ["sports", "cricket", "football", "badminton", "frisbee", "outdoor game", "badminton racket", "tennis racket", "table tennis", "cricket bat"]
+    "branch-to-sports-and-outdoor-games": ["sports", "cricket", "football", "badminton", "frisbee", "outdoor game", "badminton racket", "tennis racket", "table tennis", "cricket bat"],
+    "branch-hd-party-and-celebration-decoration": ["birthday decoration", "balloon", "foil balloon", "party decoration", "anniversary decoration", "baby shower decoration", "backdrop", "banner", "bunting", "cake topper", "photo booth props"],
+    "branch-hd-home-office-and-study-corner": ["laptop stand", "laptop table", "monitor stand", "desk mat", "footrest", "work from home", "study table", "study desk", "book stand", "desk organiser", "lap desk"],
+    "branch-hk-home-repair-and-utility": ["repair tape", "sealant", "tool kit", "screwdriver", "glue gun", "emergency light", "extension board", "smart plug", "doorbell", "rechargeable torch"],
+    "branch-bb-arts-crafts-and-drawing": ["craft kit", "diy kit", "art kit", "art and craft", "drawing board", "doodle", "clay", "painting kit", "sand art", "writing tablet", "colouring kit", "colouring set"],
+    "branch-bb-pregnancy-and-new-mother-care": ["pregnancy", "pregnant", "maternity", "postpartum", "post delivery", "c-section", "lactation", "breast pad", "nursing cover", "belly belt", "mom to be"],
+    "branch-to-car-exterior-care-and-roadside-safety": ["car wash", "car body cover", "tyre inflator", "tyre", "puncture", "car polish", "scratch remover", "jump starter", "car emergency", "roadside", "car exterior"],
+    "branch-to-swimming-and-water-sports": ["swimming", "swim", "goggles", "swimming pool", "pool float", "snorkel", "life jacket", "kickboard", "inflatable pool", "water sports"]
   }
 }

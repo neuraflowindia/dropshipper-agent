@@ -21,6 +21,11 @@ from product_radar.storage import Journal
 NOW = "2026-10-06T10:00:00+00:00"
 CATEGORY = "Home and Kitchen"
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import frozen_research_config  # noqa: E402
+# Exact expectations use the r10 settings these tests were written against, not the growing live map.
+setUpModule, tearDownModule = frozen_research_config.module_fixtures()
+
 
 def fixture():
     return {"schema_version": 1, "revision": "test", "built_at": NOW,

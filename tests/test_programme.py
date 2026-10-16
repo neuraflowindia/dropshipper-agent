@@ -23,6 +23,36 @@ from product_radar.source_coverage import ROUTES
 from product_radar.storage import Journal, atomic_json, load_json
 
 
+def busy_programme_saves(memory, when=lambda rows: True):
+    """Make the canonical programme save busy, as another short writer would.
+
+    A programme save is one commit of its changed rows (parent, group and
+    clock rows); ``when`` sees those rows. Other saves go through unchanged.
+    """
+    from product_radar.programme import CLOCK_KIND, FOLLOW_ON_KIND
+    original = memory.commit
+    def commit(event_id, changes, **options):
+        rows = [item["value"] for item in changes if item["table"] == "batch_runs"
+                and item["value"].get("kind") in {VERSION, FOLLOW_ON_KIND, CLOCK_KIND}]
+        if rows and when(rows):
+            raise SafetyError("RUNNER_ALREADY_ACTIVE")
+        return original(event_id, changes, **options)
+    return patch.object(memory, "commit", side_effect=commit)
+
+
+def conflicting_canonical(memory, programme_id, **fields):
+    """Another writer changes the saved programme row itself."""
+    row_id = key("programme", programme_id)
+    row = memory.snapshot()["batch_runs"][row_id]
+    memory.put("batch_runs", row_id, dict(row, **fields), previous=row)
+
+
+def programme_row_count(memory):
+    """How many programme records are saved (each is several rows)."""
+    from product_radar.programme import programme_records
+    return len(programme_records(memory.snapshot()))
+
+
 class ProgrammeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
@@ -132,7 +162,7 @@ class ProgrammeTests(unittest.TestCase):
                 self.advance()
 
     def test_a_busy_initial_canonical_save_keeps_a_recoverable_checkpoint(self):
-        with patch.object(self.memory, "put", side_effect=SafetyError("RUNNER_ALREADY_ACTIVE")):
+        with busy_programme_saves(self.memory):
             record = self.prepare()
         self.assertNotIn(key("programme", "whole-programme"), self.memory.snapshot()["batch_runs"])
         self.assertEqual(load_programme(self.memory, "whole-programme"), record)
@@ -141,12 +171,7 @@ class ProgrammeTests(unittest.TestCase):
 
     def test_multiple_busy_checkpoints_keep_the_latest_original_programme(self):
         self.prepare()
-        original_put = self.memory.put
-        def busy(table, record_id, value, **kwargs):
-            if value.get("kind") == VERSION:
-                raise SafetyError("RUNNER_ALREADY_ACTIVE")
-            return original_put(table, record_id, value, **kwargs)
-        with patch.object(self.memory, "put", side_effect=busy):
+        with busy_programme_saves(self.memory):
             result = self.advance()
         self.assertEqual(result["control_save"]["saved"], "local_checkpoint")
         recovered = load_programme(self.memory, "whole-programme")
@@ -172,10 +197,8 @@ class ProgrammeTests(unittest.TestCase):
             load_programme(self.memory, "whole-programme")
 
     def test_conflicting_canonical_control_is_not_overwritten(self):
-        record = self.prepare()
-        record_id = key("programme", "whole-programme")
-        changed = dict(record, cycles=900)
-        self.memory.put("batch_runs", record_id, changed, previous=record)
+        self.prepare()
+        conflicting_canonical(self.memory, "whole-programme", cycles=900)
         with self.assertRaisesRegex(SafetyError, "CONTROL_CONFLICT"):
             load_programme(self.memory, "whole-programme")
 
@@ -366,6 +389,20 @@ class ProgrammeTests(unittest.TestCase):
         self.assertEqual(result["progress"]["products"], 2)
         self.assertEqual(result["progress"]["follow_on_products"], 1)
         self.assertEqual(result["progress"]["reporting_products"], 3)
+
+    def test_each_review_group_start_is_numbered_when_a_stage_serves_several(self):
+        self.prepare(); self.product("later")
+        def discovery(_m, _r, _c):
+            return {"state": "checked", "new_products_need_full_source_review": ["later"]}
+        self.advance(discovery_step=discovery, max_cycles=1)
+        events = []
+        self.advance(on_progress=events.append, max_cycles=1)
+        started = [row for row in events if row["phase_state"] == "started"]
+        grouped = [(row["stage"], row["group_position"], row["group_count"]) for row in started if "group_position" in row]
+        self.assertEqual(grouped, [(stage, position, 2) for stage in STAGES[:-2] for position in (1, 2)])
+        # One group (the reports and private delivery steps) is not numbered.
+        self.assertEqual({row["stage"] for row in started if "group_position" not in row}, set(STAGES[-2:]))
+        self.assertFalse(any("group_position" in row for row in events if row["phase_state"] != "started"))
 
     def test_repeated_discovery_does_not_duplicate_review_scopes_or_products(self):
         self.prepare(); self.product("later")
@@ -597,13 +634,17 @@ class ProgrammeTests(unittest.TestCase):
     def test_missed_research_weeks_create_only_latest_due_slot(self):
         record = due_programme(self.memory, as_of="2026-11-11T00:00:00+00:00")
         self.assertEqual(record["week"], "2026-11-09")
-        self.assertEqual(len(self.memory.snapshot()["batch_runs"]), 1)
+        self.assertEqual(programme_row_count(self.memory), 1)
+        from product_radar.programme import programme_rows
+        self.assertEqual(set(self.memory.snapshot()["batch_runs"]), set(programme_rows(record)))
 
     def test_finished_manual_current_week_does_not_spawn_a_second_week_identity(self):
         from product_radar.programme import _save
         record = self.prepare(); record["status"] = "research_pool_finished"; _save(self.memory, record)
         self.assertEqual(due_programme(self.memory, as_of=self.now)["programme_id"], "whole-programme")
-        self.assertEqual(len(self.memory.snapshot()["batch_runs"]), 1)
+        self.assertEqual(programme_row_count(self.memory), 1)
+        from product_radar.programme import programme_rows
+        self.assertEqual(set(self.memory.snapshot()["batch_runs"]), set(programme_rows(record)))
 
     def test_future_report_dates_do_not_launch_or_publish_a_package(self):
         record = self.prepare()

@@ -345,9 +345,9 @@ def _accept_functional_answer(memory, question, item, answer, *, job_id, as_of):
 
 
 def _review_functional_source_results(memory, runner, *, run_id, limit, per_product, as_of, skipped,
-                                      task_ids=None, concept_ids=None, priority=frozenset()):
+                                      task_ids=None, concept_ids=None, priority=frozenset(), read=None):
     from .research_ai import FUNCTIONAL_SOURCE_PROMPT_VERSION, FUNCTIONAL_SOURCE_STYLE
-    state = memory.snapshot()
+    state = (read or memory.snapshot)()
     questions = [row for row in functional_source_questions(state, run_id=run_id, as_of=as_of,
         task_ids=task_ids, concept_ids=concept_ids) if row["unknown_ids"]]
     questions.sort(key=lambda row: row["concept_id"] not in priority)
@@ -401,7 +401,7 @@ def _review_functional_source_results(memory, runner, *, run_id, limit, per_prod
 
 
 def review_source_results(memory, runner=None, *, run_id=None, limit=5, per_product=30, as_of=None,
-                          skip_targets=(), task_ids=None, concept_ids=None, priority_concept_ids=()):
+                          skip_targets=(), task_ids=None, concept_ids=None, priority_concept_ids=(), read_state=None):
     """Advance a bounded slice and report remaining work; no source/model retry loop.
 
     The next programme pass continues returned remaining questions. A confirmed
@@ -409,7 +409,10 @@ def review_source_results(memory, runner=None, *, run_id=None, limit=5, per_prod
     until every returned observation has an accepted judgment. No fuzzy lexical
     absence or checklist score becomes a source confirmation. Priority types
     (nearly report-ready) are selected first; it only orders this slice.
+    ``read_state`` (optional) returns the current research state; a caller
+    may pass one that keeps its copy until something is saved.
     """
+    read = read_state or memory.snapshot
     if type(limit) is not int or not 1 <= limit <= 20 or type(per_product) is not int or not 1 <= per_product <= 50:
         raise SafetyError("SOURCE_REVIEW_LIMIT_INVALID")
     priority = _priority_ids(priority_concept_ids)
@@ -425,9 +428,9 @@ def review_source_results(memory, runner=None, *, run_id=None, limit=5, per_prod
         raise SafetyError("SOURCE_REVIEW_CONCEPT_SCOPE_INVALID")
     functional_outcomes, functional_selected = _review_functional_source_results(memory, runner, run_id=run_id,
         limit=limit, per_product=per_product, as_of=at, skipped=skipped, task_ids=task_ids, concept_ids=concept_ids,
-        priority=priority)
+        priority=priority, read=read)
     limit -= functional_selected
-    state = memory.snapshot(); questions = [row for row in _questions(state, run_id=run_id, as_of=at,
+    state = read(); questions = [row for row in _questions(state, run_id=run_id, as_of=at,
         task_ids=task_ids, concept_ids=concept_ids)
                                           if row.get("kind") != "functional_source_scope"]
     questions.sort(key=lambda row: row["concept_id"] not in priority)
@@ -511,7 +514,7 @@ def review_source_results(memory, runner=None, *, run_id=None, limit=5, per_prod
             except (SafetyError, OSError) as error:
                 outcomes.append({"task_id": question["task_id"], "concept_id": concept_id, "state": "waiting",
                                  "reason": _interpretation_failure(error, local_code="SOURCE_REVIEW_LOCAL_FILE_FAILED"), "job_id": answer_job})
-    final = [row for row in _questions(memory.snapshot(), run_id=run_id, as_of=at, task_ids=task_ids, concept_ids=concept_ids)
+    final = [row for row in _questions(read(), run_id=run_id, as_of=at, task_ids=task_ids, concept_ids=concept_ids)
              if row.get("kind") != "functional_source_scope"]
     for question in final:
         if question["relevant_ids"] or not question["unknown_ids"]:
@@ -519,7 +522,7 @@ def review_source_results(memory, runner=None, *, run_id=None, limit=5, per_prod
             except (SafetyError, OSError) as error:
                 outcomes.append({"task_id": question["task_id"], "concept_id": question["concept_id"], "state": "waiting",
                                  "reason": _interpretation_failure(error, local_code="SOURCE_REVIEW_LOCAL_FILE_FAILED")})
-    remaining = _questions(memory.snapshot(), run_id=run_id, as_of=at, task_ids=task_ids, concept_ids=concept_ids)
+    remaining = _questions(read(), run_id=run_id, as_of=at, task_ids=task_ids, concept_ids=concept_ids)
     return {"outcomes": outcomes, "reused": reused, "remaining_questions": len(remaining),
             "source_calls": 0, "checklist_changed": False, "client_publication_attempted": False}
 

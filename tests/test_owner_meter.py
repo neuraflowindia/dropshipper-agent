@@ -30,6 +30,11 @@ from test_programme_summary import financial
 START = "2026-10-13T18:00:00+00:00"
 LATER = "2026-10-14T20:30:00+00:00"
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import frozen_research_config  # noqa: E402
+# Exact expectations use the r10 settings these tests were written against, not the growing live map.
+setUpModule, tearDownModule = frozen_research_config.module_fixtures()
+
 
 def baseline(pair, **changes):
     totals = collection_cost_totals(pair)
@@ -223,6 +228,9 @@ class FreshStoreMeterTests(unittest.TestCase):
         self.assertEqual(result["activity_now"]["state"], "not_recorded")
         self.assertEqual(result["trends_check"], "Google Trends: waiting for the owner to sign in.")  # W2 proof gate
         self.assertEqual(result["platforms"], [])  # W4: no platform waits on the owner
+        self.assertIsNone(result["housekeeping"])  # no backup or store tidying problem
+        self.assertTrue(result["product_map"].startswith(  # the product map's runway, from the same saved records
+            "Product map: 224 headings, 224 not searched yet; the search pace is not measured yet"))
         self.assertFalse((self.project / "data").exists())
 
     def test_meter_lists_platforms_waiting_on_the_owner(self):

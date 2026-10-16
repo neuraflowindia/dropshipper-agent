@@ -31,8 +31,10 @@ Each candidate is looked at once (``advance_staging``):
   Otherwise ``no_sub_area``, looked at again once the map has grown by
   ``reexamine_after_headings`` headings.
 * A routed candidate is saved once as seed material for the seed C call
-  (``catalogue_seed``): a small page holding the exact source line. A full
-  sub-area (``headings_per_sub_area``) takes no more.
+  (``catalogue_seed``): a small page holding the exact source line. A sub-area
+  holds at most ``unbuilt_per_branch`` waiting examples. A sub-area at its
+  target (``headings_per_sub_area``) still takes material: the target is a
+  soft cap that only orders the builds (``product_map.build_choice``).
 
 Which candidates were looked at, and the compact list of fresh signals the
 heading order reads (``heading_order``), are small local files under
@@ -51,6 +53,7 @@ from .research_memory import key
 from .storage import Journal, atomic_json, load_json, safe_path
 
 SETTINGS = Path(__file__).resolve().parents[2] / "config/research/product_map.json"
+SETTINGS_LIMIT = 256 * 1024  # room for the routing words of new sub-areas
 KINDS = ("platform-collection", "platform-item", "trends-rising", "meta-advertiser", "supplier-listing")
 ORIGIN = "product_map"
 FOLDER = "product_map"
@@ -67,13 +70,20 @@ def _int(value, low, high):
     return type(value) is int and low <= value <= high
 
 
-def validate_settings(value):
-    """The saved product-map settings, or ``PRODUCT_MAP_SETTINGS_INVALID``."""
+def validate_settings(value, catalogue=None):
+    """The saved product-map settings, or ``PRODUCT_MAP_SETTINGS_INVALID``.
+
+    ``catalogue`` is the catalogue whose sub-areas the routing words must name
+    (the saved one when omitted; the row expander passes the one it writes)."""
     from .catalogue import load_catalogue
     try:
         build, renewal, order, words = value["build"], value["renewal"], value["order"], value["branch_words"]
-        branches = {row["id"] for row in load_catalogue()["branches"] if row["parent_id"] is not None}
-        if (set(value) != {"schema_version", "kind", "target", "build", "renewal", "order", "branch_words"}
+        topup = value["topup"]
+        branches = {row["id"] for row in (catalogue or load_catalogue())["branches"] if row["parent_id"] is not None}
+        if (set(value) != {"schema_version", "kind", "target", "build", "renewal", "topup", "order", "branch_words"}
+                or set(topup) != {"min_unsearched_headings", "headings_per_call", "max_calls_per_day", "retry_minutes"}
+                or not _int(topup["min_unsearched_headings"], 0, 100000) or not _int(topup["headings_per_call"], 1, 20)
+                or not _int(topup["max_calls_per_day"], 0, 48) or not _int(topup["retry_minutes"], 1, 1440)
                 or type(value["schema_version"]) is not int or value["schema_version"] != 1
                 or value["kind"] != "product-map-v1" or set(value["target"]) != {"headings_per_sub_area"}
                 or not _int(value["target"]["headings_per_sub_area"], 1, 200)
@@ -101,7 +111,7 @@ def validate_settings(value):
 
 
 def settings():
-    return validate_settings(load_json(SETTINGS, 64 * 1024))
+    return validate_settings(load_json(SETTINGS, SETTINGS_LIMIT))
 
 
 def _clip(text, limit=160):
@@ -355,6 +365,48 @@ def route(found, profiles, category=None):
     return inside[2] if inside else None
 
 
+def _within(found, profiles, category):
+    """The best (hits, score, sub-area) inside the gate's category: a clear
+    margin of routing-word or heading hits, or, between sub-areas equally
+    close on hits, the one sharing clearly more words (both are in the client
+    category the gate confirmed, and the seed call still decides)."""
+    scores = _scores(found, profiles, category, False)
+    if not scores or not scores[0][0]:
+        return None
+    close = [row for row in scores if scores[0][0] - row[0] < ROUTE_MARGIN]
+    return scores[0] if len(close) == 1 or close[0][1] > close[1][1] else None
+
+
+def _matches(found, profile):
+    """How many of a sub-area's routing words and headings a text contains."""
+    return sum(1 for words in [*profile["words"], *profile["labels"]] if words and words <= found)
+
+
+def place(found, profiles, category):
+    """The sub-area a candidate is staged for, or None.
+
+    Without a client category from the gate, only a multi-word routing-word
+    or heading match places it ("camping stove", "egg boiler"): one generic
+    routing word is no evidence the product is in the client's categories
+    ("sleep" in "melatonin sleep gummies", "led" in "smart LED TV").
+    With a gate category: within that category (``_within``), unless another
+    category is clearly meant: a multi-word match at least as strong ("table
+    tennis" over "table"), or two or more of its routing words or headings
+    clearly stronger ("piping ... icing" over "bag"), never one generic word."""
+    strong = _best(_scores(found, profiles, None, True))
+    if category is None:
+        return strong[2] if strong else None
+    inside = _within(found, profiles, category)
+    strength = inside[0] if inside else 0
+    if strong and profiles[strong[2]]["category"] != category and strong[0] >= strength:
+        return strong[2]
+    loose = _best(_scores(found, profiles, None, False))
+    if (loose and profiles[loose[2]]["category"] != category and loose[0] >= strength + ROUTE_MARGIN
+            and _matches(found, profiles[loose[2]]) >= 2):
+        return loose[2]
+    return inside[2] if inside else None
+
+
 def stage_material(memory, branch, row):
     """Save one candidate as seed material: its exact source line on a small page.
 
@@ -466,7 +518,7 @@ def advance_staging(memory, state, catalogue, rows, config, config_hash):
     for material_id, found in waiting.items():
         pending.setdefault(min(found), []).append((found, material_id))
     outcomes, failures, looked, visited, count = Counter(), [], 0, 0, 0
-    build, cap = config["build"], config["target"]["headings_per_sub_area"]
+    build = config["build"]
     for row in rows:
         name = row["kind"] + ":" + row["key"]
         if name in examined:
@@ -478,7 +530,7 @@ def advance_staging(memory, state, catalogue, rows, config, config_hash):
         visited += 1
         found = word_set(row["label"])
         category = None if not found or excluded(row["gate_text"]) else gate(row["gate_text"])
-        branch_id = None if not found or excluded(row["gate_text"]) else route(
+        branch_id = None if not found or excluded(row["gate_text"]) else place(
             found | word_set(row["route_text"]), profiles, category)
         variant_of = next((material_id for word in found for words, material_id in pending.get(word, ())
                            if words <= found), None) if len(found) >= 2 else None
@@ -492,8 +544,6 @@ def advance_staging(memory, state, catalogue, rows, config, config_hash):
             entry = {"outcome": "variant", "of": variant_of}
         elif branch_id is None:
             entry = {"outcome": "no_sub_area", "headings": headings}
-        elif profiles[branch_id]["headings"] >= cap:
-            entry = {"outcome": "sub_area_full"}
         elif backlog[branch_id] >= build["unbuilt_per_branch"]:
             outcomes["sub_area_backlog"] += 1
             continue  # looked at again once the sub-area's waiting material is built

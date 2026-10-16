@@ -182,6 +182,9 @@ def status(root, *, now=_now):
         if health["line"]:
             message += "\n" + health["line"]
         attention.extend(health["attention"])
+    housekeeping = _housekeeping_line(root)
+    if housekeeping:
+        message += "\n" + housekeeping
     message += "".join("\nNeeds attention: " + item["text"] for item in attention)
     notify = [item for item in attention if item["notify"]]
     spend = spend_summary(root)
@@ -190,7 +193,8 @@ def status(root, *, now=_now):
             "attention": " ".join(item["text"] for item in notify) or None,
             "attention_id": "|".join(item["id"] for item in notify) or None,
             "attention_confirm_seconds": max((item["confirm_seconds"] for item in notify), default=None),
-            "sign_in": sign_in_summary(root), "spend": spend["lines"], "spend_alerts": spend["alerts"]}
+            "sign_in": sign_in_summary(root), "spend": spend["lines"], "spend_alerts": spend["alerts"],
+            "housekeeping_line": housekeeping}
 
 
 def desktop_actions(root, *, days=7, max_bytes=2 * 1024 * 1024):
@@ -329,6 +333,15 @@ def spend_summary(root, *, alert_hours=24):
                                        for row in summary["alerts"]]}
 
 
+def _housekeeping_line(root):
+    """The backup/store tidying problem line, or ``None`` when all is well."""
+    from .store_housekeeping import housekeeping_line
+    try:
+        return housekeeping_line(root)
+    except (SafetyError, OSError):
+        return "The backup clean-up records could not be read. See the project log."
+
+
 def sign_in_summary(root, *, runner=subprocess.run, recheck_seconds=30):
     """Saved sign-in needs for the window. Only an open sign-in window is
     re-verified (local processes, no site visit), at most every 30 seconds."""
@@ -342,10 +355,11 @@ def sign_in_summary(root, *, runner=subprocess.run, recheck_seconds=30):
         summary = {"window_open": False, "line": "The sign-in records could not be read. See the project log.", "needs": []}
     # Under the sign-in needs: one line per dropshipping platform waiting on
     # something the owner can see (W4), the signed-in Trends check (W2), then
-    # the opportunity score tally and its one-time calibration alert (W7).
+    # the opportunity score tally and its one-time calibration alert (W7),
+    # then the product map's runway (headings not searched yet, recent pace).
     # Their own records failing never hides the sign-in needs.
     return dict(summary, platform_lines=_platform_lines(root), trends_line=_trends_line(root),
-                score_line=_score_line(root))
+                score_line=_score_line(root), map_line=_map_line(root))
 
 
 def _platform_lines(root):
@@ -370,6 +384,14 @@ def _score_line(root):
         return score_line(_memory(root).root)
     except (SafetyError, OSError):
         return "The opportunity score records could not be read. See the project log."
+
+
+def _map_line(root):
+    from .product_map import map_line
+    try:
+        return map_line(_memory(root).root)
+    except (SafetyError, OSError):
+        return "The product map records could not be read. See the project log."
 
 
 def open_sign_in(root):

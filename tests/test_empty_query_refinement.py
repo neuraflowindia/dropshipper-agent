@@ -1,5 +1,6 @@
 """Exact empty-query refinement in isolated fixtures; no real research writes."""
 
+import sys
 from copy import deepcopy
 from datetime import datetime, timedelta
 import hashlib
@@ -19,6 +20,11 @@ from product_radar.research_memory import ResearchMemory, import_capture
 from product_radar.research_operations import bind_prepared_action, plan_research, record_query_outcome, sync_query_feedback
 from product_radar.research_planner import plan_searches, semantic_key, validate_outcome
 from product_radar.storage import Journal, atomic_bytes, atomic_json, load_json
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import frozen_research_config  # noqa: E402
+# Exact expectations use the r10 settings these tests were written against, not the growing live map.
+setUpModule, tearDownModule = frozen_research_config.module_fixtures()
 
 
 class EmptyRefinementTests(unittest.TestCase):

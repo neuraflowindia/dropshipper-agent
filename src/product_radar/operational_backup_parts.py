@@ -13,6 +13,7 @@ from copy import deepcopy
 from hashlib import sha256
 from pathlib import Path
 import re
+import stat
 import tempfile
 from time import monotonic
 
@@ -310,12 +311,30 @@ def _part_chain(destination, last, plan, rows):
         yield part
 
 
+def _existing_object(path, reference):
+    """A stored file saved by an earlier copy, checked by kind and size only.
+
+    Its name is the hash of its content, and the final verification of every
+    copy reads and hashes every stored file before that copy is published.
+    Reading each one in full here as well read the whole history twice a day
+    on the slow project drive and added no protection.
+    """
+    try:
+        status = path.lstat()
+    except OSError:
+        raise SafetyError("BACKUP_FILE_UNAVAILABLE") from None
+    if stat.S_ISLNK(status.st_mode):
+        raise SafetyError("SYMLINK_PATH_REFUSED")
+    if not stat.S_ISREG(status.st_mode) or status.st_size != reference["bytes"]:
+        raise SafetyError("BACKUP_PART_OBJECT_CHANGED")
+
+
 def _copy_outcome(destination, row):
     reference = {"sha256": row["sha256"], "bytes": row["bytes"]}
     try:
         path = _object_path(destination, reference)
-        if path.exists():
-            raw = _object_read(destination, reference)
+        if path.exists() or path.is_symlink():
+            _existing_object(path, reference)
         elif row["role"] == "finance":
             raise SafetyError("BACKUP_FINANCIAL_CHUNK_MISSING")
         else:

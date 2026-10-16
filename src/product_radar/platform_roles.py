@@ -335,8 +335,14 @@ def item_category(item, config):
     if excluded_kind(text, config):
         return None
     joined = _joined(text)
-    return next((category for category, phrases in config["categories"].items()
-                 if any(_joined(phrase) in joined for phrase in phrases)), None)
+    # The longest matching category phrase decides ("neck pillow" is travel,
+    # though "pillow" alone is home decor); the file's order breaks ties.
+    best, size = None, 0
+    for category, phrases in config["categories"].items():
+        found = max((len(phrase_words(phrase)) for phrase in phrases if _joined(phrase) in joined), default=0)
+        if found > size:
+            best, size = category, found
+    return best
 
 
 def _tier(item):

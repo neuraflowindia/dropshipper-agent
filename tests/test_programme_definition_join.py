@@ -44,6 +44,40 @@ class ProgrammeDefinitionJoinTests(unittest.TestCase):
         self.assertIn(self.cid, repeated["functional_definitions"]["accepted"])
         self.assertEqual(len(self.runner.calls), 1)
 
+    def test_matching_pass_shares_one_state_copy_until_a_save_with_identical_results(self):
+        import product_radar.programme as programme
+        from product_radar.research_memory import UnchangedSnapshot
+
+        class EveryRead(UnchangedSnapshot):
+            def __call__(self):  # the earlier behaviour: a fresh full copy at every read
+                return self.memory.snapshot()
+
+        self.match()  # accepts the definition: the pass below has nothing new to save
+        results, copies = {}, {}
+        for name, reader in (("every_read", EveryRead), ("shared", UnchangedSnapshot)):
+            before = self.memory.snapshot_with_provenance()
+            with patch.object(programme, "UnchangedSnapshot", reader), \
+                    patch.object(self.memory, "snapshot", wraps=self.memory.snapshot) as snapshot:
+                results[name] = self.match()
+            copies[name] = snapshot.call_count
+            # Opening the already open round saves nothing either.
+            self.assertEqual(self.memory.snapshot_with_provenance()["head"], before["head"])
+        self.assertEqual(results["shared"], results["every_read"])
+        self.assertLess(copies["shared"], copies["every_read"])
+        self.assertEqual(len(self.runner.calls), 1)
+
+    def test_a_save_inside_the_matching_pass_is_read_by_the_reviews_after_it(self):
+        read = []
+        original = review_functional_definitions
+        def definitions(memory, *args, read_state, **options):
+            result = original(memory, *args, read_state=read_state, **options)
+            read.append(read_state())
+            return result
+        with patch("product_radar.functional_definition_review.review_functional_definitions", side_effect=definitions):
+            self.match()
+        # The definition saved inside the pass is in the copy the later reviews read.
+        self.assertTrue(effective_functional_definition(read[0], self.cid)["accepted"])
+
     def test_legacy_matching_without_explicit_turn_does_not_activate_new_definition_writer(self):
         _match(self.memory, self.record, self.context)
         self.assertEqual(self.runner.calls, [])

@@ -514,18 +514,23 @@ class _SavedRunner:
 
 
 def review_functional_examples(memory, concept_ids, runner=None, *, as_of, limit=MAX_ITEMS, skip_concept_bindings=None,
-                               retry_seconds=300, retry_not_before=None):
+                               retry_seconds=300, retry_not_before=None, read_state=None):
+    """``read_state`` (optional) returns the current research state; a caller
+    may pass one that keeps its copy until something is saved.
+    """
     from .model_recovery import run_current_model_job
+    read = read_state or memory.snapshot
     ready = functional_example_readiness(memory, concept_ids, as_of=as_of, limit=limit,
-        skip_concept_bindings=skip_concept_bindings, retry_seconds=retry_seconds, retry_not_before=retry_not_before)
+        skip_concept_bindings=skip_concept_bindings, retry_seconds=retry_seconds, retry_not_before=retry_not_before,
+        state=read())
     accepted, failures, outcomes = dict(ready["current"]), dict(ready["waiting"]), {}
     pending = {row["item"]["id"]: row for row in ready["prepared"]}
-    state = memory.snapshot(); originals, novel = {}, []
+    state = read(); originals, novel = {}, []
     for row in ready["prepared"]:
         if row["owner"]: originals.setdefault(row["owner"], []).append(row)
         else: novel.append(row)
     for jid, rows in originals.items():
-        request = state["jobs"][jid]["request"]; chosen_runner = _SavedRunner(request["runner"])
+        request = deepcopy(state["jobs"][jid]["request"]); chosen_runner = _SavedRunner(request["runner"])
         if not rows[0]["local"]:
             if runner is None or getattr(runner, "identity", "codex-chatgpt-high-v1") != request["runner"]:
                 failures.update({row["concept_id"]: {"reason": "AI_RUNNER_NOT_ENABLED"} for row in rows}); continue

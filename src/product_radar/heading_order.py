@@ -11,7 +11,10 @@ their heading (catalogue family):
    bestseller/trending/new-arrival items on the dropshipping platforms, rising
    Trends queries and relevant advertisers' new ads whose words include the
    heading's (``map_materials.load_signals``), more signals first.
-4. Then the heading served longest ago.
+4. Then never-served headings the product map's AI top-up suggested
+   (``map_topup``): ideas without observed material wait behind the observed
+   and freshly signalled ones, but go before plain re-searches.
+5. Then the heading served longest ago.
 
 Within each step the categories take turns: the first heading of each
 category (by the steps above, then the sub-area with the fewest served
@@ -24,6 +27,7 @@ saved records and one small local file; nothing is read or sent.
 
 from .discovery import normalise
 from .map_materials import load_signals, word_set
+from .map_topup import AUTHOR as TOPUP_AUTHOR
 from .models import SafetyError, digest, timestamp
 
 
@@ -52,6 +56,25 @@ def served_times(state):
         if isinstance(family_id, str) and at and (family_id not in served or timestamp(at) > timestamp(served[family_id])):
             served[family_id] = at
     return served, owners
+
+
+def first_served_times(state):
+    """When each heading was first served (planned into a discovery wave or
+    cycle, or searched): the same saved facts as ``served_times``, earliest
+    instead of latest. A heading missing here has never been searched."""
+    from .catalogue_discovery import VERSION, WAVE_VERSION
+    first = {}
+
+    def note(family_id, at):
+        if isinstance(family_id, str) and at and (family_id not in first or timestamp(at) < timestamp(first[family_id])):
+            first[family_id] = at
+    for record in state["batch_runs"].values():
+        if record.get("kind") in (VERSION, WAVE_VERSION):
+            for planned in record.get("planned_actions", []):
+                note(planned.get("family_id"), record["prepared_at"])
+    for outcome in state["query_outcomes"].values():
+        note(outcome.get("family_id"), outcome.get("observed_at"))
+    return first
 
 
 def crowded_headings(state, owners, thresholds=None):
@@ -134,7 +157,7 @@ def _place(family, facts):
     """(High-crowding, tier, fresh, served time): the first steps of the order."""
     served = facts["served"].get(family["id"])
     fresh = facts["fresh"].get(family["id"], 0) if served else 0
-    tier = 0 if served is None else 1 if fresh else 2
+    tier = (2 if family.get("author") == TOPUP_AUTHOR else 0) if served is None else 1 if fresh else 3
     return family["id"] in facts["crowded"], tier, -fresh, timestamp(served).timestamp() if served else 0.0
 
 

@@ -9,6 +9,7 @@ from datetime import date
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from .backup_retention import disk_space_reason, tidy_after_backup, tidy_when_disk_low
 from .models import SafetyError, digest, timestamp, utc_now
 from .runtime_storage import runtime_path
 from .storage import Journal, atomic_json, load_json, safe_path
@@ -146,6 +147,9 @@ def run_due_operational_backup(memory, *, root, now=None, settings=None, pending
                 control["limitations"].append("Recovered the original ready-manifest receipt; this daily check did not reread every copied file.")
                 _save_control(path, control)
                 return _result(control["state"], day=day, control=control, reused=True)
+            low = disk_space_reason(destination, root)
+            if low is not None:
+                return _result("waiting", day=day, reason=low)
             control = {"schema_version": 1, "kind": VERSION, "root_hash": root_hash, "day": day,
                 "backup_id": "daily-" + day, "attempted_at": at, "completed_at": None, "manifest_created_at": None,
                 "state": "attempt_started", "manifest_hash": None, "files": None, "bytes": None,
@@ -224,7 +228,17 @@ def _run_due_multipart_backup(memory, *, root, at, pending_controls, creator, co
                     raise SafetyError("LOCAL_BACKUP_CONTROL_INVALID")
                 if control["day"] == day:
                     return _multipart_result(control["state"], day=day, control=control, reused=True)
-        if control is None or control["state"] != "attempt_started":
+        unfinished = control if control is not None and control["state"] == "attempt_started" else None
+        # Never fill the project drive: below the configured free-space floor
+        # no new copy starts and an unfinished one waits (research continues).
+        low = disk_space_reason(destination, root)
+        if low is not None:
+            # Older copies beyond the kept numbers may still go, so space can
+            # free itself (once a day, against the newest finished copy).
+            tidy_when_disk_low(destination, root=root, control_root=control_root, now=at)
+            return _multipart_result("waiting", day=unfinished["day"] if unfinished else day, reason=low,
+                control=unfinished)
+        if unfinished is None:
             control = {"contract": PART_VERSION, "root_hash": digest(str(root)), "day": day, "backup_id": "daily-v3-" + day,
                 "state": "attempt_started", "attempted_at": at, "completed_at": None, "manifest_hash": None, "files": None, "bytes": None}
             _save_control(path, control)
@@ -249,6 +263,10 @@ def _run_due_multipart_backup(memory, *, root, at, pending_controls, creator, co
             _save_control(path, control)
             result = _multipart_result(control["state"], day=control["day"], control=control, action_started=True,
                 reused=saved.get("replayed") is True)
+            # Only now, with the new copy verified and recorded, older copies
+            # beyond the configured numbers may go. This never raises.
+            tidy_after_backup(destination, root=root, control_root=control_root,
+                              verified_backup_id=control["backup_id"], now=completed_at)
             return result
         except Exception as error:
             # Retain the exact pending set and cursor. The next existing task
@@ -265,6 +283,11 @@ def create_backup_housekeeping_step(root):
             return _result("owner_paused", reason="LOCAL_BACKUP_OWNER_PAUSED")
         # The last source stage may have taken minutes. Decide the India day
         # from the present time, not the earlier cycle's entry timestamp.
-        return run_due_operational_backup(memory, root=root,
+        result = run_due_operational_backup(memory, root=root,
             pending_controls=(_control_path(memory, record["programme_id"]),))
+        # Once a day: drop unused lookup pages and very old raw run logs.
+        # Its own small record; it never changes or fails the backup result.
+        from .store_housekeeping import run_due_store_housekeeping
+        run_due_store_housekeeping(memory, root=root)
+        return result
     return step

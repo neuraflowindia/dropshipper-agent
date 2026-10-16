@@ -287,12 +287,9 @@ class ProgrammeSummaryConnectionTests(unittest.TestCase):
         self.assertEqual(value["diagnostic_reasons"], {"MODEL_EFFORT_CACHE_SAVE_FAILED": 1})
 
     def test_busy_final_save_preserves_owner_summary_in_existing_pending_control(self):
-        self.prepare(); original_put = self.memory.put
-        def put(table, record_id, value, **kwargs):
-            if table == "batch_runs" and "owner_summary" in value:
-                raise SafetyError("RUNNER_ALREADY_ACTIVE")
-            return original_put(table, record_id, value, **kwargs)
-        with patch.object(self.memory, "put", side_effect=put):
+        self.prepare()
+        with programme_fixtures.busy_programme_saves(
+                self.memory, when=lambda rows: any("owner_summary" in row for row in rows)):
             result = self.advance()
         self.assertEqual(result["control_save"]["saved"], "local_checkpoint")
         self.assertEqual(load_programme(self.memory, "whole-programme")["owner_summary"], result["owner_summary"])

@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from .models import SafetyError, canonical, digest, identifier, timestamp, utc_now
-from .research_memory import key
+from .research_memory import UnchangedSnapshot, key
 from .runtime_storage import records_root, runtime_path, runtime_root
 from .storage import Journal, atomic_json, load_json, safe_path
 from .operations import (LOCAL_PHASE_DEADLINES, operation_writer, record_progress, record_error, record_event,
@@ -119,11 +119,113 @@ def _control_path(memory, programme_id):
     return safe_path(memory.root, "programme_runs", key("programme", identifier(programme_id))) / "pending-control.json"
 
 
+# How one programme record is saved: rewriting a whole record of hundreds of
+# kilobytes for every small change filled the research history (79% of its
+# bytes). It is saved as separate rows, each written only when it changes:
+# * the parent row: the record without its follow-on groups and clock fields,
+#   listing its groups in ``follow_on_review_ids``;
+# * one row per follow-on group (``FOLLOW_ON_KIND``), without its update time;
+# * one small clock row (``CLOCK_KIND``) with the fast-changing fields and every
+#   group's update time.
+# ``programme_from_state`` joins them back into exactly the saved record, so
+# readers, digests and the staged control check see the same record as before.
+# A parent row that still holds its groups inside it (saved before this
+# change) is read as it is.
+FOLLOW_ON_KIND = "research-programme-follow-on-v1"
+CLOCK_KIND = "research-programme-clock-v1"
+_CLOCK_FIELDS = ("updated_at", "acquisition_cursor", "acquisition_sweep", "round_progress", "last_served_at")
+
+
+def _follow_on_row_id(programme_id, scope_id):
+    return key("programme-followon-record", [programme_id, scope_id])
+
+
+def _clock_row_id(programme_id):
+    return key("programme-clock", programme_id)
+
+
+def programme_rows(record):
+    """The saved rows of one programme record, ``{row_id: row}`` (pure)."""
+    programme_id = identifier(record["programme_id"])
+    children = record.get("follow_on_reviews")
+    if children is not None and not isinstance(children, dict):
+        raise SafetyError("PROGRAMME_CONTROL_INVALID")
+    parent = {name: value for name, value in record.items()
+              if name != "follow_on_reviews" and name not in _CLOCK_FIELDS}
+    # Sorted: saved records come back with sorted keys, and order has no meaning.
+    parent["follow_on_review_ids"] = sorted(children) if children is not None else None
+    clock = {"kind": CLOCK_KIND, "programme_id": programme_id,
+             "fields": {name: record[name] for name in _CLOCK_FIELDS if name in record},
+             "follow_on_updated_at": {scope_id: child["updated_at"] for scope_id, child in (children or {}).items()
+                                      if isinstance(child, dict) and "updated_at" in child}}
+    rows = {key("programme", programme_id): parent, _clock_row_id(programme_id): clock}
+    for scope_id, child in (children or {}).items():
+        if not isinstance(child, dict):
+            raise SafetyError("PROGRAMME_CONTROL_INVALID")
+        rows[_follow_on_row_id(programme_id, identifier(scope_id))] = {
+            "kind": FOLLOW_ON_KIND, "parent_programme_id": programme_id, "scope_id": scope_id,
+            "scope": {name: value for name, value in child.items() if name != "updated_at"}}
+    return rows
+
+
+def programme_from_state(state, row):
+    """One saved programme record joined from its rows (``None`` stays ``None``).
+
+    A parent row saved with its groups inside it is returned as it is. A
+    missing or mismatched group or clock row is ``PROGRAMME_CONTROL_INVALID``.
+    """
+    if not isinstance(row, dict) or row.get("kind") != VERSION or "follow_on_review_ids" not in row:
+        return row
+    programme_id = identifier(row.get("programme_id"))
+    rows, ids = state["batch_runs"], row["follow_on_review_ids"]
+    clock = rows.get(_clock_row_id(programme_id))
+    if (ids is not None and (not isinstance(ids, list) or len(set(ids)) != len(ids)
+                             or any(not isinstance(scope_id, str) for scope_id in ids))
+            or not isinstance(clock, dict) or set(clock) != {"kind", "programme_id", "fields", "follow_on_updated_at"}
+            or clock["kind"] != CLOCK_KIND or clock["programme_id"] != programme_id
+            or not isinstance(clock["fields"], dict) or not set(clock["fields"]) <= set(_CLOCK_FIELDS)
+            or not isinstance(clock["follow_on_updated_at"], dict)
+            or not set(clock["follow_on_updated_at"]) <= set(ids or ())):
+        raise SafetyError("PROGRAMME_CONTROL_INVALID")
+    record = {name: deepcopy(value) for name, value in row.items() if name != "follow_on_review_ids"}
+    record.update(deepcopy(clock["fields"]))
+    if ids is not None:
+        children = {}
+        for scope_id in ids:
+            child = rows.get(_follow_on_row_id(programme_id, identifier(scope_id)))
+            if (not isinstance(child, dict) or set(child) != {"kind", "parent_programme_id", "scope_id", "scope"}
+                    or child["kind"] != FOLLOW_ON_KIND or child["parent_programme_id"] != programme_id
+                    or child["scope_id"] != scope_id or not isinstance(child["scope"], dict)):
+                raise SafetyError("PROGRAMME_CONTROL_INVALID")
+            scope = deepcopy(child["scope"])
+            if scope_id in clock["follow_on_updated_at"]:
+                scope["updated_at"] = clock["follow_on_updated_at"][scope_id]
+            children[scope_id] = scope
+        record["follow_on_reviews"] = children
+    return record
+
+
+def _saved_rows(state, programme_id, scope_ids=()):
+    """The rows one programme has saved now (only those that exist)."""
+    rows, parent_id = state["batch_runs"], key("programme", programme_id)
+    parent = rows.get(parent_id)
+    listed = (parent.get("follow_on_review_ids") or []) if isinstance(parent, dict) else []
+    wanted = [parent_id, _clock_row_id(programme_id),
+              *(_follow_on_row_id(programme_id, scope_id) for scope_id in [*listed, *scope_ids])]
+    return {row_id: deepcopy(rows[row_id]) for row_id in wanted if row_id in rows}
+
+
+def programme_records(state, *, client_id=None):
+    """Every saved programme record of this read, joined (optionally one client's)."""
+    return [programme_from_state(state, row) for row in state["batch_runs"].values()
+            if row.get("kind") == VERSION and (client_id is None or row.get("client_id") == client_id)]
+
+
 def load_programme(memory, programme_id, *, state=None):
     """Recover a saved checkpoint without executing a source/model step."""
     programme_id = identifier(programme_id)
     state = memory.snapshot() if state is None else state
-    canonical = state["batch_runs"].get(key("programme", programme_id))
+    canonical = programme_from_state(state, state["batch_runs"].get(key("programme", programme_id)))
     path = _control_path(memory, programme_id)
     if not path.exists():
         if canonical is None:
@@ -158,24 +260,51 @@ def _save(memory, record, *, cache=None):
     capture, fit answer or paid attempt: each lower layer retains its own proof.
     A canonical conflict is not repaired by overwriting someone else's record.
     """
-    record_id = key("programme", record["programme_id"])
-    old = cache["canonical"] if cache is not None else memory.snapshot()["batch_runs"].get(record_id)
+    from .research_memory import change
+    programme_id = record["programme_id"]
+    if cache is not None:
+        old, saved = cache["canonical"], cache["rows"]
+    else:
+        state = memory.snapshot()
+        saved = _saved_rows(state, programme_id, record.get("follow_on_reviews") or ())
+        old = programme_from_state(state, saved.get(key("programme", programme_id)))
     if old is not None and _binding(old) != _binding(record):
         raise SafetyError("PROGRAMME_BINDING_CHANGED")
     if old is not None:
         _preserve_review_scopes(old, record)
-    atomic_json(_control_path(memory, record["programme_id"]),
+    atomic_json(_control_path(memory, programme_id),
                 {"record": record, "record_hash": digest(record), "previous_hash": digest(old) if old else None})
+    rows = programme_rows(record)
+    # Only the rows that changed, all in one event. The event is named by each
+    # row's new value, the value it replaces and the history position it was
+    # computed at, so a value seen before (A, B, A, B) is a new event, never
+    # mistaken for a replay of the earlier one.
+    changes = [change("batch_runs", row_id, deepcopy(row), saved.get(row_id))
+               for row_id, row in rows.items() if saved.get(row_id) != row]
     try:
-        if old != record:
-            memory.put("batch_runs", record_id, deepcopy(record), previous=old)
+        if changes:
+            event_id = key("programme-save", [memory.verified_sequence(),
+                [[item["id"], digest(item["value"]), item["previous_hash"]] for item in changes]])
+            if not memory.commit(event_id, changes):
+                # Already in the history: only a true replay of this exact
+                # save is fine; anything else would silently drop this save.
+                current = memory.snapshot()["batch_runs"]
+                if any(current.get(item["id"]) != item["value"] for item in changes):
+                    raise SafetyError("PROGRAMME_CONTROL_CONFLICT")
     except SafetyError as error:
         if str(error) not in LOCAL_WAIT:
             raise
         return {"saved": "local_checkpoint", "reason": str(error)}
     if cache is not None:
-        cache["canonical"] = deepcopy(record)
+        cache.update(canonical=deepcopy(record), rows={**saved, **deepcopy(rows)})
     return {"saved": "canonical", "reason": None}
+
+
+def _save_cache(memory, programme_id):
+    """What ``_save`` compares with: the saved record and its saved rows."""
+    state = memory.snapshot()
+    saved = _saved_rows(state, programme_id)
+    return {"canonical": programme_from_state(state, saved.get(key("programme", programme_id))), "rows": saved}
 
 
 def _prepare_programme_locked(memory, programme_id, *, source_run_id=None, concept_ids=None,
@@ -1163,6 +1292,55 @@ def _model_preparation_scope(memory, state, concept_ids, *, purpose, role, modes
         "preparation_skipped": True, "model_job_created": False} if waiting else None)
 
 
+ROUND_PROGRESS_VERSION = 1
+
+
+def _round_progress(record, turn):
+    """What the open round already finished and saved, so a restart inside it
+    (a crash, a stop and start, a watchdog restart) goes on from the first
+    unfinished stage instead of repeating the earlier ones.
+
+    Kept on the programme record, which each stage already saves. A stage is
+    listed only after every review group it serves and its inventory step
+    finished. Only the same open round run by the same code can reuse it;
+    anything else (another round, changed code, an unreadable or malformed
+    record) starts the round's list afresh, so every stage runs again.
+    Skipping a finished stage does exactly what the uninterrupted round did:
+    the stages after it read the saved results it left. ``None`` outside a
+    work round (the older whole-programme advance keeps every stage).
+
+    ``starts`` counts every start, so a stage run again after a restart never
+    saves a programme record identical to an earlier one (saved records are
+    named by their value: an identical later save would read as a replay).
+    """
+    if turn is None:
+        return None
+    from .operations import code_version
+    version, complete = code_version()
+    saved = record.get("round_progress")
+    earlier = saved.get("starts") if isinstance(saved, dict) else None
+    fresh = {"version": ROUND_PROGRESS_VERSION, "turn_id": turn["id"], "code_version": version,
+             "starts": earlier + 1 if type(earlier) is int and earlier >= 1 else 1,
+             "finished_stages": [], "discovery_lane": None}
+    lane = saved.get("discovery_lane") if isinstance(saved, dict) else None
+    if (not complete or not isinstance(saved, dict) or set(saved) != set(fresh)
+            or saved["version"] != ROUND_PROGRESS_VERSION or saved["turn_id"] != turn["id"]
+            or saved["code_version"] != version or not isinstance(saved["finished_stages"], list)
+            or any(stage not in STAGES for stage in saved["finished_stages"])
+            or len(set(saved["finished_stages"])) != len(saved["finished_stages"])
+            or lane is not None and (not isinstance(lane, dict)
+                                     or set(lane) != {"discovery_attempted", "platforms_attempted"}
+                                     or any(type(value) is not bool for value in lane.values()))):
+        return fresh
+    return dict(deepcopy(saved), starts=fresh["starts"])
+
+
+def group_progress(position, count):
+    """The activity fields that show "Review group 5 of 16" while a step
+    serves several review groups in turn (nothing for a single group)."""
+    return {"group_position": position, "group_count": count} if count > 1 else {}
+
+
 def _observe(record, context, **values):
     # The runner is also used by smaller saved-work helpers. Diagnostics must
     # not make their optional whole-programme fields a new execution gate.
@@ -1750,19 +1928,23 @@ def _match(memory, record, context):
     from .source_interpretation import _questions, review_source_results
     from .work_turns import active_work_turn
     aliases, definitions, examples, catalogue_scopes = None, None, None, None
-    state = memory.snapshot()
+    # A full copy of the research state is costly (seconds on the live store):
+    # every review below shares one, read again only after something was saved.
+    read = UnchangedSnapshot(memory)
+    state = read()
     turn = active_work_turn(memory, state=state)
 
     def review_sources():
         # Rebuild at the actual execution boundary: on B-first rounds a new
         # accepted meaning may have introduced a genuine source question.
-        questions = _questions(memory.snapshot(), run_id=record["source_run_id"], as_of=context["at"])
+        questions = _questions(read(), run_id=record["source_run_id"], as_of=context["at"])
         bindings = {(row["task_id"], row["concept_id"]): digest(row) for row in questions}
         skip = [pair for pair, binding in bindings.items()
                 if not _due(record, "match", ":".join(pair), binding, context["at"])]
         result = review_source_results(memory, context["runner"], run_id=record["source_run_id"],
                                       limit=context["match_limit"], as_of=context["at"], skip_targets=skip,
-                                      priority_concept_ids=context.get("priority_concept_ids", {}).get("match", []))
+                                      priority_concept_ids=context.get("priority_concept_ids", {}).get("match", []),
+                                      read_state=read)
         for row in result["outcomes"]:
             target = row["task_id"] + ":" + row["concept_id"]
             if row["state"] == "waiting":
@@ -1786,7 +1968,7 @@ def _match(memory, record, context):
     if source_first:
         # E may have consumed the final model slot or applied an original
         # answer. B preparation must see those exact current owners/counters.
-        state = memory.snapshot()
+        state = read()
     if turn is not None:
         from .functional_definition_review import MODE as DEFINITION_MODE, review_functional_definitions
         from .research_records import iter_functional_definitions
@@ -1805,7 +1987,7 @@ def _match(memory, record, context):
                 definitions = review_functional_definitions(memory, definition_ids, context["runner"],
                     as_of=context["at"], limit=min(5, context["match_limit"]),
                     skip_concept_bindings=skipped_definitions, retry_seconds=context["retry_seconds"],
-                    retry_not_before=(record.get("model_pause") or {}).get("next_retry_at"))
+                    retry_not_before=(record.get("model_pause") or {}).get("next_retry_at"), read_state=read)
             else:
                 definitions = {"accepted": {}, "failures": {}, "bindings": {}}
         except SafetyError as error:
@@ -1821,7 +2003,7 @@ def _match(memory, record, context):
         for cid in definitions["accepted"]:
             _clear(record, "functional_definition", cid)
         from .functional_example_review import MODE as EXAMPLE_MODE, review_functional_examples
-        example_ids, example_wait = _model_preparation_scope(memory, memory.snapshot(),
+        example_ids, example_wait = _model_preparation_scope(memory, read(),
             [cid for cid in record["concept_ids"] if cid in definitions["accepted"]],
             purpose="B", role="B", modes={EXAMPLE_MODE})
         skipped_examples = {row["target"]: row["binding"] for row in record["deferrals"].values()
@@ -1833,7 +2015,7 @@ def _match(memory, record, context):
                 examples = review_functional_examples(memory, example_ids, context["runner"],
                     as_of=context["at"], limit=min(5, context["match_limit"]), skip_concept_bindings=skipped_examples,
                     retry_seconds=context["retry_seconds"],
-                    retry_not_before=(record.get("model_pause") or {}).get("next_retry_at"))
+                    retry_not_before=(record.get("model_pause") or {}).get("next_retry_at"), read_state=read)
             else:
                 examples = {"accepted": {}, "failures": {}, "bindings": {}}
         except (SafetyError, OSError) as error:
@@ -1855,7 +2037,7 @@ def _match(memory, record, context):
             # after that definition exists, once for the actual combined pool,
             # rather than repeating the same review in every follow-on lane.
             scope_ids = sorted({cid for scope in _review_scopes(record) for cid in scope["concept_ids"]})
-            scope_ids, scope_wait = _model_preparation_scope(memory, memory.snapshot(), scope_ids,
+            scope_ids, scope_wait = _model_preparation_scope(memory, read(), scope_ids,
                 purpose="B", role="B", modes={SCOPE_MODE})
             skipped_scopes = {row["target"]: row["binding"] for row in record["deferrals"].values()
                 if row["stage"] == "catalogue_scope" and isinstance(row["binding"], str)
@@ -1866,7 +2048,7 @@ def _match(memory, record, context):
                         catalogue=context.get("discovery_catalogue"), concept_ids=scope_ids,
                         as_of=context["at"], limit=min(5, context["match_limit"]), skip_bindings=skipped_scopes,
                         retry_seconds=context["retry_seconds"],
-                        retry_not_before=(record.get("model_pause") or {}).get("next_retry_at"))
+                        retry_not_before=(record.get("model_pause") or {}).get("next_retry_at"), read_state=read)
                 else:
                     catalogue_scopes = {"outcomes": [], "waiting": {}, "bindings": {}}
             except (SafetyError, OSError) as error:
@@ -1890,7 +2072,7 @@ def _match(memory, record, context):
         from .functional_alias_review import MODE as ALIAS_MODE, match_functional_aliases
         # Exact equal-meaning joins need no model. Keep those deterministic
         # targets as well as every possible original semantic-review owner.
-        alias_state = memory.snapshot()
+        alias_state = read()
         meaning_groups = {}
         for _, row in iter_functional_definitions(alias_state):
             meaning_groups.setdefault(row.get("meaning_hash"), set()).add(row.get("concept_id"))
@@ -1906,7 +2088,7 @@ def _match(memory, record, context):
                 aliases = match_functional_aliases(memory, alias_ids, context["runner"],
                     reviewed_at=context["at"], limit=context["match_limit"], skip_group_bindings=skip_aliases,
                     retry_seconds=context["retry_seconds"],
-                    retry_not_before=(record.get("model_pause") or {}).get("next_retry_at"))
+                    retry_not_before=(record.get("model_pause") or {}).get("next_retry_at"), read_state=read)
             else:
                 aliases = {"outcomes": [], "failures": {}}
         except SafetyError as error:
@@ -3166,7 +3348,7 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
                           "supplier_options": {"respect_access_waits": True, "shared_acquisitions": True}} if shared_mode else {}
         handlers = installed_source_handlers(memory, **shared_options)
     record = load_programme(memory, programme_id)
-    cache = {"canonical": memory.snapshot()["batch_runs"].get(key("programme", programme_id))}
+    cache = _save_cache(memory, programme_id)
     record["setup_failures"] = deepcopy(setup_failures or {})
     if record["setup_failures"].get("model"):
         at = as_of or clock(); timestamp(at)
@@ -3209,6 +3391,10 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
         execution_order["visited_stages"] = []
         execution_order["discovery_attempted"] = False
         execution_order["platforms_attempted"] = False
+        # A restart inside the same open round continues after what it finished.
+        resumed = _round_progress(record, active_turn)
+        if resumed is not None:
+            record["round_progress"] = resumed
         context["priority_concept_ids"] = execution_order["priority_concept_ids"]
         context["discovery_position"] = execution_order["discovery_position"]  # wider discovery's IndiaMART yield (W8)
         # Use the existing privacy-filtered recording vocabulary so this
@@ -3250,15 +3436,25 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
             _observe(record, context, phase_state="finished", result=deepcopy(platforms), control_save=last_save)
 
         def run_discovery_lane():
+            nonlocal last_save
             # Heading searches, the platforms, wider discovery and the product map
             # (the last two inside the discovery step) take turns at the first use
             # of the held share, one round each; the platforms never wait on discovery.
+            if resumed is not None and resumed["discovery_lane"] is not None:
+                execution_order.update(resumed["discovery_lane"])
+                record_event("round_step_already_finished", stage="discovery", programme_id=record["programme_id"],
+                             turn_id=resumed["turn_id"])
+                return
             first = record["cycles"] % 4
             context["wider_first"] = first == 2
             context["map_first"] = first == 3
             for lane in ((run_platforms, run_discovery) if first == 1 else (run_discovery, run_platforms)):
                 if not owner_paused:
                     lane()
+            if resumed is not None and not owner_paused:
+                resumed["discovery_lane"] = {name: execution_order[name]
+                                             for name in ("discovery_attempted", "platforms_attempted")}
+                last_save = _save(memory, record, cache=cache)
 
         def run_discovery():
             nonlocal last_save, owner_paused
@@ -3291,6 +3487,7 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
         # shared by Meta discovery and the platforms' candidate admission.
         hold_for_discovery(memory, DISCOVERY_RESERVED_EXECUTIONS if (
             active_turn is not None and execution_order["report_supply_short"]
+            and (resumed is None or resumed["discovery_lane"] is None)
             and (platform_step is not None or discovery_step is not None
                  and _due(record, "lane", "discovery", before, context["at"]))) else 0)
         if execution_order["discovery_position"] == "before":
@@ -3299,6 +3496,14 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
             if not programme_service_state(memory)["enabled"]:
                 owner_paused = True; record["tick_state"] = "owner_paused"; break
             execution_order["visited_stages"].append(stage)
+            if resumed is not None and stage in resumed["finished_stages"]:
+                # Finished and saved earlier in this same round: not repeated.
+                record_event("round_step_already_finished", stage=stage, programme_id=record["programme_id"],
+                             turn_id=resumed["turn_id"])
+                if execution_order["discovery_after_stage"] == stage and not owner_paused:
+                    context["at"] = as_of or clock(); timestamp(context["at"])
+                    run_discovery_lane()
+                continue
             inventory_first = active_turn is not None and active_turn["programme_turn_sequence"] % 2 == 0
             if inventory_first:
                 context["stage"] = stage
@@ -3311,6 +3516,8 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
             if priority and stage != "acquire":
                 scopes.sort(key=lambda scope: not bool(priority.intersection(scope["concept_ids"])))
             source_used, callback_counts, fresh_counts = 0, [], []
+            # Groups in serving order (the source pass may visit the original twice).
+            group_order = list(dict.fromkeys(scope["programme_id"] for scope in scopes))
             acquisition_results, acquisition_limits, served_sources = {}, {}, []
             for scope_index, scope in enumerate(scopes):
                 if not programme_service_state(memory)["enabled"]:
@@ -3351,7 +3558,8 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
                 _observe(record, context, phase_state="started", frozen_products=len(scope["concept_ids"]),
                          maximum_group_size=context.get({"profiles": "profile_limit", "fit": "fit_limit",
                              "acquire": "source_limit", "match": "match_limit", "suppliers": "supplier_limit",
-                             "photos": "photo_limit"}.get(stage, "")))
+                             "photos": "photo_limit"}.get(stage, "")),
+                         **group_progress(group_order.index(scope["programme_id"]) + 1, len(group_order)))
                 try:
                     result = functions[stage](memory, scope, context)
                     if not isinstance(result, dict):
@@ -3421,6 +3629,9 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
                     "fresh_dispatches": fresh,
                     "callbacks_without_new_dispatch": callbacks - fresh if callbacks is not None and fresh is not None else None,
                     "selected_scope_ids": served_sources}
+                last_save = _save(memory, record, cache=cache)
+            if resumed is not None and not owner_paused:
+                resumed["finished_stages"].append(stage)
                 last_save = _save(memory, record, cache=cache)
             if execution_order["discovery_after_stage"] == stage and not owner_paused:
                 context["at"] = as_of or clock(); timestamp(context["at"])
@@ -4607,7 +4818,7 @@ def _programme_turn_readiness(memory, record, *, root, handlers=None, runner=Non
         # Throttled "still working" note per review scope: a real hang (no
         # events at all) stays distinguishable from a slow, healthy check.
         record_heartbeat("readiness_progress", programme_id=record["programme_id"], checkpoint="checking_review_scopes",
-                         review_scope_id=scope["programme_id"],
+                         review_scope_id=scope["programme_id"], **group_progress(checked, len(review_scopes)),
                          counts={"review_scopes_checked": checked - 1, "review_scopes_total": len(review_scopes)})
         skipped_definitions = {row["target"]: row["binding"] for row in scope["deferrals"].values()
             if row["stage"] == "functional_definition" and isinstance(row["binding"], str)
@@ -4913,8 +5124,7 @@ def _due_programme_locked(memory, *, as_of=None, client_id="default",
     # turn/dispatch admission retain their own fresh checks. Default callers
     # obtain a fresh read, never an unverified persistent cache.
     selection_state = memory.snapshot() if state is None else state
-    records = [row for row in selection_state["batch_runs"].values()
-               if row.get("kind") == VERSION and row.get("client_id") == client_id]
+    records = programme_records(selection_state, client_id=client_id)
     # Include a checkpoint whose first canonical commit was locally busy.
     for path in safe_path(memory.root, "programme_runs").glob("programme-*/pending-control.json"):
         staged = load_json(path, 8 * 1024 * 1024)
@@ -5034,7 +5244,7 @@ def _meter_inputs(memory, *, as_of, failures, state=None):
     source = SimpleNamespace(snapshot=lambda: state, evidence_type=memory.evidence_type)
     pool = _summary_input(lambda: build_report_pool(source, as_of=as_of, fit_policy_id=FIT_POLICY_ID,
                           recommendation_contract=RECOMMENDATION_CONTRACT), failures, "report_pool")
-    programmes = [row for row in state["batch_runs"].values() if row.get("kind") == VERSION]
+    programmes = programme_records(state)
     return state, pool, programmes, RECOMMENDATION_CONTRACT
 
 
@@ -5104,5 +5314,13 @@ def programme_meter(memory, *, root, as_of=None):
                                    if pool is not None and state is not None else None)
     from .dropship_platforms import platform_lines
     result["platforms"] = _summary_input(lambda: platform_lines(memory.root), failures, "platforms")
+    # One plain line only when backup or store tidying is stuck (else None).
+    from .store_housekeeping import housekeeping_line
+    result["housekeeping"] = _summary_input(lambda: housekeeping_line(root), failures, "housekeeping")
+    from .catalogue import load_catalogue
+    from .product_map import runway_line
+    # The product map's runway (headings never searched, recent pace) from the same verified snapshot.
+    result["product_map"] = (_summary_input(lambda: runway_line(load_catalogue(), state, at), failures, "product_map")
+                             if state is not None else None)
     result["optional_input_failures"] = failures
     return result

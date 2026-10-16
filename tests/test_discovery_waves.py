@@ -1,5 +1,6 @@
 """Renewable independent discovery through installed synthetic source leaves."""
 
+import sys
 from copy import deepcopy
 from pathlib import Path
 import tempfile
@@ -25,6 +26,11 @@ import test_programme as programme_fixtures
 
 NOW = "2026-10-09T10:00:00+00:00"
 LATER = "2026-10-17T10:00:00+00:00"
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import frozen_research_config  # noqa: E402
+# Exact expectations use the r10 settings these tests were written against, not the growing live map.
+setUpModule, tearDownModule = frozen_research_config.module_fixtures()
 
 
 def catalogue(count=1):

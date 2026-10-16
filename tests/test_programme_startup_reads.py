@@ -84,7 +84,7 @@ class ProgrammeStartupReadTests(unittest.TestCase):
         self.assertEqual(snapshots.call_count, 1)
 
     def test_supplied_state_recovers_a_staged_only_busy_checkpoint(self):
-        with patch.object(self.memory, "put", side_effect=SafetyError("RUNNER_ALREADY_ACTIVE")):
+        with fixtures.busy_programme_saves(self.memory):
             staged = programme.prepare_programme(self.memory, "staged-only", as_of=self.now)
         self.open_original("staged-only")
         state = self.memory.snapshot_with_provenance()
@@ -106,9 +106,7 @@ class ProgrammeStartupReadTests(unittest.TestCase):
                 self.select(state=state)
 
     def test_supplied_state_retains_conflicting_canonical_control_refusal(self):
-        record_id = key("programme", "whole-programme")
-        changed = dict(self.record, cycles=900)
-        self.memory.put("batch_runs", record_id, changed, previous=self.record)
+        fixtures.conflicting_canonical(self.memory, "whole-programme", cycles=900)
         state = self.memory.snapshot_with_provenance()
         with patch.object(self.memory, "snapshot", side_effect=AssertionError("Conflict check nested read")):
             with self.assertRaisesRegex(SafetyError, "PROGRAMME_CONTROL_CONFLICT"):
@@ -168,7 +166,7 @@ class ProgrammeStartupReadTests(unittest.TestCase):
         record_id = key("programme", "whole-programme")
         def warm_then_conflict(memory):
             state = real_warm(memory)
-            memory.put("batch_runs", record_id, dict(self.record, cycles=900), previous=self.record)
+            fixtures.conflicting_canonical(memory, "whole-programme", cycles=900)
             return state
         reached = []
         steps = {stage: (lambda *_args, stage=stage: reached.append(stage)) for stage in programme.STAGES}

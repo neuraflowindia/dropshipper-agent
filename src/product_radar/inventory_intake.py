@@ -154,9 +154,9 @@ def reporting_intake_concept_ids(state, record, *, pool=None):
 
 
 def _origins(state):
-    from .programme import VERSION, _binding, _review_scopes
+    from .programme import _binding, _review_scopes, programme_records
     result = {}
-    programmes = [row for row in state["batch_runs"].values() if row.get("kind") == VERSION]
+    programmes = programme_records(state)
     for programme in sorted(programmes, key=lambda row: (row["created_at"], row["programme_id"])):
         for scope in _review_scopes(programme):
             origin = {"programme_id": programme["programme_id"], "scope_id": scope["programme_id"],
@@ -177,7 +177,9 @@ def _changed_subjects(state, item):
     if table == "batch_runs":
         # Programme counters/checkpoints and our own projections are not
         # research changes. A newly frozen scope does establish real owners.
-        if any(row.get("kind") in _LOCAL_KINDS for row in rows):
+        # A programme's group and clock rows are its saved checkpoint pieces.
+        from .programme import CLOCK_KIND, FOLLOW_ON_KIND
+        if any(row.get("kind") in _LOCAL_KINDS | {CLOCK_KIND, FOLLOW_ON_KIND} for row in rows):
             return []
         def scope_ids(row):
             if row.get("kind") != "research-programme-v1":
@@ -442,8 +444,11 @@ def refresh_inventory_intake(memory, record, *, as_of, pool=None, subject_limit=
                             "original_acquisition_id": task.get("acquisition_id"), "expired_support_refs": [],
                             "refresh_due_at": None, "refresh_reason": None}
                     else:
+                        # A deleted route's question is closed history, not a
+                        # check this product had: it never counts as checked.
                         checked = [task for task in state["query_tasks"].values()
                             if task.get("kind") == "all_source_task_v1" and cid in task.get("targets", {})
+                            and task.get("route") not in CLOSED_ROUTES and task.get("status") != "retired"
                             and (task.get("source") == "supplier") == (purpose == "supplier")]
                         if purpose == "source" and checked and not questions:
                             # A completed negative/neutral/empty answer can

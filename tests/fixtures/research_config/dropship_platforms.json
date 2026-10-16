@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "kind": "dropship-platforms-v2",
+  "platforms": {
+    "deodap": {
+      "transport": "shopify-feed",
+      "base_url": "https://deodap.in",
+      "requests_per_round": 6,
+      "full_refresh_days": 7,
+      "list_refresh_hours": 24,
+      "page_size": 250,
+      "raw_retention_days": 8,
+      "price_basis": "Wholesale price on DeoDap's public catalogue (no minimum order stated on the site).",
+      "stated_terms": "DeoDap states No MOQ wholesale and offers dropshipping plans; plan prices are not published.",
+      "terms_url": "https://deodap.in/",
+      "lists": [
+        {"role": "bestseller", "handles": ["best-selling-products", "home-essentials-bestselling", "most-bought-this-month"], "pattern": null, "max_pages": 2},
+        {"role": "new_arrival", "handles": ["just-arrived"], "pattern": null, "max_pages": 1},
+        {"role": "state_bestseller", "handles": [], "pattern": "^[a-z0-9-]+-best-selling$", "max_pages": 1}
+      ]
+    },
+    "baapstore": {
+      "transport": "shopify-feed",
+      "base_url": "https://baapstore.com",
+      "requests_per_round": 6,
+      "full_refresh_days": 7,
+      "list_refresh_hours": 24,
+      "page_size": 250,
+      "raw_retention_days": 8,
+      "price_basis": "Reseller price on BaapStore's public catalogue.",
+      "stated_terms": "BaapStore sells a paid dropshipping membership: its site states a Self-Serve plan from INR 9,999 and elsewhere INR 25,000 (seen 14 October 2026).",
+      "terms_url": "https://baapstore.com/",
+      "lists": [
+        {"role": "trending", "handles": ["trending-products"], "pattern": null, "max_pages": 1}
+      ]
+    },
+    "dropdash": {
+      "transport": "signed-in-browser",
+      "base_url": "https://app.dropdash.co",
+      "requests_per_round": 1,
+      "full_refresh_days": 7,
+      "list_refresh_hours": 24,
+      "raw_retention_days": 21,
+      "price_basis": "Dropship price shown to the signed-in research account.",
+      "stated_terms": null,
+      "terms_url": null,
+      "product_path": "^https://app\\.dropdash\\.co/(?:product|products)/[A-Za-z0-9._~%-]+/?$",
+      "product_pages_per_day": 40,
+      "pages": [
+        {"role": "catalogue", "url": "https://app.dropdash.co/products", "max_pages": 5},
+        {"role": "winning", "url": "https://app.dropdash.co/winning-products", "max_pages": 2},
+        {"role": "trending", "url": "https://app.dropdash.co/trending-products", "max_pages": 2}
+      ]
+    }
+  },
+  "refresh": {"seconds_per_round": 150},
+  "matching": {"max_matches_per_type": 5, "min_coverage": "0.67", "max_terms": 6},
+  "discovery": {
+    "items_per_round": 5,
+    "daily_cap": 30,
+    "max_pending_captures": 2,
+    "settle_after_days": 3,
+    "categories": {
+      "Home and Kitchen": ["kitchen", "kitchenware", "cookware", "bakeware", "baking", "cooking", "utensil", "cutlery", "spatula", "ladle", "peeler", "grater", "chopper", "slicer", "knife", "chopping board", "lunch box", "tiffin", "water bottle", "flask", "container", "jar", "spice", "dish", "sink", "dishwashing", "mop", "broom", "cleaning", "scrubber", "dustbin", "laundry", "ironing", "kettle", "mixer", "blender", "juicer", "toaster", "sandwich maker", "induction", "oil dispenser", "storage box", "fridge"],
+      "Home and Decor": ["decor", "decoration", "decorative", "wall art", "wall hanging", "wall sticker", "photo frame", "vase", "lamp", "light", "lighting", "fairy light", "curtain", "cushion", "rug", "carpet", "doormat", "clock", "candle", "diya", "showpiece", "artificial flower", "artificial plant", "planter", "garden", "gardening", "balcony", "pot", "shelf", "rack", "hook", "organiser", "organizer", "hanger", "bathroom", "towel", "bedsheet", "pillow", "furniture", "table", "home"],
+      "Baby Products": ["baby", "infant", "newborn", "toddler", "kid", "kids", "child", "children", "diaper", "feeding bottle", "sipper", "teether", "nursery", "crib", "cradle", "stroller", "pram", "bib", "toy", "toys", "rattle", "puzzle", "school bag"],
+      "Travel and Outdoor": ["travel", "luggage", "suitcase", "trolley", "backpack", "duffel", "bag", "pouch", "toiletry", "passport", "neck pillow", "camping", "tent", "hiking", "trekking", "picnic", "outdoor", "umbrella", "raincoat", "torch", "flashlight", "cycle", "bicycle", "car", "bike", "sports", "yoga", "fitness", "gym"]
+    },
+    "exclude": ["jewellery", "jewelry", "earring", "necklace", "bracelet", "bangle", "anklet", "pendant", "mangalsutra", "cosmetic", "makeup", "make up", "beauty", "lipstick", "nail polish", "nail art", "perfume", "fragrance", "hair colour", "stationery", "pen", "pencil", "notebook", "diary", "highlighter", "saree", "sari", "kurta", "kurti", "lehenga", "dupatta", "blouse", "dress", "shirt", "t-shirt", "jeans", "leggings", "trouser", "clothing", "apparel", "fashion", "phone case", "phone cover", "mobile cover", "mobile case", "back cover", "screen guard", "screen protector", "tempered glass", "charger", "charging cable", "data cable", "earbuds", "earphone", "headphone", "smartwatch strap", "pet", "dog", "puppy", "cat", "kitten", "aquarium", "fish tank", "litter box", "bird cage"]
+  }
+}

@@ -24,6 +24,8 @@ Each topic has one main home. Other documents link to it rather than repeat its 
 | Agreed programme after the owner's 14 October decisions (sources, crowding check, product map, spend watch): build state per package, the lead's build decisions and what waits for the ranking design | [Plan R10](project/plan-2026-10-14-speed-sources-and-selection.md) |
 | Indian dropshipping platforms (DeoDap, BaapStore, Dropdash; Dropship India dropped 15 October): research behind the built platform routes; paid search services set aside | [Platform research](research/sources/2026-10-14_dropshipping_platforms_and_search_services.md) |
 | Plain-language explanation of how the program works | [How it works](project/how-it-works.md) |
+| Proposed client-report redesign (plan, high-fidelity mock-ups and renders, waiting for owner approval; not built) | [Report redesign, 16 October](client-preview/design/report-redesign-2026-10-16/plan.md) |
+| Agreed programme of 16 October: second fresh start, year-long product map, long-run durability | [Plan R11](project/plan-2026-10-16-fresh-start-and-year-long-research.md) |
 
 ## Scope and precedence
 

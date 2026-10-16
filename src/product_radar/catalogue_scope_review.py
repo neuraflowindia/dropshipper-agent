@@ -339,8 +339,13 @@ class _SavedScopeRunner:
 
 def review_discovery_catalogue_scopes(memory, runner=None, *, catalogue=None, concept_ids=None,
                                      as_of=None, limit=MAX_ITEMS, skip_bindings=None,
-                                     retry_seconds=300, retry_not_before=None):
-    """Bounded B purpose work and exact original scope application, no new source calls."""
+                                     retry_seconds=300, retry_not_before=None, read_state=None):
+    """Bounded B purpose work and exact original scope application, no new source calls.
+
+    ``read_state`` (optional) returns the current research state; a caller
+    may pass one that keeps its copy until something is saved.
+    """
+    read = read_state or memory.snapshot
     from .catalogue import load_catalogue
     from .research_ai import current_attempt
     from .model_recovery import run_current_model_job
@@ -349,15 +354,15 @@ def review_discovery_catalogue_scopes(memory, runner=None, *, catalogue=None, co
     at = as_of or utc_now()
     hint = catalogue_scope_readiness(memory, catalogue=catalogue, concept_ids=concept_ids, as_of=at,
         limit=limit, runner_available=runner is not None, skip_bindings=skip_bindings,
-        retry_seconds=retry_seconds, retry_not_before=retry_not_before)
+        retry_seconds=retry_seconds, retry_not_before=retry_not_before, state=read())
     outcomes, originals, novel = [], {}, []
     for pending in hint["pending"]:
         if pending["owner"]: originals.setdefault(pending["owner"], []).append(pending)
         else: novel.append(pending)
     results, failures = {}, dict(hint["waiting"])
-    state = memory.snapshot(); launched = False
+    state = read(); launched = False
     for owner, pending in originals.items():
-        request = state["jobs"][owner]["request"]; folder = current_attempt(safe_path(memory.root, "ai_jobs", owner))
+        request = deepcopy(state["jobs"][owner]["request"]); folder = current_attempt(safe_path(memory.root, "ai_jobs", owner))
         selected_runner = _SavedScopeRunner(request["runner"])
         retry = hint["retry_hints"].get(owner)
         if not any((folder / name).exists() for name in ("intent.json", "completion.json", "result.json", "runner_execution.json", "execution_failure.json", "failure.json")) or retry is not None and retry["ready"]:

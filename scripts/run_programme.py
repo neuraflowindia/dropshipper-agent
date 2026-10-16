@@ -30,7 +30,8 @@ from product_radar.storage import Journal, load_json
 def compact_progress(row):
     """Counts/states only: original research stays in its saved records."""
     compact = {name: row[name] for name in ("programme_id", "review_scope_id", "stage", "cycle", "phase_state",
-               "frozen_products", "maximum_group_size", "role", "supplied_items", "error_type") if name in row}
+               "frozen_products", "maximum_group_size", "group_position", "group_count", "role", "supplied_items",
+               "error_type") if name in row}
     for name in ("reason",):
         if isinstance(row.get(name), str):
             compact[name] = row[name][:160]

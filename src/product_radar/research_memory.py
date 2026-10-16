@@ -85,6 +85,9 @@ class ResearchMemory:
         # was measured at, and how much this instance's later events could
         # have shrunk it at most (replaced records). Speed only, never evidence.
         self._index_oversize = None
+        # The verified state at a published checkpoint's event count, kept
+        # from one cold replay for that same call's checkpoint check only.
+        self._replay_capture = None
 
     @contextmanager
     def defer_lookup_projection(self, *, flush_if=None):
@@ -172,18 +175,32 @@ class ResearchMemory:
 
     def _state(self, *, readonly=False, copy_state=True):
         with self._cache_lock:
-            result = self._replay_state(readonly=readonly, copy_state=copy_state)
-            from .research_segments import check
-            # This exact manifest has just been enumerated and verified by
-            # replay under our cache lock. The checkpoint reader can compare
-            # its original-event fingerprints with that same read, rather
-            # than lstat every original a second time. Derived object files
-            # still get fresh checks; every later read/commit rescans events.
-            check(self, result[0], result[1], result[2],
-                  _verified_manifest=self._verified["manifest"])
-            return result
+            from .research_segments import check, prefix_target
+            # A cold check of an older checkpoint needs the verified state at
+            # that checkpoint's event count. Keep it from this one replay
+            # instead of replaying the whole history a second time.
+            try:
+                result = self._replay_state(readonly=readonly, copy_state=copy_state,
+                                            capture_at=prefix_target(self) if self._verified is None else None)
+                # This exact manifest has just been enumerated and verified by
+                # replay under our cache lock. The checkpoint reader can compare
+                # its original-event fingerprints with that same read, rather
+                # than lstat every original a second time. Derived object files
+                # still get fresh checks; every later read/commit rescans events.
+                check(self, result[0], result[1], result[2],
+                      _verified_manifest=self._verified["manifest"])
+                return result
+            finally:
+                self._replay_capture = None
 
-    def _replay_state(self, *, readonly=False, copy_state=True):
+    def _replay_state(self, *, readonly=False, copy_state=True, capture_at=None):
+        """Verified state from the original events (only new ones when warm).
+
+        ``capture_at``: on a full (cold) replay that passes this event count
+        before its end, also keep a copy of the state, head and event proofs
+        at that count in ``_replay_capture`` for the checkpoint check. It is
+        the same verified read, never another source of authority.
+        """
         if not readonly:
             self.journal._require_lock()
         events = safe_path(self.root, "events")
@@ -222,6 +239,11 @@ class ResearchMemory:
             state = {table: {} for table in TABLES}
             head, sequence, event_ids = "0" * 64, 0, {}
             pending = manifest
+        # Only a full replay sees every event's own proof; the checkpoint at
+        # the final count needs no copy (its check uses this state directly).
+        capture = (capture_at if not prefix_unchanged and type(capture_at) is int
+                   and 0 < capture_at < len(manifest) else None)
+        proofs = {} if capture is not None else None
         for path, fingerprint in pending:
             event = load_event(path, EVENT_LIMIT)
             try:
@@ -241,6 +263,12 @@ class ResearchMemory:
                 raise SafetyError("RESEARCH_EVENTS_INVALID") from None
             if self._fingerprint(path) != fingerprint:
                 raise SafetyError("RESEARCH_EVENTS_INVALID")
+            if proofs is not None:
+                proofs[event["id"]] = {"sequence": sequence, "event_hash": head, "changes_hash": event_ids[event["id"]]}
+                if sequence == capture:
+                    self._replay_capture = {"sequence": sequence, "head": head, "state": deepcopy(state),
+                        "ids": proofs, "evidence_type": self.evidence_type, "manifest": manifest[:sequence]}
+                    proofs = None
         # A valid shorter chain is still a rollback relative to this instance's
         # verified history. A fresh process has no independent tail checkpoint;
         # this cache does not claim to detect a valid rollback after restart.
@@ -285,6 +313,18 @@ class ResearchMemory:
                 # retry malformed, changed or untrusted event contents.
                 if str(error) != "SAVED_FILE_UNAVAILABLE" or attempt == 2:
                     raise
+
+    def verified_sequence(self):
+        """How many saved events this instance has verified, its own saves
+        included, read without touching any file (``None`` before a read)."""
+        with self._cache_lock:
+            return None if self._verified is None else self._verified["sequence"]
+
+    def verified_position(self):
+        """``(event count, head)`` this instance has verified, read together
+        without touching any file (``None`` before a read or after a lost one)."""
+        with self._cache_lock:
+            return None if self._verified is None else (self._verified["sequence"], self._verified["head"])
 
     def snapshot_with_provenance(self):
         """Read the same verified prefix and its exact head without any write.
@@ -361,7 +401,15 @@ class ResearchMemory:
             # Update verified memory immediately after the authoritative event
             # write, before the optional index. A failed index write cannot
             # erase committed data or cause the next read to replay old files.
-            self._verified = {"manifest": self._verified["manifest"] + ((event_path, self._fingerprint(event_path)),),
+            try:
+                fingerprint = self._fingerprint(event_path)
+            except SafetyError:
+                # The event is saved but this instance could not check its
+                # file: forget the verified copy, so no reader keeps an older
+                # copy as current; the next read verifies from the files.
+                self._verified = None
+                raise
+            self._verified = {"manifest": self._verified["manifest"] + ((event_path, fingerprint),),
                               "state": deepcopy(state), "head": event["hash"],
                               "sequence": sequence + 1, "ids": dict(ids), "evidence_type": self.evidence_type}
             self._index_oversize = oversize if oversize is not None and oversize["sequence"] == sequence + 1 else None
@@ -443,6 +491,36 @@ class ResearchMemory:
     def put(self, table, record_id, value, *, previous=None, event_id=None):
         return self.commit(event_id or key("put", [table, record_id, value]),
                            [change(table, record_id, value, previous)])
+
+
+class UnchangedSnapshot:
+    """One full copy of the research state, read again only after something
+    was saved since it was read (a full copy is costly: seconds on a large
+    store). A save by another process is taken in by this process's next read
+    or save, as any earlier snapshot would be. It is a read, never authority:
+    every save still checks its exact dependencies under the writer lock.
+    Callers only read the copy; it is shared between them, never changed.
+    """
+
+    def __init__(self, memory, provenance=None):
+        """``provenance``: an earlier ``snapshot_with_provenance()`` read of this
+        same memory, used until something is saved after it (optional)."""
+        self.memory, self.state, self.position = memory, None, None
+        if provenance is not None:
+            if (not isinstance(provenance, dict) or not isinstance(provenance.get("state"), dict)
+                    or provenance.get("evidence_type") != memory.evidence_type
+                    or type(provenance.get("event_count")) is not int or not isinstance(provenance.get("head"), str)):
+                raise SafetyError("RESEARCH_SNAPSHOT_PROVENANCE_INVALID")
+            self.state, self.position = provenance["state"], (provenance["event_count"], provenance["head"])
+
+    def __call__(self):
+        # The position and head are compared together; the copy and its
+        # position come from one read, so a save in between is never missed.
+        position = self.memory.verified_position()
+        if self.state is None or position is None or position != self.position:
+            read = self.memory.snapshot_with_provenance()
+            self.state, self.position = read["state"], (read["event_count"], read["head"])
+        return self.state
 
 
 def change(table, record_id, value, previous=None):

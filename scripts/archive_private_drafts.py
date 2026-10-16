@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from product_radar.issue_allocation import ACTIVE_STATES, cancel_unpublished_issues, draft_ordinal
 from product_radar.models import SafetyError, digest, identifier, utc_now
-from product_radar.programme import VERSION, _binding, release_slots, research_week
+from product_radar.programme import _binding, programme_records, release_slots, research_week
 from product_radar.research_memory import ResearchMemory
 from product_radar.service import load_policy
 from product_radar.runtime_storage import runtime_path, runtime_root
@@ -115,8 +115,7 @@ def _programmes(state, client_id):
     staged checkpoint from a live writer must not be joined to an older read
     (load_programme rightly refuses that), and is not needed to project dates.
     """
-    rows = [deepcopy(row) for row in state["batch_runs"].values()
-            if row.get("kind") == VERSION and row.get("client_id") == client_id]
+    rows = [deepcopy(row) for row in programme_records(state, client_id=client_id)]
     for row in rows:
         _binding(row)
     return sorted(rows, key=lambda row: row["programme_id"])

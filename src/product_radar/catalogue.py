@@ -10,7 +10,9 @@ from .service import CATEGORIES
 from .storage import load_json
 
 DEFAULT_PATH = Path(__file__).resolve().parents[2] / "config" / "research" / "catalogue.json"
-CATALOGUE_LIMIT = 4 * 1024 * 1024
+# About 2.7 KB a heading with indent=1: room for roughly 6,000 headings. The
+# daily backup reads public settings files up to 64 MB, so this is the binding bound.
+CATALOGUE_LIMIT = 16 * 1024 * 1024
 
 
 def _text(value):
@@ -113,8 +115,10 @@ def validate_catalogue(catalogue):
         raise SafetyError("CATALOGUE_RECORD_INVALID") from None
 
 
-def load_catalogue(path=DEFAULT_PATH):
-    return validate_catalogue(load_json(path, CATALOGUE_LIMIT))
+def load_catalogue(path=None):
+    """The saved catalogue (``DEFAULT_PATH`` is read when called, so tests can
+    point it at a frozen copy)."""
+    return validate_catalogue(load_json(DEFAULT_PATH if path is None else path, CATALOGUE_LIMIT))
 
 
 def alias_groups(catalogue):

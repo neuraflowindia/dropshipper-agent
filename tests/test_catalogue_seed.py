@@ -1,5 +1,6 @@
 """Seed C admission of staged product-map material. Fixtures only; no provider/model calls."""
 
+import sys
 from copy import deepcopy
 from pathlib import Path
 import tempfile
@@ -17,6 +18,11 @@ from product_radar.research_ai import Jobs, c_contract, prompt_version, validate
 from product_radar.research_memory import ResearchMemory
 from product_radar.storage import Journal, atomic_json, load_json
 from product_radar.work_turns import bind_work_turn, open_work_turn
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import frozen_research_config  # noqa: E402
+# Exact expectations use the r10 settings these tests were written against, not the growing live map.
+setUpModule, tearDownModule = frozen_research_config.module_fixtures()
 
 
 def public_receipt(text="Magnetic pan lid rack. Collapsible drying basket."):

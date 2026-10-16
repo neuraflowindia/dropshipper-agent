@@ -20,6 +20,11 @@ from product_radar.service import CATEGORIES
 
 AT = "2026-10-15T06:00:00+00:00"
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import frozen_research_config  # noqa: E402
+# Exact expectations use the r10 settings these tests were written against, not the growing live map.
+setUpModule, tearDownModule = frozen_research_config.module_fixtures()
+
 
 def family(family_id, label, category="Home and Kitchen", parent="branch-a", phrases=()):
     return {"id": family_id, "label": label, "aliases": [], "category": category, "parent_id": parent,

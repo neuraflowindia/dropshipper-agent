@@ -733,6 +733,9 @@ def c_contract(payload, declared_version=None):
             raise SafetyError("AI_C_CONTRACT_INVALID")
         return {"version": seed_version, "schema": seed_schema(), "instructions": seed_instructions,
                 "mode": "catalogue_branch_seed"}
+    if payload.get("mode") == "catalogue_topup":
+        from .map_topup import contract as topup_contract
+        return topup_contract(declared_version)
     if payload.get("mode") is not None or declared_version not in (None, CATALOGUE_PROMPT_VERSION):
         raise SafetyError("AI_C_CONTRACT_INVALID")
     return {"version": CATALOGUE_PROMPT_VERSION, "schema": SCHEMAS["C"],
@@ -1138,6 +1141,9 @@ def validate_results(role, payload, response, *, declared_version=None):
                 elif payload.get("mode") == "catalogue_branch_seed":
                     from .catalogue_seed import validate_seed_result
                     value = validate_seed_result(expected[item_id], value)
+                elif payload.get("mode") == "catalogue_topup":
+                    from .map_topup import validate_topup_result
+                    value = validate_topup_result(expected[item_id], value)
                 else:
                     from .catalogue_expansion import validate_proposal
                     value = validate_proposal(expected[item_id], value)
@@ -1289,6 +1295,9 @@ class Jobs:
             elif mode == "catalogue_branch_seed":
                 from .catalogue_seed import validate_seed_input
                 validate_seed_input(payload)
+            elif mode == "catalogue_topup":
+                from .map_topup import validate_topup_input
+                validate_topup_input(payload)
             else:
                 from .catalogue_expansion import validate_expansion_input
                 validate_expansion_input(payload)
