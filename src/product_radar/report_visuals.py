@@ -181,14 +181,16 @@ def platform_view(score, context):
         row = {"route": route, "state": "not_checked", "roles": [], "price": None}
         platform = record["platforms"].get(route) if current is not None else None
         if platform is not None:
-            row["state"] = _PLATFORM_STATES.get(platform["state"], "not_checked")
+            # "Listed" is exactly what the score counted; any other state is the record's own.
+            row["state"] = ("listed" if route in listed else
+                            "delisted" if platform["state"] == "relevant" else _PLATFORM_STATES.get(platform["state"], "not_checked"))
             items = [item for item in platform["items"] if item["listed"]]
             roles = {role for item in items for role in item["roles"]}
             row["roles"] = [role for role in ROLE_ORDER if role in roles]
             prices = [Decimal(item["price"]) for item in items if isinstance(item.get("price"), str) and item["price"]]
             if row["state"] == "listed" and prices:
                 row["price"] = format(min(prices).normalize(), "f")
-        if (row["state"] == "listed") != (route in listed):
+        if route in listed and row["state"] != "listed":
             raise SafetyError("LIVE_REPORT_VISUAL_FACTS_CHANGED")
         view["rows"].append(row)
     if current is not None:
@@ -250,12 +252,15 @@ def qc_view(score, context, checks):
         return view
     if checks["as_of"] != context["as_of"]:
         raise SafetyError("LIVE_REPORT_VISUAL_FACTS_CHANGED")
+    from .marketplace_browser import verified_list_observation
     seen = {}
     dates = []
     for value in context["relevant"].values():
         location = value["facts"].get("location") if isinstance(value.get("facts"), dict) else None
         name = location.get("name") if isinstance(location, dict) else None
-        if value["source"] not in QC_APPS or not isinstance(name, str) or not name.strip(" \t\r\n\f\v"):
+        # The same listings the score's quick-commerce rows read (discovery.compute_market_signals).
+        if (value["source"] not in QC_APPS or not isinstance(name, str) or not name.strip(" \t\r\n\f\v")
+                or not (value["facts"].get("list_type") == "quickcommerce_context" or verified_list_observation(value))):
             continue
         cell = seen.setdefault((value["source"], name), set())
         cell.add(value["facts"].get("available") is True)

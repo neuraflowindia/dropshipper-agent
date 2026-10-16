@@ -488,3 +488,56 @@ class PageHelperTests(unittest.TestCase):
         ctx = {"words": self.words, "maxima": {"want": 10, "early": 10, "room": 10, "product": 70}, "footer": "x", "marker": None}
         html = pages.key_page(ctx)
         self.assertIn(">50</text>", html)  # half of every maximum, never more than a part allows
+
+
+class ContextViewTests(unittest.TestCase):
+    """Platform and quick-commerce views read the same records and rules as the score."""
+
+    def presence(self, at="2026-10-05T10:00:00+00:00", **states):
+        item = {"listed": True, "roles": {"bestseller": {}, "new_arrival": {}}, "price": "149.50"}
+        platforms = {route: {"state": state, "items": [item] if state == "relevant" else []} for route, state in states.items()}
+        return {"at": at, "platforms_carrying": [r for r, s in states.items() if s == "relevant"], "platforms": platforms}
+
+    def test_platform_rows_follow_the_score_and_the_record(self):
+        score = visuals.score_view(basis(listed={"deodap": ["item"]}))
+        record = self.presence(deodap="relevant", baapstore="relevant", dropdash="no_relevant_items_in_sample")
+        context = {"as_of": "2026-10-05T12:00:00+00:00", "presence": record}
+        with patch("product_radar.opportunity_score.presence_input", return_value={"listed": {"deodap": ["item"]}}):
+            view = visuals.platform_view(score, context)
+        self.assertEqual([row["state"] for row in view["rows"]], ["listed", "delisted", "not_found"])
+        self.assertEqual(view["rows"][0]["roles"], ["bestseller", "new_arrival"])
+        self.assertEqual(view["rows"][0]["price"], "149.5")
+        self.assertIsNone(view["rows"][1]["price"])
+        with patch("product_radar.opportunity_score.presence_input", return_value=None):
+            # A week-old record gave the score no platform points, so nothing is listed.
+            stale = visuals.platform_view(visuals.score_view(basis()), context)
+            with self.assertRaisesRegex(SafetyError, "LIVE_REPORT_VISUAL_FACTS_CHANGED"):
+                visuals.platform_view(score, context)
+        self.assertTrue(stale["stale"])
+        self.assertEqual({row["state"] for row in stale["rows"]}, {"not_checked"})
+        missing = visuals.platform_view(visuals.score_view(basis()), {"as_of": "2026-10-05T12:00:00+00:00", "presence": None})
+        self.assertEqual({row["state"] for row in missing["rows"]}, {"not_checked"})
+        self.assertFalse(missing["stale"])
+
+    def test_quick_commerce_matrix_reads_only_the_scores_listings(self):
+        def observation(source, place, available, list_type="quickcommerce_context"):
+            return {"source": source, "observed_at": "2026-10-04T10:00:00+00:00",
+                    "facts": {"location": {"name": place}, "available": available, "list_type": list_type}}
+        relevant = {"o1": observation("blinkit", "Mumbai", True), "o2": observation("zepto", "Mumbai", False),
+                    "o3": observation("instamart", "Pune", True, list_type="other"), "o4": observation("amazon", "Mumbai", True),
+                    "o5": observation("zepto", " ", True)}
+        checks = {"version": visuals.QC_CHECKS_VERSION, "as_of": "2026-10-05T10:00:00+00:00", "places": ["Mumbai", "Delhi NCR"],
+                  "answered": {"instamart": {"Delhi NCR": "2026-10-04T10:00:00+00:00"}}}
+        context = {"as_of": "2026-10-05T10:00:00+00:00", "relevant": relevant}
+        score = visuals.score_view(basis(stock={"Mumbai": ["o1"]}))
+        view = visuals.qc_view(score, context, checks)
+        self.assertEqual(view["places"], ["Mumbai", "Delhi NCR"])
+        self.assertEqual(view["rows"], {"blinkit": ["in_stock", "not_checked"], "zepto": ["not_in_stock", "not_checked"],
+                                        "instamart": ["not_checked", "not_in_stock"]})
+        self.assertEqual(view["checked"], ["Mumbai", "Delhi NCR"])
+        self.assertEqual(view["observed"], date(2026, 10, 4))
+        with self.assertRaisesRegex(SafetyError, "LIVE_REPORT_VISUAL_FACTS_CHANGED"):
+            visuals.qc_view(visuals.score_view(basis(stock={})), context, checks)
+        with self.assertRaisesRegex(SafetyError, "LIVE_REPORT_VISUAL_FACTS_CHANGED"):
+            visuals.qc_view(score, context, dict(checks, as_of="2026-10-06T10:00:00+00:00"))
+        self.assertIsNone(visuals.qc_view(score, None, None)["rows"])
