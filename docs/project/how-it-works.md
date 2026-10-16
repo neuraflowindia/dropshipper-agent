@@ -12,7 +12,7 @@ A recommendation means "this looks worth trying". It doesn't promise sales or pr
 
 ## Where it looks
 
-Status, 16 October 2026 (20:00 UTC): the set-up below (agreed on 14 October in [Plan R10](plan-2026-10-14-speed-sources-and-selection.md)) has been live since 15 October, and research restarted from scratch on 16 October. **Google Trends** passed its three-read check at 17:56 UTC and is read while signed in. **IndiaMART** has been read signed in since 17:45 UTC. **Dropdash** logged the research account out at 18:37 UTC; its reads wait until the owner signs in again. The AI weekly allowance reached 100% at 18:10 UTC, so every AI step waits until it resets on 22 October at 06:13 UTC. On 16 October the owner paused new building to rethink how strict this process should be: see [the research process review](research-process-review-2026-10-16.md), which also explains, step by step, why finding products is slow today.
+Status, 16 October 2026 (20:00 UTC): the set-up below (agreed on 14 October in [Plan R10](plan-2026-10-14-speed-sources-and-selection.md)) has been live since 15 October, and research restarted from scratch on 16 October. **Google Trends** passed its three-read check at 17:56 UTC and is read while signed in. **IndiaMART** has been read signed in since 17:45 UTC. **Dropdash** logged the research account out at 18:37 UTC; its reads wait until the owner signs in again. The AI weekly allowance reached 100% at 18:10 UTC, so every AI step waits until it resets on 22 October at 06:13 UTC. On 16 October the owner paused new building to rethink how strict this process should be: see [how the research program really works](research-wiring-explained-2026-10-16.md) (a step-by-step audit with the day's numbers) and the proposed [Plan R18](plan-2026-10-17-ranking-and-big-universe.md).
 
 **To find new product ideas**
 1. **Meta Ad Library**: the public list of ads running on Facebook and Instagram. It shows who is advertising a product and for how long. The program also looks at the other ads of advertisers it has already found useful.
@@ -44,7 +44,7 @@ Separately, it saves real product photos where it can find suitable ones.
 - It doesn't predict profit margin, RTO (orders that get sent back) or RTO costs.
 - It doesn't cover pets. The four categories are fixed (see below).
 - It doesn't recommend products from well-known brands, such as Lakme, Hasbro or Meyer.
-- It doesn't certify that a product is safe or legal. For baby products, things you eat or put on your skin, products that make medical claims, and risky electrical items, it adds a **"Client Compliance Check Required"** note so the client can check for themselves.
+- It doesn't certify that a product is safe or legal. For baby products, things you eat or put on your skin, products that make medical claims, and risky electrical items, the agreed rule is to add a **"Client Compliance Check Required"** note so the client can check for themselves. *(16 October audit: this note is not produced by the live program yet; see the known gaps below.)*
 
 ## How it comes up with product ideas
 
@@ -59,7 +59,7 @@ Separately, it saves real product photos where it can find suitable ones.
 ## How it sorts products
 
 - **Four categories:** Home and Decor; Baby Products; Home and Kitchen; Travel and Outdoor.
-- Each product gets **one main category**, plus optional extra tags. That way a product that fits both "Home and Decor" and "Home and Kitchen" isn't listed twice.
+- Each product gets **one main category** (extra tags are planned but not built). That way a product that fits both "Home and Decor" and "Home and Kitchen" isn't listed twice.
 - **Duplicates:** exact copies are merged. Close matches are compared by what they do, and are kept separate only if they work in a meaningfully different way.
 - **Brands, judged sensibly:** well-known brand products are left out. An unfamiliar small label, a shop's name or a maker's name doesn't rule a product out by itself. The reason is written down each time, including for borderline cases.
 
@@ -81,7 +81,7 @@ Each product gets a label: **Sweet spot**, **Early bet**, **Proven but crowded**
 
 ## Suppliers and photos
 
-Every product chosen for a report gets a real, quick supplier search. The aim is 1–3 useful leads, or up to five when they're easy to find. The search covers Indian manufacturers, wholesalers and importers. For each lead the program records whatever the supplier states: whether they ship single pieces directly to customers, the minimum order, cash on delivery, plain packaging, private-label help, and any subscription or fees. Suppliers that don't need a paid subscription are preferred. If a real search finds nothing usable, the product can still appear, with the note **"Supplier search did not produce any usable results."** All leads are just *leads*. The client checks them.
+Every product type gets a real supplier search (today every type gets it, not only the ones chosen for a report). The aim is 1–3 useful leads, or up to five when they're easy to find. The search covers Indian manufacturers, wholesalers and importers. For each lead the program records whatever the supplier states: whether they ship single pieces directly to customers, the minimum order, cash on delivery, plain packaging, private-label help, and any subscription or fees. Suppliers that don't need a paid subscription are preferred. If a real search finds nothing usable, the product can still appear, with the note **"Supplier search did not produce any usable results."** All leads are just *leads*. The client checks them.
 
 Photos: the report uses at least one real product photo, with its source noted, whenever a suitable one is found. A missing photo never rules a product out.
 
@@ -90,10 +90,10 @@ Photos: the report uses at least one real product photo, with its source noted, 
 - Each report has **at least 10 products**, normally 10–15. It only goes up to 20 when there's enough good evidence.
 - **At least 80% must be new**, meaning never sent to this client before. At most 20% can be meaningful updates, and each update says what changed. For example, a 10-product report has at least 8 new products.
 - One product goes into only one report per week.
-- From one checked set of facts the program makes a **portrait PDF**, an **Excel workbook** (shortlist, evidence, supplier leads, checklist, and example products) and a short phone-friendly summary.
+- From one checked set of facts the program makes a **portrait PDF**, an **Excel workbook** (shortlist, evidence, supplier leads, checklist, and example products) and (planned, not built yet) a short phone-friendly summary.
 - The first two reports come in **both English and Roman-script Hinglish** (Hindi written in English letters), with identical facts. After that, the client picks one language.
 - Reports go to a **private website** (dropshipper.neuraflow.co.in). Only approved people can open it, using Google sign-in.
-- **The owner approves every release.** Drafts stay private. An approved report appears at its release time, even if the owner's computer is switched off.
+- **The owner approves every release.** (The approval button itself is not built yet.) Drafts stay private. An approved report appears at its release time, even if the owner's computer is switched off.
 - If there aren't 10 good products, the program doesn't fill the gap with weak ones and doesn't publish a short report. It saves the draft and the exact shortfall for the owner to discuss.
 
 ## How it runs day to day
@@ -118,6 +118,17 @@ This is a made-up example to show the steps. It isn't a real result.
 5. A supplier search on IndiaMART, TradeIndia and Google Maps finds two wholesale leads, and DeoDap lists a similar item at a wholesale price. One says it ships single pieces to customers and has no subscription. A real photo is saved.
 6. The product has never been sent to this client, so it's marked **New** and placed in Thursday's report.
 7. The facts are frozen. The PDF(s) and Excel file are made, the owner checks and approves them, and on Thursday at 9:00 am the client sees it on the private website.
+
+## Known gaps found by the 16 October audit
+
+The full step-by-step audit, with numbers, is [How the research program really works](research-wiring-explained-2026-10-16.md). In short, the live program differs from the description above in these ways:
+- **Compliance note:** the checklist no longer asks the AI for it, and the reports do not print it. No product carries the note today.
+- **Supplier leads:** the AI's reading of supplier pages is rejected by a formatting rule almost every time, so current product types show "Supplier search did not produce any usable results". Matching dropshipping-platform listings are saved but not shown as leads.
+- **Photos:** downloaded from matching listings; there is no AI photo check.
+- **Demand:** evidence that has been saved but not yet reviewed by the AI counts as zero, so products can be labelled "Too quiet" before anyone looked.
+- **Approval, phone summary and extra tags:** not built.
+
+The proposed next direction, ranking instead of pass/fail, is [Plan R18](plan-2026-10-17-ranking-and-big-universe.md). It waits for the owner's answers.
 
 ## Want more detail?
 
