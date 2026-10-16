@@ -1,0 +1,83 @@
+{
+ "_note": "Invented Dropdash snapshots, in the shape the signed-in page read returns, for what the saved real pages (dropdash-signed-in-pages-2026-10-16.json) do not show: a paid-plan wall, a redirect to a plans page, a sign-in wall, a changed layout with no product cards, a product page whose block shows almost nothing (url null: the test double serves it at the address asked for), and a list layout without Dropdash's own price and stock elements (prices, stock and badges only in each card's text, one product in two sections, a link to a forbidden step and a category on another site). Every name, number and address is invented.",
+ "plan_wall": {
+  "url": "https://app.dropdash.co/home",
+  "title": "Choose your plan",
+  "text": "Upgrade your plan to view products. Choose a plan: Basic ₹ 999/month, Pro ₹ 2,499/month.",
+  "password": false,
+  "cards": [],
+  "product": null,
+  "categories": [],
+  "next": null
+ },
+ "redirected_to_plans": {
+  "url": "https://app.dropdash.co/plans?from=home",
+  "title": "Plans",
+  "text": "Plans",
+  "password": false,
+  "cards": [{"href": "https://app.dropdash.co/productDetails?id=101&sellerId=7", "title": "X", "text": "X", "image": null, "badges": [],
+             "price": null, "mrp": null, "stock": null, "sold": null, "section": null}],
+  "product": null,
+  "categories": [],
+  "next": null
+ },
+ "wall": {
+  "url": "https://app.dropdash.co/login",
+  "title": "Log in",
+  "text": "Log in to continue. Password",
+  "password": true,
+  "cards": [],
+  "product": null,
+  "categories": [],
+  "next": null
+ },
+ "unrecognised": {
+  "url": "https://app.dropdash.co/home",
+  "title": "Dropdash - Home",
+  "text": "Welcome back! Our catalogue has moved.",
+  "password": false,
+  "cards": [],
+  "product": null,
+  "categories": [],
+  "next": null
+ },
+ "product_sparse": {
+  "url": null,
+  "title": "Dropdash - Product Details",
+  "text": "Back to Products\nFooter: Shipping policy | Returns",
+  "password": false,
+  "cards": [],
+  "product": {"title": "", "text": "", "terms": [], "price": null, "mrp": null, "stock": null},
+  "categories": [],
+  "next": null
+ },
+ "text_only": {
+  "url": "https://app.dropdash.co/home",
+  "title": "Dropdash - Home",
+  "text": "Kitchen Tools\nUpgrade to Premium for ₹999/month\nSteel Draining Sink Caddy\nDropship price ₹ 149\nMRP ₹ 499\nIn stock\nTrending\nKids Bath Toy Set\n₹ 99\nOut of stock",
+  "password": false,
+  "cards": [
+   {"href": "https://app.dropdash.co/productDetails?id=501&sellerId=9", "title": "Steel Draining Sink Caddy", "text": "Trending\nSteel Draining Sink Caddy\nDropship price ₹ 149\nMRP ₹ 499\nIn stock", "image": "https://cdn.dropdash.example/caddy.jpg", "badges": ["Trending"], "price": null, "mrp": null, "stock": null, "sold": null, "section": "Kitchen Tools"},
+   {"href": "https://app.dropdash.co/productDetails?id=502&sellerId=9", "title": null, "text": "Kids Bath Toy Set\n₹ 99\nOut of stock\nHigh Demand", "image": null, "badges": ["High Demand"], "price": null, "mrp": null, "stock": null, "sold": null, "section": "Kids"},
+   {"href": "https://app.dropdash.co/productDetails?id=503&sellerId=9", "title": "Best Selling Trending Lunch Box", "text": "Best Selling Trending Lunch Box\n₹ 29 OFF\n₹ 120\nPlans from ₹ 499/month", "image": null, "badges": ["₹ 29 OFF"], "price": null, "mrp": null, "stock": null, "sold": null, "section": "Kitchen Tools"},
+   {"href": "https://app.dropdash.co/productDetails?id=501&sellerId=9", "title": "Steel Draining Sink Caddy", "text": "Steel Draining Sink Caddy\nDropship price ₹ 149\nNew", "image": null, "badges": ["New"], "price": null, "mrp": null, "stock": null, "sold": null, "section": "Testing Products"},
+   {"href": "https://app.dropdash.co/checkout?productId=501", "title": "Checkout", "text": "Checkout", "image": null, "badges": [], "price": null, "mrp": null, "stock": null, "sold": null, "section": null}
+  ],
+  "product": null,
+  "categories": [
+   {"href": "https://app.dropdash.co/products?categoryId=77&sort=new", "text": "Kitchen Tools"},
+   {"href": "https://elsewhere.example/products?categoryId=78", "text": "Elsewhere"}
+  ],
+  "next": "https://app.dropdash.co/home?page=2"
+ },
+ "text_only_page_2": {
+  "url": "https://app.dropdash.co/home?page=2",
+  "title": "Dropdash - Home",
+  "text": "Folding Travel Pillow\n₹ 210",
+  "password": false,
+  "cards": [{"href": "https://app.dropdash.co/productDetails?id=504&sellerId=9", "title": "Folding Travel Pillow", "text": "Folding Travel Pillow\n₹ 210", "image": null, "badges": [], "price": null, "mrp": null, "stock": null, "sold": null, "section": null}],
+  "product": null,
+  "categories": [],
+  "next": "https://app.dropdash.co/checkout"
+ }
+}

@@ -14,7 +14,7 @@ from product_radar.source_acquisitions import ACQUISITION_KIND
 from product_radar.source_coverage import create_marketplace_handlers, execute_source_run, prepare_source_tasks
 from product_radar.storage import Journal
 from product_radar.storage import atomic_json
-from product_radar.work_turns import bind_work_turn, open_work_turn
+from product_radar.work_turns import DEFAULT_POLICY, bind_work_turn, open_work_turn
 from test_marketplace_browser import snapshot, transport
 
 
@@ -146,6 +146,9 @@ class SharedMarketplaceTests(unittest.TestCase):
         self.assertEqual(second["counts"], {"acquired": 1})
         self.assertEqual(len(self.calls), 1)
         self.assertEqual(len(self.owners()), 1)
+        # The reused reply is named as a saved answer, never a fresh dispatch.
+        self.assertEqual(first["saved_answer_refs"], [])
+        self.assertEqual(second["saved_answer_refs"], [self.calls[0][0]])
         captures = list(self.memory.snapshot()["captures"].values())
         self.assertEqual({r["acquisition_id"] for r in captures}, {self.calls[0][0]})
         self.assertEqual({r["observed_at"] for r in captures}, {NOW})
@@ -365,6 +368,102 @@ class SharedMarketplaceTests(unittest.TestCase):
         result = self.checks(handlers)
         self.assertEqual(result["counts"], {"acquired": 1})
         self.assertEqual(result["handler_calls"], 0)
+        self.assertEqual(len(self.calls), 1)
+
+    # 16 Oct power cut: recorded reply files were left empty. The lost read is
+    # set aside once; its question reads afresh under the normal limits.
+
+    def lose(self, path):
+        with open(path, "wb"):
+            pass  # Empty, as a write cut short by the power cut left it.
+
+    def task(self, run_id):
+        return next(row for row in self.memory.snapshot()["query_tasks"].values()
+                    if row.get("kind") == "all_source_task_v1" and row["run_id"] == run_id)
+
+    def test_lost_saved_bytes_are_set_aside_and_read_once_more_within_normal_limits(self):
+        handlers = self.handlers(); self.prepare(handlers)
+        policy = dict(deepcopy(DEFAULT_POLICY), source_callbacks=1, exploration_slots=0)
+        turn = open_work_turn(self.memory, "programme", at=NOW, policy=policy)
+        with bind_work_turn(self.memory, turn["id"]):
+            self.assertEqual(self.other(handlers)["handler_calls"], 1)
+            lost = self.calls[0][0]; folder = self.source_root / lost
+            kept = {path.name: path.read_bytes() for path in folder.iterdir() if path.is_file()}
+            self.lose(folder / "snapshot.json")
+            # The turn's only source callback is spent: the lost read is set
+            # aside, and its replacement waits for the next allowance.
+            held = self.checks(handlers)
+        self.assertEqual((held["handler_calls"], held["counts"]), (0, {"not_attempted": 1}))
+        owners = self.owners()
+        self.assertEqual((owners[lost]["state"], owners[lost]["active_response_id"]), ("set_aside", None))
+        (replacement,) = [aid for aid in owners if aid != lost]
+        self.assertEqual((owners[replacement]["state"], owners[replacement]["binding"]["damage_recovery"]["acquisition_id"]),
+                         ("reserved", lost))
+        self.assertEqual(self.task(self.run_id)["tries"], 0)
+        # The next allowance: exactly one fresh read, counted against the question.
+        result = self.checks(handlers)
+        self.assertEqual((result["handler_calls"], result["counts"]), (1, {"acquired": 1}))
+        self.assertEqual([call[0] for call in self.calls], [lost, replacement])
+        task = self.task(self.run_id)
+        self.assertEqual((task["acquisition_id"], task["attempt_refs"], task["tries"], task["generation"]),
+                         (replacement, [replacement], 1, 1))
+        receipt = self.memory.snapshot()["source_checks"][task["receipt_refs"][-1]]
+        self.assertEqual(receipt["envelope"]["acquisition_id"], replacement)
+        # Nothing of the lost read was deleted or rewritten.
+        self.assertEqual({path.name for path in folder.iterdir() if path.is_file()}, set(kept))
+        self.assertEqual({name: (folder / name).read_bytes() for name in kept if name != "snapshot.json"},
+                         {name: raw for name, raw in kept.items() if name != "snapshot.json"})
+        # Later passes and new consumers use the replacement; nothing reads again.
+        self.assertEqual(self.checks(handlers)["handler_calls"], 0)
+        prepare_source_tasks(self.memory, [{"route": "amazon-search", "request": {"query": "sink caddy", "country": "IN",
+            "limit": 30}, "concept_ids": ["rack"]}], run_id="checks-third", as_of=NOW)
+        third = execute_source_run(self.memory, "checks-third", handlers=handlers, as_of=NOW,
+            bounded_call=lambda callback, context, timeout: callback(context), shared_marketplace=True)
+        self.assertEqual((third["handler_calls"], third["counts"], third["saved_answer_refs"]), (0, {"acquired": 1}, [replacement]))
+        self.assertEqual((len(self.calls), len(self.owners())), (2, 2))
+
+    def borrowed(self, handlers):
+        """A follow-on question that borrowed the other run's saved read, then the loss."""
+        self.other(handlers)
+        prepare_source_tasks(self.memory, [{"route": "amazon-search", "request": {"query": "sink caddy", "country": "IN",
+            "limit": 30}, "concept_ids": ["sink"]}], run_id="follow-on", as_of=NOW, reuse_run_ids=["checks-other"])
+        task = self.task("follow-on")
+        lost = self.calls[0][0]
+        self.assertEqual((task["status"], task["acquisition_id"], task["reconcile_required"], task["attempt_refs"]),
+                         ("dispatching", lost, True, []))
+        self.assertTrue(task["reused_acquisition_ref"])
+        self.lose(self.source_root / lost / "snapshot.json")
+        return lost
+
+    def run_follow_on(self, handlers):
+        return execute_source_run(self.memory, "follow-on", handlers=handlers, as_of=NOW,
+            bounded_call=lambda callback, context, timeout: callback(context), shared_marketplace=True)
+
+    def test_a_borrowed_lost_read_becomes_the_questions_own_counted_read(self):
+        handlers = self.handlers(); self.prepare(handlers); lost = self.borrowed(handlers)
+        result = self.run_follow_on(handlers)
+        self.assertEqual((result["handler_calls"], result["counts"], result["saved_answer_refs"]), (1, {"acquired": 1}, []))
+        replacement = self.calls[1][0]
+        task = self.task("follow-on")
+        self.assertNotEqual(replacement, lost)
+        # Its own read: counted as a try, never mistaken for the borrowed one.
+        self.assertEqual((task["acquisition_id"], task["attempt_refs"], task["tries"], task["generation"]),
+                         (replacement, [replacement], 1, 1))
+        self.assertNotIn("reused_acquisition_ref", task)
+        self.assertEqual(self.run_follow_on(handlers)["handler_calls"], 0)
+
+    def test_a_borrowed_lost_read_with_no_try_left_is_closed_without_a_read(self):
+        handlers = self.handlers(); self.prepare(handlers); self.borrowed(handlers)
+        tid = next(rid for rid, row in self.memory.snapshot()["query_tasks"].items() if row.get("run_id") == "follow-on")
+        old = self.memory.snapshot()["query_tasks"][tid]
+        self.memory.put("query_tasks", tid, dict(old, tries=2), previous=old)  # Its tries are used up.
+        result = self.run_follow_on(handlers)
+        self.assertEqual((result["handler_calls"], result["counts"]), (0, {"blocked": 1}))
+        task = self.task("follow-on")
+        self.assertEqual((task["status"], task["reason"], task["reconcile_required"], task["retryable"]),
+                         ("blocked", "SOURCE_SAVED_READ_SET_ASIDE", False, False))
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.run_follow_on(handlers)["handler_calls"], 0)
         self.assertEqual(len(self.calls), 1)
 
 

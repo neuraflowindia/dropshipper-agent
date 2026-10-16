@@ -7,6 +7,7 @@ from threading import RLock
 import unittest
 from unittest.mock import patch
 
+import test_dropship_platform_roles as roles_case
 import test_programme
 from product_radar.models import SafetyError, timestamp
 from product_radar.programme import (_acquire, _acquisition_scopes, _register_discovered_products,
@@ -337,6 +338,89 @@ class AcquisitionBudgetTests(unittest.TestCase):
                 self.assertEqual(result["fresh_dispatches"], expected)
                 self.assertEqual(result["callbacks_without_new_dispatch"], 2 - expected)
 
+    def saved_answer_run(self, *, with_callback_route):
+        """Dropship per-type questions answered from the saved catalogue (live 16 Oct)."""
+        self.prepare(); handler_hits, fresh = [], []
+        def saved(context):
+            # As platform_matching: the saved local answer comes before any
+            # callback admission, and its receipt says dispatch_started because
+            # the catalogue reads happened earlier, in their own lane.
+            return {"action": "saved", "acquisition_id": context["acquisition_id"], "receipt": self.receipt(context)}
+        def never(context):
+            handler_hits.append(context["acquisition_id"])
+            raise AssertionError("A saved local answer must not call its handler")
+        def collect(context):
+            fresh.append(context["acquisition_id"]); context["record_dispatch"]()
+            return self.receipt(context)
+        routes = {"baapstore", "meta-ads"} if with_callback_route else {"baapstore"}
+        builder = lambda context: ({"query": "Sink caddy " + context["concept_id"], "country": "IN"}
+            if context["route"] in routes else {"not_applicable_reason": "Outside this synthetic focused route."})
+        handlers = {"baapstore": {"handler": never, "reconcile": never, "source_access_preflight": saved}}
+        if with_callback_route:
+            handlers["meta-ads"] = collect
+        self.actual(handlers=handlers, request_builder=builder)
+        record = load_programme(self.memory, "whole-programme")
+        tasks = [task for task in self.memory.snapshot()["query_tasks"].values() if task["route"] == "baapstore"]
+        self.assertEqual(handler_hits, [])
+        self.assertEqual(len(tasks), 2)
+        for task in tasks:
+            # The answer is applied and kept as a real attempt in the record.
+            self.assertEqual(task["attempt_refs"], [task["acquisition_id"]])
+            self.assertFalse(task["reconcile_required"])
+        self.assertNotIn("reason", record["last_results"]["acquire"])
+        return record, fresh, sorted(task["acquisition_id"] for task in tasks)
+
+    def test_saved_local_answers_alone_are_not_fresh_dispatches(self):
+        record, fresh, answered = self.saved_answer_run(with_callback_route=False)
+        self.assertEqual(fresh, [])
+        budget = record["acquisition_budget"]
+        self.assertEqual(budget["handler_calls"], 0)
+        self.assertEqual(budget["fresh_dispatches"], 0)
+        self.assertEqual(budget["callbacks_without_new_dispatch"], 0)
+        self.assertEqual(budget["budget_units_consumed"], 0)
+        result = record["last_results"]["acquire"]
+        self.assertEqual((result["handler_calls"], result["fresh_dispatches"]), (0, 0))
+        self.assertEqual(result["saved_local_answers"], len(answered))
+        self.assertNotIn("saved_answer_refs", result)  # the record keeps only the count
+
+    def test_saved_local_answers_beside_real_callbacks_count_only_the_callbacks(self):
+        record, fresh, answered = self.saved_answer_run(with_callback_route=True)
+        self.assertEqual(len(fresh), 2)
+        self.assertFalse(set(fresh) & set(answered))
+        budget = record["acquisition_budget"]
+        self.assertEqual(budget["handler_calls"], 2)
+        self.assertEqual(budget["fresh_dispatches"], 2)
+        self.assertEqual(budget["callbacks_without_new_dispatch"], 0)
+        self.assertEqual(budget["budget_units_consumed"], 2)
+        self.assertEqual(record["last_results"]["acquire"]["saved_local_answers"], 2)
+
+    def test_saved_answer_refs_exempt_only_their_own_new_attempts(self):
+        before = {"task": {"run_id": "one-run", "attempt_refs": [], "status": "prepared"},
+                  "other": {"run_id": "one-run", "attempt_refs": [], "status": "prepared"}}
+        after = {"task": dict(before["task"], status="acquired", acquisition_id="saved-answer",
+                              attempt_refs=["saved-answer"]),
+                 "other": dict(before["other"], status="acquired", acquisition_id="real-read",
+                               attempt_refs=["real-read"])}
+        def run(returned):
+            snapshots = iter([{"query_tasks": before}, {"query_tasks": after}])
+            memory = SimpleNamespace(snapshot=lambda: next(snapshots), _cache_lock=RLock())
+            with patch("product_radar.source_coverage.continue_source_run", return_value=returned):
+                return _acquire(memory, {"source_run_id": "one-run", "concept_ids": []},
+                    {"request_builder": None, "handlers": {}, "source_limit": 2, "retry_seconds": 60})
+        cases = [("saved answer exempts only itself", {"handler_calls": 1, "saved_answer_refs": ["saved-answer"]}, 1, 1),
+                 ("no list counts every new attempt", {"handler_calls": 2}, 2, 0),
+                 ("unrelated saved ref changes nothing", {"handler_calls": 2, "saved_answer_refs": ["elsewhere"]}, 2, 1)]
+        for name, returned, expected, saved in cases:
+            with self.subTest(name=name):
+                result = run(returned)
+                self.assertEqual(result["fresh_dispatches"], expected)
+                self.assertEqual(result["callbacks_without_new_dispatch"], returned["handler_calls"] - expected)
+                self.assertEqual(result["saved_local_answers"], saved)
+                self.assertNotIn("saved_answer_refs", result)
+        for bad in ("saved-answer", ["saved-answer", 7], {"saved-answer"}, None):
+            with self.subTest(bad=bad), self.assertRaisesRegex(SafetyError, "PROGRAMME_ACQUISITION_COUNTS_INVALID"):
+                run({"handler_calls": 1, "saved_answer_refs": bad})
+
     def test_bad_cursor_or_duplicate_ordinal_is_not_silently_accepted(self):
         record = self.children(2)
         for cursor in ({"last": True, "ceiling": 2}, {"last": -1, "ceiling": 2}, {"last": 1, "ceiling": 0}):
@@ -464,6 +548,45 @@ class AcquisitionBudgetTests(unittest.TestCase):
         self.assertEqual(seen, [self.now])
         self.assertEqual(record["deferrals"]["lane:acquire"]["at"], self.now)
         self.assertEqual(timestamp(record["deferrals"]["lane:acquire"]["next_retry_at"]) - timestamp(self.now), timedelta(seconds=300))
+
+
+class InstalledDropshipAnswerAccountingTests(unittest.TestCase):
+    """The installed per-type platform match through the programme's accounting.
+
+    Live 16 Oct: every acquire pass that applied a DeoDap/BaapStore match
+    failed PROGRAMME_ACQUISITION_COUNTS_INVALID (a saved answer counted as a
+    fresh dispatch while no callback was made). Fixtures are borrowed from the
+    platform roles tests by module, so their own cases are not collected twice.
+    """
+    setUpClass = classmethod(roles_case.RolesCase.setUpClass.__func__)
+    tearDownClass = classmethod(roles_case.RolesCase.tearDownClass.__func__)
+    setUp = roles_case.RolesCase.setUp
+    build_catalogue = roles_case.RolesCase.build_catalogue
+    request = roles_case.RolesCase.request
+    task = roles_case.RolesCase.task
+
+    def test_installed_platform_match_is_a_saved_answer_not_a_fresh_dispatch(self):
+        from product_radar import platform_matching
+        from product_radar.source_coverage import execute_source_run, prepare_source_tasks
+        self.build_catalogue()
+        prepare_source_tasks(self.memory, [{"route": "deodap", "request": self.request(), "concept_ids": [self.cid]}],
+                             run_id="platform-run", as_of=roles_case.AT)
+        handlers = platform_matching.create_dropship_handlers(self.memory)
+        passes = []
+        def one_pass(memory, run_id, **options):
+            # The real dispatcher and installed handlers, in the wrapper's shape.
+            result = execute_source_run(memory, run_id, handlers=handlers, as_of=roles_case.AT)
+            passes.append(result)
+            return {"handler_calls": result["handler_calls"], "saved_answer_refs": result["saved_answer_refs"]}
+        with patch("product_radar.source_coverage.continue_source_run", side_effect=one_pass):
+            result = _acquire(self.memory, {"source_run_id": "platform-run", "concept_ids": [self.cid]},
+                {"request_builder": None, "handlers": handlers, "source_limit": 4, "retry_seconds": 300})
+        task = self.task()
+        self.assertEqual(passes[0]["results"][0]["state"], "acquired")
+        self.assertEqual(passes[0]["saved_answer_refs"], [task["acquisition_id"]])
+        self.assertEqual(task["attempt_refs"], [task["acquisition_id"]])  # still a real attempt in the record
+        self.assertEqual((result["handler_calls"], result["fresh_dispatches"], result["saved_local_answers"]), (0, 0, 1))
+        self.assertEqual(result["callbacks_without_new_dispatch"], 0)
 
 
 if __name__ == "__main__":

@@ -612,14 +612,24 @@ class _Selection:
         self.add(path, "source_capture", origin, byte_hash=proof["sha256"], close=False)
 
     def source_stage(self, stage_id, record, origin):
-        """Close only validated acquisition stage metadata, without replay."""
-        from .source_acquisitions import _record, _stage
+        """Close only validated acquisition stage metadata, without replay.
+
+        A set-aside saved read's files that its set-aside proof records as lost
+        (empty or zero bytes after an interrupted write) are named as absent,
+        not demanded: those recorded bytes no longer exist anywhere.
+        """
+        from .source_acquisitions import _record, _set_aside_stage, _stage
+        lost = set()
         try:
             owner = _record(self.state, record.get("acquisition_id"))
             stage = _stage(self.state, owner, stage_id)
             kind = stage.get("stage_type")
             if kind == "response" and stage_id not in owner["response_ids"]:
                 raise SafetyError("SOURCE_ACQUISITION_STAGE_INVALID")
+            if owner["state"] == "set_aside":
+                _, set_aside = _set_aside_stage(self.state, owner)
+                if set_aside["response_id"] == stage_id:
+                    lost = {row["path"] for row in set_aside["damaged_files"]}
             if kind == "parse":
                 response_id = stage.get("response_id")
                 if stage_id not in owner["parse_ids"] or response_id not in owner["response_ids"]:
@@ -627,7 +637,8 @@ class _Selection:
                 response = _stage(self.state, owner, response_id)
                 if response.get("stage_type") != "response" or response.get("response_hash") != stage.get("response_hash"):
                     raise SafetyError("SOURCE_ACQUISITION_STAGE_INVALID")
-            elif kind not in ("response", "prelaunch_zero", "legacy_origin", "dispatch_intent", "execution_unknown"):
+            elif kind not in ("response", "prelaunch_zero", "legacy_origin", "dispatch_intent", "execution_unknown",
+                              "set_aside"):
                 raise SafetyError("SOURCE_ACQUISITION_STAGE_INVALID")
         except (SafetyError, OSError, KeyError, TypeError, ValueError) as error:
             reason = str(error) if isinstance(error, SafetyError) else "SOURCE_ACQUISITION_STAGE_INVALID"
@@ -635,7 +646,11 @@ class _Selection:
         if kind == "parse":
             self.source_stage_proof(stage.get("parsed"), owner, origin + "/parsed")
         elif kind in ("response", "prelaunch_zero"):
-            self.source_stage_proof(stage.get("receipt"), owner, origin + "/receipt")
+            receipt = stage.get("receipt")
+            if isinstance(receipt, dict) and receipt.get("path") in lost:
+                self.note(self.optional, origin + "/receipt", "SOURCE_ACQUISITION_SET_ASIDE_LOST_FILE")
+            else:
+                self.source_stage_proof(receipt, owner, origin + "/receipt")
             artifacts = stage.get("artifacts")
             if not isinstance(artifacts, dict):
                 self.note(self.unsafe, origin + "/artifacts", "BACKUP_SELECTION_SOURCE_STAGE_PROOF_INVALID"); return
@@ -643,6 +658,8 @@ class _Selection:
                 if (not isinstance(name, str) or name in ("", ".", "..") or Path(name).name != name
                         or any(char in name for char in ("\x00", "\\", ":"))):
                     self.note(self.unsafe, origin + "/artifacts", "BACKUP_SELECTION_SOURCE_STAGE_PROOF_INVALID"); continue
+                if isinstance(proof, dict) and proof.get("path") in lost:
+                    self.note(self.optional, origin + "/artifacts/" + name, "SOURCE_ACQUISITION_SET_ASIDE_LOST_FILE"); continue
                 self.source_stage_proof(proof, owner, origin + "/artifacts", name=name)
 
     def source_pointer_task(self, task_id, acquisition, route):

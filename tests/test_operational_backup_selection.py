@@ -193,6 +193,37 @@ class EssentialBackupSelectionTests(unittest.TestCase):
         self.assertIn(("BACKUP_SELECTION_HASH_MISMATCH", paths["original.json"].relative_to(self.root).as_posix()),
             {(row["reason"], row["relative_path"]) for row in selected["unsafe"]})
 
+    def test_a_set_aside_read_names_its_lost_files_without_making_the_backup_unsafe(self):
+        # 16 Oct power cut: a recorded file was left empty and its read set aside
+        # (source_acquisitions.set_aside_damaged_acquisition). Those bytes exist
+        # nowhere any more; every other recorded file is still required.
+        from product_radar.source_acquisitions import STAGE_KIND, _record
+        owner, paths, proofs = self.source_stage()
+        response_id = owner["active_response_id"]
+        atomic_bytes(paths["original.json"], b"")
+        stage = {"kind": STAGE_KIND, "stage_type": "set_aside", "acquisition_id": owner["binding"]["acquisition_id"],
+                 "binding_hash": owner["binding_hash"], "reason": "SOURCE_ACQUISITION_ARTIFACT_DAMAGED",
+                 "response_id": response_id, "response_hash": digest(self.state["source_checks"][response_id]),
+                 "parse_id": None, "damaged_files": [{"role": "artifact", "name": "original.json",
+                     "path": proofs["original.json"]["path"], "recorded_sha256": proofs["original.json"]["sha256"],
+                     "found_sha256": sha256(b"").hexdigest(), "found_bytes": 0, "damage": "empty"}]}
+        stage_id = key("source-acquisition-stage", stage)
+        stage["recorded_at"] = owner["updated_at"]; stage["record_hash"] = digest(stage)
+        self.state["source_checks"][stage_id] = stage
+        owner.update(state="set_aside", active_response_id=None, stage_ids=owner["stage_ids"] + [stage_id])
+        _record(self.state, owner["binding"]["acquisition_id"])
+        for multipart in (False, True):
+            with self.subTest(multipart=multipart):
+                selected = self.select(multipart=multipart); rows = self.files(selected)
+                self.assertEqual(set(rows), {paths[name].relative_to(self.root).as_posix()
+                                             for name in ("receipt.json", "legacy-origin.json")})
+                self.assertTrue(all(row["required"] for row in rows.values()))
+                self.assertFalse(selected["unsafe"] or selected["unresolved_required"])
+                self.assertIn("SOURCE_ACQUISITION_SET_ASIDE_LOST_FILE", {row["reason"] for row in selected["absent_optional"]})
+        # Only files the set-aside proof names are excused: another change still is not.
+        atomic_json(paths["legacy-origin.json"], {"later": "different original bytes"})
+        self.assertIn("BACKUP_SELECTION_HASH_MISMATCH", {row["reason"] for row in self.select(multipart=True)["unsafe"]})
+
     def test_canonical_source_every_required_proof_needs_its_exact_original_bytes(self):
         for name in ("receipt.json", "legacy-origin.json", "original.json", "parsed.json"):
             for damage in ("absent", "changed"):

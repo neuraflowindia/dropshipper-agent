@@ -294,6 +294,87 @@ def source_response_closed(response):
     return access.get("owned_process_exited") is True
 
 
+def signed_in_wall_response(owner, response):
+    """A received page, read in the owner's signed-in profile, that showed the
+    site's own sign-in wall (``OWNER_SIGN_IN_REQUIRED``).
+
+    Such a refusal is retryable, as Trends already treats it: the route then
+    waits calmly until the owner signs in again (its sign-in hold), and the
+    retry still counts against the question's tries and its access wait.
+    """
+    access = response.get("access", {})
+    return bool(owner["binding"]["request"].get("transport") == SIGNED_IN_TRANSPORT
+                and response.get("stage_type") == "response" and response.get("dispatch_started") is True
+                and response.get("source_state") == "blocked"
+                and response.get("parse_reason") == "OWNER_SIGN_IN_REQUIRED"
+                and type(access.get("http_status")) is int and source_response_closed(response))
+
+
+def _sign_in_wall_retry(state, task_id, task, run):
+    """``(next_retry_at, receipt_id)`` for a question saved blocked by a
+    signed-in sign-in wall before that wall was retryable, else None.
+
+    Recomputed only from the question's own latest saved receipt and the
+    verified response it names (``signed_in_wall_response``), with a try
+    left. The retry time is that receipt's own (its verified access wait, or
+    the run's retry delay), so nothing new is invented and no wait shortens.
+    """
+    from .source_acquisitions import _record, _response
+    if (task["status"] != "blocked" or task.get("retryable") or task.get("reason") != "OWNER_SIGN_IN_REQUIRED"
+            or task.get("reconcile_required") or not task.get("receipt_refs") or not task.get("acquisition_id")
+            or task["tries"] >= run["max_attempts"] or task.get("prelaunch_failures", 0) >= run["max_attempts"]):
+        return None
+    receipt_id = task["receipt_refs"][-1]
+    check = state["source_checks"].get(receipt_id, {})
+    envelope = check.get("envelope", {})
+    if (check.get("kind") != CHECK_KIND or check.get("envelope_hash") != digest(envelope)
+            or check.get("task_id") != task_id or check.get("request_hash") != task["request_hash"]
+            or check.get("route") != task["route"] or envelope.get("acquisition_id") != task["acquisition_id"]
+            or envelope.get("status") != "blocked" or envelope.get("reason") != "OWNER_SIGN_IN_REQUIRED"
+            or envelope.get("dispatch_started") is not True or envelope.get("dispatch_uncertain") is not False
+            or envelope.get("retryable") is not False or task["acquisition_id"] not in task.get("attempt_refs", [])):
+        return None
+    try:
+        owner = _record(state, task["acquisition_id"]); response = _response(state, owner)
+    except SafetyError:
+        return None  # Unverifiable proof never makes a question retryable.
+    if (not response or response["observed_at"] != envelope.get("observed_at")
+            or not signed_in_wall_response(owner, response)):
+        return None
+    ref = envelope.get("supplier_lead_capture_ref")
+    if ref is not None and ref != {"id": owner["active_response_id"], "hash": digest(response)}:
+        return None
+    retry = (timestamp(envelope["observed_at"]) + timedelta(seconds=run["retry_delay_seconds"])).isoformat(timespec="seconds")
+    supplied = envelope.get("access_wait")
+    if supplied:
+        try:
+            failure = _access_failure(state, supplied.get("failure_id"))
+        except SafetyError:
+            return None
+        if (digest(failure) != supplied.get("failure_hash") or failure["binding"]["scope"] != supplied.get("scope")
+                or failure["binding"]["next_retry_at"] != supplied.get("next_retry_at")):
+            return None
+        retry = failure["binding"]["next_retry_at"]
+    return retry, receipt_id
+
+
+def _rederived_pause_retry(state, route, pause):
+    """The retry time a route pause without one takes from its own question's
+    saved sign-in wall re-derivation (``all_source_retry_rederived_v1``), else None."""
+    if not isinstance(pause, dict) or pause.get("next_retry_at") or not pause.get("task_id") or not pause.get("receipt_id"):
+        return None
+    record = state["source_checks"].get(key("source-sign-in-wall-retry", [pause["task_id"], pause["receipt_id"]]))
+    if (not isinstance(record, dict) or record.get("kind") != "all_source_retry_rederived_v1" or record.get("route") != route
+            or record.get("task_id") != pause["task_id"] or record.get("receipt_id") != pause["receipt_id"]
+            or not isinstance(record.get("next_retry_at"), str)):
+        return None
+    try:
+        timestamp(record["next_retry_at"])
+    except SafetyError:
+        return None
+    return record["next_retry_at"]
+
+
 def _access_failure(state, failure_id):
     from .source_acquisitions import _record, _stage
     row = state["source_checks"].get(failure_id, {})
@@ -474,7 +555,14 @@ def _access_retry_at(retry_after, observed_at, attempt, wait_seconds):
 
 
 def source_access_backoffs(state, *, as_of):
-    """Read-only list of current access waits and their refusal counts."""
+    """Read-only list of current access waits and their refusal counts.
+
+    ``challenge`` is the saved refusal's own field: true for ANY page saved as
+    blocked, not only a challenge page. ``reason`` is that page's parse reason
+    (for example ``OWNER_SIGN_IN_REQUIRED`` for a sign-in wall, or
+    ``TRENDS_MINIMISED_NOT_RENDERED`` for a page that did not draw), or None
+    when the reader saved none (a plain refusal such as HTTP 429).
+    """
     timestamp(as_of)
     rows = []
     for rid, row in state["batch_runs"].items():
@@ -482,9 +570,10 @@ def source_access_backoffs(state, *, as_of):
             continue
         wait = source_access_wait(state, row["scope"], as_of=as_of)
         binding = _access_failure(state, row["active_failure_id"])["binding"]
+        response = state["source_checks"][binding["response_id"]]
         rows.append({"host": row["scope"]["host"], "transport": row["scope"]["transport"],
                      "attempt": binding.get("attempt", 1), "wait_seconds": binding.get("wait_seconds", 300),
-                     "challenge": binding["challenge"],
+                     "challenge": binding["challenge"], "reason": response.get("parse_reason"),
                      "http_status": binding["http_status"], "phase": wait["phase"],
                      "next_retry_at": wait["next_retry_at"]})
     return sorted(rows, key=lambda row: (row["host"], str(row["transport"])))
@@ -734,8 +823,8 @@ def direct_source_resolution_hooks(memory, *, route, root, prepare, saved, acces
     A retained legacy intent is unknown execution, not a chance to start over.
     The new neutral ABI leaves old marketplace callers byte-compatible.
     """
-    from .source_acquisitions import (_owners, _response, adopt_meta_origin, adopt_quickcommerce_origin,
-                                      claim_source_acquisition)
+    from .source_acquisitions import (_owners, adopt_meta_origin, adopt_quickcommerce_origin,
+                                      claim_source_acquisition, saved_response_or_replacement)
     from .research_questions import physical_request_fingerprint
     commerce = route in {"blinkit", "zepto", "instamart"}
     if route != "meta-ads" and not commerce: raise SafetyError("SOURCE_DIRECT_HOOK_ROUTE_INVALID")
@@ -840,9 +929,10 @@ def direct_source_resolution_hooks(memory, *, route, root, prepare, saved, acces
     def due_hint(context, *, state=None):
         request = prepare(context); state = memory.snapshot() if state is None else state
         owners = _owners(state, physical_request_fingerprint(route, request)); aid, owner = owners[-1] if owners else (None, None)
-        response = _response(state, owner) if owner else None
+        # A set-aside or proven-lost saved read is replaced by a fresh read when allowed.
+        response, replace = saved_response_or_replacement(state, owner)
         local_saved = bool(response and response["complete"])
-        ready = owner is None or owner["state"] == "reserved" and not owner["stage_ids"]
+        ready = owner is None or replace or owner["state"] == "reserved" and not owner["stage_ids"]
         wait = source_access_wait(state, acquisition_access_scope({"binding": {"route": route, "request": request}}), as_of=context["as_of"])
         advice = access_hint(dict(context, request=request, acquisition_id=aid)) if access_hint is not None else None
         if wait:
@@ -1101,8 +1191,11 @@ def create_marketplace_handlers(memory, *, data_root=None, transport="auto",
                              and wait["probe"]["acquisition_id"] == aid):
                 return {"action": "wait", "acquisition_id": aid, "reason": wait["reason"],
                         "next_retry_at": wait["next_retry_at"]}
+            # A replacement for a set-aside (lost) saved read is this caller's
+            # own new read unless the caller already holds that reservation.
+            replacement = owner["binding"].get("damage_recovery") is not None and aid != context.get("acquisition_id")
             return {"action": "collect", "acquisition_id": aid, "request": request,
-                    "access_scope": access_scope, "resume_reserved": bool(context.get("reconciling"))}
+                    "access_scope": access_scope, "resume_reserved": bool(context.get("reconciling")) and not replacement}
         local = dict(context, acquisition_id=aid, request=request, reconciling=True,
                      record_dispatch=None, marketplace_original_folder=str(original_folder))
         try:
@@ -1127,7 +1220,7 @@ def create_marketplace_handlers(memory, *, data_root=None, transport="auto",
         return marketplace_access_admission(memory, resolution, caller_id=context["task_id"], as_of=context["as_of"])
 
     def due_hint(context, *, state=None):
-        from .source_acquisitions import _owners, _stage
+        from .source_acquisitions import _owners, _stage, damage_replacement_allowed
         from .research_questions import physical_request_fingerprint
         request = prepare(context)
         state = memory.snapshot() if state is None else state
@@ -1136,7 +1229,9 @@ def create_marketplace_handlers(memory, *, data_root=None, transport="auto",
         aid, owner = owners[-1] if owners else (None, None)
         response = _stage(state, owner, owner["active_response_id"]) if owner and owner["active_response_id"] else None
         local_saved = bool(response and response.get("complete") is True)
-        ready = owner is None or owner["state"] == "reserved" and not owner["stage_ids"]
+        # A set-aside (lost) saved read is replaced by a fresh read when one is allowed.
+        replace = bool(owner and owner["state"] == "set_aside" and damage_replacement_allowed(owner))
+        ready = owner is None or replace or owner["state"] == "reserved" and not owner["stage_ids"]
         if wait:
             ready = (wait["phase"] == "due" and (ready or wait["acquisition_id"] == aid)
                      or wait["phase"] == "probe_pending" and ready and wait["probe"]["acquisition_id"] == aid)
@@ -2093,7 +2188,7 @@ def continue_source_run(memory, run_id, *, request_builder, handlers=None,
             record_event("phase_finished", stage="acquire", phase="source_preparation",
                 next_phase="acquire", timings={"source_preparation": time.monotonic() - started},
                 deadline_seconds=None, useful_result=False)
-    passes, total_calls = [], 0
+    passes, total_calls, saved_answers = [], 0, []
     inspection_pending, inspection_scanned, inspection_remaining = False, 0, 0
     previous_signature = None
     while True:
@@ -2132,6 +2227,7 @@ def continue_source_run(memory, run_id, *, request_builder, handlers=None,
                     next_phase="acquire", timings={"source_saved_recovery": time.monotonic() - recovery_started},
                     deadline_seconds=None, useful_result=False)
         total_calls += result["handler_calls"]
+        saved_answers.extend(result["saved_answer_refs"])
         inspection_scanned += result.get("inspection_scanned", 0)
         inspection_pending = result.get("inspection_pending", False)
         inspection_remaining = result.get("inspection_remaining", 0)
@@ -2171,6 +2267,7 @@ def continue_source_run(memory, run_id, *, request_builder, handlers=None,
         if traversal_pending or not result["handler_calls"]:
             break
     return {"run_id": run_id, "passes": passes, "handler_calls": total_calls,
+            "saved_answer_refs": list(dict.fromkeys(saved_answers)),
             "progress": source_run_progress(memory, run_id), "products": len(ids),
             "routes": len(PLANNED_ROUTES), "product_route_questions": len(ids) * len(PLANNED_ROUTES),
             "inspection_pending": inspection_pending, "inspection_scanned": inspection_scanned,
@@ -2831,6 +2928,14 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
                 or len(set(task_ids)) != len(task_ids) or not set(task_ids) <= set(run["task_ids"])):
             raise SafetyError("SOURCE_EXECUTION_TASK_SCOPE_INVALID")
         paused_routes = _effective_route_pauses(memory, state, run_key, run)
+        for paused_route, pause in list(paused_routes.items()):
+            # A pass that re-derived its pause owner's sign-in wall can end
+            # (a crash, a stop) before it saves the pause's retry time; the
+            # durable re-derivation record still gives it, or the route would
+            # stay paused for good with its question never asked again.
+            retry_at = _rederived_pause_retry(state, paused_route, pause)
+            if retry_at is not None:
+                paused_routes[paused_route] = dict(pause, next_retry_at=retry_at)
         staged_progress = safe_path(memory.root, "all_source_dispatch", "pass_returns") / (run_key + ".json")
         due_probes = {pause["task_id"] for pause in paused_routes.values()
                       if pause.get("next_retry_at") and timestamp(pause["next_retry_at"]) <= timestamp(at)}
@@ -2843,7 +2948,7 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
                               or state["query_tasks"][i]["status"] == "dispatching"),
                          i not in due_probes, state["query_tasks"][i]["tries"] > 0,
                          state["query_tasks"][i]["prepared_at"], i))
-        calls = 0
+        calls, saved_answers = 0, []
         turn = active_work_turn(memory, state=state)
         initially_exhausted = bool(turn is not None and (turn["state"] != "open"
             or turn["counters"]["source_callbacks"] >= turn["policy"]["source_callbacks"]))
@@ -3082,6 +3187,35 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
             else:
                 reconciling = False
                 prior_launch = task.get("generation", task["tries"]) > 0
+                if not access_saved and task["status"] == "blocked" and not task.get("retryable"):
+                    # Saved blocked by the site's own sign-in wall in the owner's signed-in
+                    # profile before that wall was retryable: re-derived once from its own
+                    # saved receipt and verified response, with its proof recorded.
+                    rederived = _sign_in_wall_retry(state, task_id, task, run)
+                    if rederived is not None:
+                        retry_at, receipt_id = rederived
+                        record_id = key("source-sign-in-wall-retry", [task_id, receipt_id])
+                        record = {"kind": "all_source_retry_rederived_v1", "source": task["source"], "route": route,
+                                  "at": at, "state": "retryable", "reason": "OWNER_SIGN_IN_REQUIRED",
+                                  "reference": record_id, "task_id": task_id, "receipt_id": receipt_id,
+                                  "next_retry_at": retry_at, "tries": task["tries"]}
+                        updated = dict(task, retryable=True, next_retry_at=retry_at, revision=task.get("revision", 0) + 1)
+                        try:
+                            memory.commit(record_id, [change("source_checks", record_id, record),
+                                                      change("query_tasks", task_id, updated, task)])
+                        except SafetyError as error:
+                            if str(error) != "RUNNER_ALREADY_ACTIVE":
+                                raise
+                        else:
+                            state = memory.snapshot(); task = state["query_tasks"][task_id]
+                            # Its own run's route pause becomes the due probe it would
+                            # have been, had the receipt been saved retryable.
+                            pause = paused_routes.get(route)
+                            if (pause and pause.get("task_id") == task_id and pause.get("receipt_id") == receipt_id
+                                    and not pause.get("next_retry_at")):
+                                paused_routes[route] = dict(pause, next_retry_at=retry_at)
+                                if timestamp(retry_at) <= timestamp(at):
+                                    due_probes.add(task_id)
                 if not access_saved and (task["tries"] >= run["max_attempts"]
                         or task.get("prelaunch_failures", 0) >= run["max_attempts"]
                         or task["status"] == "waiting_input"
@@ -3159,6 +3293,18 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
                                     "reason": resolution["reason"]})
                     continue
                 if resolution["action"] == "collect":
+                    replaces = (state["batch_runs"].get(resolution["acquisition_id"], {}).get("binding") or {}).get("damage_recovery")
+                    if (reconciling and replaces and resolution["acquisition_id"] != task.get("acquisition_id")
+                            and (task["tries"] >= run["max_attempts"]
+                                 or task.get("prelaunch_failures", 0) >= run["max_attempts"])):
+                        # The saved read this question was finishing is set aside (its
+                        # bytes were lost) and no try is left for a fresh read: closed.
+                        _upsert(memory, "query_tasks", task_id, dict(task, status="blocked", reconcile_required=False,
+                                retryable=False, next_retry_at=None, reason="SOURCE_SAVED_READ_SET_ASIDE"), task)
+                        state = memory.snapshot()
+                        results.append({"task_id": task_id, "state": "blocked", "actual_attempt": False,
+                                        "reason": "SOURCE_SAVED_READ_SET_ASIDE"})
+                        continue
                     callback = registry[route]["handler"]
                     reconciling = False
                 if resolution["action"] == "collect" and route in paused_routes and task_id not in due_probes and not public_bypass:
@@ -3206,6 +3352,11 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
                     intent.update(acquisition_owner_ref=acquisition_id,
                                   **shared_source_caller_fields(registry[route], resolution["request"]))
                     intent.update(access_admission["caller_fields"])
+                    if ((state["batch_runs"].get(acquisition_id, {}).get("binding") or {}).get("damage_recovery")
+                            and intent.get("reused_acquisition_ref") and not task.get("attempt_refs")):
+                        # The borrowed saved answer was set aside before this question
+                        # applied it: this replacement is the question's own counted read.
+                        intent.pop("reused_acquisition_ref")
                 try:
                     if turn is None:
                         memory.commit(key("source-caller-admission", [task_id, digest(intent), access_admission["changes"]]),
@@ -3309,6 +3460,11 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
             if not local_saved and not staged:
                 calls += 1
                 inspection["service_next_index"] = (members.index(task_id) + 1) % len(members)
+            elif local_saved:
+                # A saved local answer (a dropship per-type match, a shared
+                # marketplace reply) uses no callback or allowance. Its receipt
+                # may still add a real attempt ref, so name it for callers.
+                saved_answers.append(acquisition_id)
             # A read in the owner's signed-in profile may first wait for the
             # one signed-in browser and always closes it gracefully afterwards.
             deadline = timeout_seconds
@@ -3447,8 +3603,8 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
             if str(error) != "RUNNER_ALREADY_ACTIVE":
                 raise
             local_save_errors.append({"stage": "pass_progress", "reason": str(error)})
-    return {"run_id": run_id, "handler_calls": calls, "results": results,
-            "counts": dict(Counter(row["state"] for row in results)),
+    return {"run_id": run_id, "handler_calls": calls, "saved_answer_refs": list(dict.fromkeys(saved_answers)),
+            "results": results, "counts": dict(Counter(row["state"] for row in results)),
             "report_filled_does_not_stop_work": True, "progress_errors": progress_errors,
             "local_save_errors": local_save_errors, "saved_recovery_scanned": recovery_scanned,
             "saved_recovery_cursor": recovery_cursor,

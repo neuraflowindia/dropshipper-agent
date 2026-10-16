@@ -4,6 +4,13 @@ Ownership is not financial admission, callback admission or permission to launch
 No function here invokes a source, a parser, a model or a process. Adapters must
 still perform the existing admission and immediate-before-launch checks. Saved
 responses and local parse receipts can be recovered without a new acquisition.
+
+A saved read whose recorded files are proven LOST (an interrupted write left
+them empty or only zero bytes, ``_damaged_files``) is set aside once, for good
+and with its proof (``set_aside_damaged_acquisition``); the next claim of that
+request then reserves one linked next generation, an ordinary inert
+reservation that still needs every admission, budget, pacing and access wait.
+Any other change to recorded bytes still refuses reuse and recollection.
 """
 
 from copy import deepcopy
@@ -28,7 +35,8 @@ DEFAULT_FRESHNESS_SECONDS = 7 * 24 * 60 * 60
 MAX_ARTIFACT_BYTES = 8 * 1024 * 1024
 _HEX = re.compile(r"[0-9a-f]{64}")
 _STATES = frozenset(("reserved", "dispatching", "response_saved", "parsed", "completed_empty",
-                     "failed_access", "execution_unknown"))
+                     "failed_access", "execution_unknown", "set_aside"))
+DAMAGED_REASON = "SOURCE_ACQUISITION_ARTIFACT_DAMAGED"
 _CHANNELS = frozenset(("direct_local", "funded_provider", "unknown"))
 _FEES = frozenset(("known_zero", "reserved_paid", "unknown"))
 _READINESS_OWNERS = ContextVar("source_readiness_owners", default=None)
@@ -258,6 +266,110 @@ def _response(state, row, *, files_out=None):
     return value
 
 
+def _damaged_files(row, response):
+    """The recorded files of one saved response that are proven LOST, never changed.
+
+    A write cut short by a power cut or forced shutdown can leave a file whose
+    recorded bytes never reached the disk: it is now empty, or holds only zero
+    bytes. That is the only damage accepted here. Any other difference is a
+    real content change (a person, an agent or a bug edited saved evidence):
+    it raises ``SOURCE_ACQUISITION_ARTIFACT_CHANGED`` and is never set aside,
+    so it can never be used to force a new read. A missing or unreadable file
+    proves nothing (a mounted drive may be away) and raises as before.
+    """
+    roots = row["binding"]["artifact_roots"]
+    damaged, files = [], []
+    for role, name, proof in [("receipt", None, response["receipt"]),
+                              *[("artifact", name, proof) for name, proof in sorted(response["artifacts"].items())]]:
+        current, fingerprint, raw = _file(proof["path"], roots)
+        if current == proof:
+            continue
+        if raw.strip(b"\x00"):
+            raise SafetyError("SOURCE_ACQUISITION_ARTIFACT_CHANGED")
+        if len(raw) != fingerprint[2]:
+            # Fewer bytes than the file system says the file holds: an
+            # unsettled read, not proof that the recorded bytes are gone.
+            raise SafetyError("SOURCE_ACQUISITION_FILE_UNAVAILABLE")
+        damaged.append({"role": role, "name": name, "path": proof["path"], "recorded_sha256": proof["sha256"],
+                        "found_sha256": current["sha256"], "found_bytes": len(raw),
+                        "damage": "empty" if not raw else "zero_filled"})
+        files.append((current, fingerprint))
+    return damaged, files
+
+
+def _set_aside_stage(state, row):
+    """The one set-aside stage of a set-aside owner (validated), else an error."""
+    stages = [(stage_id, _stage(state, row, stage_id)) for stage_id in row["stage_ids"]]
+    found = [(stage_id, stage) for stage_id, stage in stages if stage["stage_type"] == "set_aside"]
+    if (row["state"] != "set_aside" or len(found) != 1 or found[0][0] != row["stage_ids"][-1]
+            or row.get("active_response_id") is not None or found[0][1]["response_id"] not in row["response_ids"]):
+        raise SafetyError("SOURCE_ACQUISITION_RECORD_INVALID")
+    return found[0]
+
+
+def set_aside_damaged_acquisition(memory, acquisition_id, *, as_of):
+    """Set a saved read aside, for good, when its recorded files are proven lost.
+
+    Only ``_damaged_files`` damage qualifies; a real content change still
+    raises. Nothing is deleted or rewritten: the original response stage stays
+    in the record, and this set-aside stage names every lost file with its
+    recorded and found hash. The owner keeps its generation and is never
+    trusted, replayed or given another stage again. ``claim_source_acquisition``
+    may then reserve ONE linked next generation for the same request.
+    """
+    _date(as_of)
+    state = memory.snapshot(); old = _record(state, acquisition_id)
+    if old["state"] == "set_aside":
+        _set_aside_stage(state, old)
+        return _result("set_aside", acquisition_id, old)
+    response_id = old.get("active_response_id")
+    response = _stage(state, old, response_id) if response_id else None
+    if not response or response.get("stage_type") != "response":
+        raise SafetyError("SOURCE_ACQUISITION_DAMAGE_NOT_PROVEN")
+    damaged, files = _damaged_files(old, response)
+    if not damaged:
+        raise SafetyError("SOURCE_ACQUISITION_DAMAGE_NOT_PROVEN")
+    saved = _commit_stage(memory, old, "set_aside", {"reason": DAMAGED_REASON, "response_id": response_id,
+            "response_hash": digest(response), "parse_id": old.get("active_parse_id"), "damaged_files": damaged},
+        max(as_of, old["updated_at"], key=timestamp),
+        {"state": "set_aside", "active_response_id": None, "active_parse_id": None, "parse_state": "not_started"},
+        files=files, references=[{"table": "source_checks", "id": response_id, "hash": digest(response)}],
+        guard=lambda *_: None)
+    return dict(saved, action="set_aside")
+
+
+def damage_replacement_allowed(row):
+    """One fresh read may replace a lost saved read, not a lost replacement.
+
+    A replacement that is itself lost again stops here
+    (``SOURCE_ACQUISITION_DAMAGE_REPEATED``): repeated loss means something
+    keeps damaging saved files, and re-reading every round would hide it.
+    """
+    return row["binding"].get("damage_recovery") is None
+
+
+def saved_response_or_replacement(state, owner):
+    """``(response, replace)`` for pure readiness and planning reads.
+
+    ``replace`` is True when the next claim of this request will reserve a
+    fresh read in place of a saved read that is set aside, or whose recorded
+    files are proven lost (``_damaged_files``); its response is then None.
+    Reads files like ``_response`` and writes nothing. A real content change
+    still raises ``SOURCE_ACQUISITION_ARTIFACT_CHANGED``, exactly as before.
+    """
+    if owner is None:
+        return None, False
+    if owner["state"] == "set_aside":
+        return None, damage_replacement_allowed(owner)
+    try:
+        return _response(state, owner), False
+    except SafetyError as error:
+        if str(error) != "SOURCE_ACQUISITION_ARTIFACT_CHANGED":
+            raise
+    _damaged_files(owner, _stage(state, owner, owner["active_response_id"]))
+    return None, damage_replacement_allowed(owner)
+
+
 def _owner_enabled(memory):
     from .programme import programme_service_state
     return programme_service_state(memory)["enabled"]
@@ -293,6 +405,13 @@ def claim_source_acquisition(memory, route, request, *, owner_id, as_of, method=
     an invocation voucher. Another callback requires its own fresh turn slot.
     Legacy intent adoption is deliberately not inferred here: its later bridge
     must inspect real legacy execution proof and install the original ID/state.
+
+    A previous saved read whose recorded files are proven lost is set aside
+    first (``set_aside_damaged_acquisition``); a set-aside previous owner then
+    gets one linked next generation, bound to that set-aside proof
+    (``binding["damage_recovery"]``), instead of a join or a reuse. That is an
+    ordinary reservation: no admission, callback slot, pacing, access wait or
+    route pause is skipped. A lost replacement is not replaced again.
     """
     identifier(owner_id); _date(as_of)
     if type(freshness_seconds) is not int or not 0 <= freshness_seconds <= 366 * 24 * 60 * 60:
@@ -321,13 +440,37 @@ def claim_source_acquisition(memory, route, request, *, owner_id, as_of, method=
     if not isinstance(artifact_roots, (tuple, list)):
         raise SafetyError("SOURCE_ACQUISITION_ROOTS_INVALID")
     roots = _roots([memory.root, *artifact_roots])
-    for _ in range(3):
+    for _ in range(4):
         state = memory.snapshot(); owners = _owners(state, fingerprint)
         previous_id, previous = owners[-1] if owners else (None, None)
         generation = 1
         response, response_files = None, []
-        if previous is not None:
-            response = _response(state, previous, files_out=response_files)
+        damage_recovery = None
+        if previous is not None and previous["state"] == "set_aside":
+            # Its saved bytes are proven lost: never joined, reused or refreshed.
+            if access_recovery is not None:
+                raise SafetyError("SOURCE_ACQUISITION_ACCESS_RECOVERY_INVALID")
+            if image_recovery is not None:
+                raise SafetyError("SOURCE_IMAGE_RECOVERY_INVALID")
+            set_aside_id, set_aside = _set_aside_stage(state, previous)
+            if not damage_replacement_allowed(previous):
+                raise SafetyError("SOURCE_ACQUISITION_DAMAGE_REPEATED")
+            damage_recovery = {"acquisition_id": previous_id, "set_aside_id": set_aside_id,
+                               "set_aside_hash": digest(set_aside), "reason": set_aside["reason"]}
+            generation = previous["binding"]["generation"] + 1
+        elif previous is not None:
+            try:
+                response = _response(state, previous, files_out=response_files)
+            except SafetyError as error:
+                if str(error) != "SOURCE_ACQUISITION_ARTIFACT_CHANGED":
+                    raise
+                # Proven lost bytes are set aside once (then the loop reserves
+                # the replacement); a real content change raises here as before.
+                try:
+                    set_aside_damaged_acquisition(memory, previous_id, as_of=as_of)
+                except SafetyError as conflict:
+                    if str(conflict) != "SOURCE_ACQUISITION_CONFLICT": raise
+                continue
             if (route == "public_image_http" and previous["binding"]["generation"] >= 3
                     and response and not response["complete"]):
                 return _result("join", previous_id, previous)
@@ -367,8 +510,13 @@ def claim_source_acquisition(memory, route, request, *, owner_id, as_of, method=
                 return _result("join", previous_id, previous)
         elif refresh_due_at is not None or access_recovery is not None or image_recovery is not None:
             raise SafetyError("SOURCE_ACQUISITION_REFRESH_ORIGIN_REQUIRED")
-        acquisition_id = original_acquisition_id or key("source-acquisition", [fingerprint, generation])
-        attempt_id = original_attempt_id or acquisition_id
+        # A replacement's identity follows the request chain, never a caller's
+        # proposed ID (a reconciling caller still names the set-aside owner).
+        acquisition_id = (key("source-acquisition", [fingerprint, generation]) if damage_recovery
+                          else original_acquisition_id or key("source-acquisition", [fingerprint, generation]))
+        # Likewise its attempt: a proposed attempt ID (an original's, maybe a
+        # paid one) never names the replacement's own new read.
+        attempt_id = acquisition_id if damage_recovery else original_attempt_id or acquisition_id
         binding = {"contract": ACQUISITION_KIND, "route": route, "request": deepcopy(request),
             "method": method, "capture_options": capture_options, "physical_request_fingerprint": fingerprint,
             "acquisition_id": acquisition_id, "original_attempt_id": attempt_id, "owner_id": owner_id,
@@ -376,11 +524,14 @@ def claim_source_acquisition(memory, route, request, *, owner_id, as_of, method=
             "collection_channel": collection_channel, "incremental_collection_fee": incremental_collection_fee,
             "origin_account_key": origin_account_key,
             "artifact_roots": roots,
-            "refresh": {"due_at": refresh_due_at, "reason": refresh_reason} if refresh_due_at else None}
+            "refresh": ({"due_at": refresh_due_at, "reason": refresh_reason}
+                        if refresh_due_at and not damage_recovery else None)}
         if access_recovery is not None:
             binding["access_recovery"] = deepcopy(access_recovery)
         if image_recovery is not None:
             binding["image_recovery"] = deepcopy(image_recovery)
+        if damage_recovery is not None:
+            binding["damage_recovery"] = damage_recovery
         row = {"kind": ACQUISITION_KIND, "binding": binding, "binding_hash": digest(binding),
             "state": "reserved", "created_at": as_of, "updated_at": as_of,
             "stage_ids": [], "response_ids": [], "parse_ids": [], "active_response_id": None,
@@ -405,6 +556,9 @@ def claim_source_acquisition(memory, route, request, *, owner_id, as_of, method=
                     raise SafetyError("SOURCE_ACQUISITION_ACCESS_RECOVERY_INVALID")
             if image_recovery is not None and source_image_recovery(current, previous_id, as_of=as_of) != image_recovery:
                 raise SafetyError("SOURCE_IMAGE_RECOVERY_INVALID")
+            if (damage_recovery is not None and digest(current["source_checks"].get(damage_recovery["set_aside_id"]))
+                    != damage_recovery["set_aside_hash"]):
+                raise SafetyError("SOURCE_ACQUISITION_STAGE_INVALID")
             _guard(memory, current, binding, source_guard)
         _guard(memory, state, binding, source_guard)
         try:
@@ -420,6 +574,9 @@ def claim_source_acquisition(memory, route, request, *, owner_id, as_of, method=
 def _commit_stage(memory, old, stage_type, data, as_of, updated, *, files=(), captures=(), references=(), guard=None,
                   photo_admission=False, joined_changes=()):
     acquisition_id = old["binding"]["acquisition_id"]
+    if old["state"] == "set_aside":
+        # Lost saved bytes are never re-bound, replayed or extended on this owner.
+        raise SafetyError("SOURCE_ACQUISITION_SET_ASIDE")
     stage = {"kind": STAGE_KIND, "stage_type": stage_type, "acquisition_id": acquisition_id,
              "binding_hash": old["binding_hash"], **deepcopy(data)}
     stage_id = key("source-acquisition-stage", stage)
@@ -482,7 +639,7 @@ def mark_source_dispatching(memory, acquisition_id, *, as_of, source_guard=None,
 def mark_source_execution_unknown(memory, acquisition_id, *, reason, as_of):
     _date(as_of); _text(reason)
     old = _record(memory.snapshot(), acquisition_id)
-    if old["active_response_id"] or old["state"] in {"parsed", "completed_empty", "failed_access"}:
+    if old["active_response_id"] or old["state"] in {"parsed", "completed_empty", "failed_access", "set_aside"}:
         raise SafetyError("SOURCE_ACQUISITION_TRANSITION_INVALID")
     return _commit_stage(memory, old, "execution_unknown", {"reason": reason}, as_of,
                          {"state": "execution_unknown"})

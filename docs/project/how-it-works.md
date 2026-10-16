@@ -12,19 +12,19 @@ A recommendation means "this looks worth trying". It doesn't promise sales or pr
 
 ## Where it looks
 
-Status, 15 October 2026: the new set-up below (agreed on 14 October in [Plan R10](plan-2026-10-14-speed-sources-and-selection.md)) is **built but not switched on yet**. It goes live at the planned switch-over, after which each new site has to prove itself with real reads. Until then the research still runs on the older set-up.
+Status, 16 October 2026: the set-up below (agreed on 14 October in [Plan R10](plan-2026-10-14-speed-sources-and-selection.md)) has been live since 15 October, and research restarted from scratch on 16 October. Each signed-in site still has to prove itself with real reads. **Google Trends** now draws its chart while the research window stays minimised (proven on 16 October) and must pass its three-read check after the owner's next sign-in. **Dropdash** is read from its real pages, first seen signed in on 16 October. **IndiaMART** waits until the owner signs in to it (see "Signing in once" below).
 
 **To find new product ideas**
 1. **Meta Ad Library**: the public list of ads running on Facebook and Instagram. It shows who is advertising a product and for how long. The program also looks at the other ads of advertisers it has already found useful.
-2. **Three dropshipping platforms**: **DeoDap**, **BaapStore** and **Dropdash**. Their new arrivals, bestseller and trending lists suggest products. All three gave permission. (A fourth, Dropship India, was dropped by the owner on 15 October because it showed nothing useful, signed in or not.)
+2. **Three dropshipping platforms**: **DeoDap**, **BaapStore** and **Dropdash**. Their new arrivals, bestseller and trending lists suggest products (on Dropdash: its "Profitable Products" list, plus a sample of six products per category from its home page). All three gave permission. (A fourth, Dropship India, was dropped by the owner on 15 October because it showed nothing useful, signed in or not.)
 3. **Google Trends** "rising" searches, and new listings on **IndiaMART** and **TradeIndia** in our categories.
 
 **To check each product**
 4. **Meta Ad Library** again, for that exact product. When the free look leaves gaps (who is advertising, since when), a deeper look uses the free monthly Apify allowance.
 5. **Google Trends**: whether people in India are searching for it more or less over time. It shows ups and downs, not actual numbers of people.
-6. **Amazon India and Flipkart**, turned around: they no longer suggest new products, and their main job now is to show **how crowded** a product already is (Low, Medium or High), from how many similar listings there are, how many ratings they have and whether they're on a bestseller list. A product isn't ready for a report until this check is done. (Until the owner settles the new way of ranking products, they still also count as a supporting site in the old ranking described below.)
+6. **Amazon India and Flipkart**, turned around: they no longer suggest new products, and their main job now is to show **how crowded** a product already is (Low, Medium or High), from how many similar listings there are, how many ratings they have and whether they're on a bestseller list. A product isn't ready for a report until this check is done.
 7. **Blinkit**, **Zepto** and **Swiggy Instamart** (the quick-delivery apps), in Mumbai first, then Delhi NCR and Bengaluru only if Mumbai shows something relevant. Each check costs a prepaid credit, so only products that already pass the checklist and aren't too crowded get checked, and the same city isn't asked again for 30 days.
-8. **The three dropshipping platforms** again: whether the product is listed, at what price, and whether it's on their bestseller or trending lists.
+8. **The three dropshipping platforms** again: whether the product is listed, at what price, and whether it's on their bestseller or trending lists. (Dropdash's prices already include GST and shipping, as the site says.)
 
 **To find possible suppliers**
 9. **IndiaMART** (read while signed in), 10. **TradeIndia**, 11. **Google Maps** (read straight in the program's own browser), 12. **supplier and company websites**, and 13. the **dropshipping platforms**, whose listings count as supplier leads.
@@ -33,9 +33,9 @@ Google search for suppliers was switched off on 14 October (Google refuses autom
 
 Separately, it saves real product photos where it can find suitable ones.
 
-**Signing in once.** Google Trends, IndiaMART and Dropdash are read while signed in with a separate research Gmail, in the program's own Chrome window (never the owner's everyday Chrome). The owner clicks **Sign in to research sites** in the NeuraFlow Dropshipper window, signs in on each tab and closes it. If a sign-in runs out, the window says so and only that site waits. The program never stores passwords, never pays and never clicks "contact" or "get price" buttons.
+**Signing in once.** Google Trends, IndiaMART and Dropdash are read while signed in with a separate research Gmail, in the program's own Chrome window (never the owner's everyday Chrome). The owner clicks **Sign in to research sites** in the NeuraFlow Dropshipper window, signs in on each tab and closes it. IndiaMART signs in with a mobile number and a one-time code it texts; Dropdash with a 10-digit mobile number and password. If a sign-in runs out (or was never done), the window says so and only that site waits: its questions wait calmly until the next sign-in instead of failing. The research window stays minimised and never takes focus; the program asks Chrome to keep drawing the page anyway, so the owner isn't disturbed. The program never stores passwords, never pays and never clicks "contact" or "get price" buttons.
 
-**When a site says no.** It writes that down and waits longer each time (5 minutes, then 1 hour, then 6 hours, then a day) instead of knocking again and again. Google Trends must first prove it works: after signing in, its first three reads must save complete results. If Google still refuses, research carries on without Trends.
+**When a site says no.** It writes that down and waits longer each time (5 minutes, then 1 hour, then 6 hours, then a day) instead of knocking again and again. Google Trends must first prove it works: after each sign-in, its first three reads must save complete results. If Google still refuses, research carries on without Trends.
 
 **What it deliberately does *not* do**
 - It doesn't buy paid upgrades, extra credits, paid add-on packs or supplier memberships on its own.
@@ -71,13 +71,13 @@ Separately, it saves real product photos where it can find suitable ones.
 - **5 "Meets" = Decent fit.** It can still go in a report.
 - **Unknown isn't failure.** "Unclear" simply doesn't earn a point. If enough questions are still open, the product is marked "more information needed", not rejected.
 
-**Market checks across sites.** These are kept separate from the checklist. Today the program counts how many of **seven sites** show relevant interest: Meta, Amazon (all Amazon routes count as one site), Flipkart, Google Trends, Blinkit, Zepto and Instamart. Supplier sites never count as a vote. Stock on a quick-delivery app is only background information, not proof of sales. Products are ranked in this order:
-1. 6+ Meets and 2+ supporting sites
-2. 5 Meets and 2+ sites
-3. 6+ Meets and 1 genuinely positive site
-4. 5 Meets and 1 genuinely positive site
+**The opportunity score (out of 100).** Market checks are kept separate from the checklist and turned into one score with the owner's weights:
+- **Want (20 points):** Facebook/Instagram ads, Google searches, the platforms' bestseller and trending lists, and quick-delivery stock.
+- **Early (30 points):** rising searches, advertisers who started in the last 30 days, and new-arrival lists.
+- **Room (25 points):** how crowded Amazon and Flipkart are: Low 25, Medium 12, High 0.
+- **Product (25 points):** the checklist: 5 Meets earns 10, and each further Meet adds 3.
 
-**A new ranking is being designed with the owner.** Instead of these four groups, products will get a weighted score that combines how many places show interest, whether they're on bestseller or trending lists, and how crowded they are on Amazon and Flipkart. Until that's agreed, the four groups above stay, and the crowding level is recorded but doesn't change the order yet.
+Each product gets a label: **Sweet spot**, **Early bet**, **Proven but crowded** or **Too quiet**. Reports take Low and Medium crowding products first, highest score first; High crowding ones only fill gaps. Supplier sites never add points.
 
 ## Suppliers and photos
 
@@ -105,7 +105,7 @@ Photos: the report uses at least one real product photo, with its source noted, 
 - **Where the work is kept.** Since the 13 October 2026 fresh start, the program's working records live on the fast Linux side of the computer (`/home/anan/neuraflow-dropshipper-data/`). Everything from before that date is kept untouched in the project's `archive/` folder.
 - **Backups.** One automatic copy per day goes into the project's `data/backups` folder on the D: drive. It includes research, reports and important files, but not passwords or sign-in files. It sits on the same drive, so it won't help if the drive itself fails. A failed backup never stops research.
 - **Cost limits and free allowances.** The aim is to keep running costs at or below ₹750 a month (the estimate is about ₹500: one quick-commerce credit pack, which the owner buys when the app says credits are low). The deeper Meta look uses only the free US$5 a month on one Apify account, keeping US$0.50 back. The AI runs on the owner's existing ChatGPT subscription and never spends paid extra credits. A **spending watch** shows each allowance in the desktop window and warns at 50%, 75%, 90% and 100%; at 100% a paid route waits while free work carries on. Nothing is upgraded or bought automatically, and AI answers that are already saved are reused.
-- **When something fails.** One failure doesn't stop everything. The program keeps everything that already worked, notes exactly what failed and when to try again, and moves on to other ready work. If a site is blocked, it moves on to other work. If nothing is ready, it waits quietly and picks up later. It doesn't pretend the work is finished.
+- **When something fails.** One failure doesn't stop everything. If a power cut spoils a saved read (its files come back empty), that read is set aside, not deleted, and read once more. The program keeps everything that already worked, notes exactly what failed and when to try again, and moves on to other ready work. If a site is blocked, it moves on to other work. If nothing is ready, it waits quietly and picks up later. It doesn't pretend the work is finished.
 
 ## One product, start to finish
 
@@ -114,7 +114,7 @@ This is a made-up example to show the steps. It isn't a real result.
 1. During Monday's research, a discovery round finds a pull-up bar that fits in a doorway on a dropshipping platform's new-arrivals list.
 2. The AI reads the listing and defines the product as **"Adjustable doorway pull-up bar"**. It checks that this isn't a copy of something already found and that it isn't a big-brand product, and puts it in its main category.
 3. The checklist gives, say, 6 "Meets" (small, easy to ship, convenient, solves a problem, saves money on gym fees, good value) = **Good fit**.
-4. Market checks find several advertisers on Meta and rising searches on Google Trends: **two supporting sites**, so it lands in the top priority group. Amazon and Flipkart show only a few similar listings with few ratings: crowding **Low**. A quick-delivery check in Mumbai finds it in stock (background only).
+4. Market checks find several advertisers on Meta and rising searches on Google Trends, which earn "want" and "early" points. Amazon and Flipkart show only a few similar listings with few ratings: crowding **Low**, the full 25 "room" points. A quick-delivery check in Mumbai finds it in stock (one more "want" point). Its opportunity score is high and it is labelled **Sweet spot**.
 5. A supplier search on IndiaMART, TradeIndia and Google Maps finds two wholesale leads, and DeoDap lists a similar item at a wholesale price. One says it ships single pieces to customers and has no subscription. A real photo is saved.
 6. The product has never been sent to this client, so it's marked **New** and placed in Thursday's report.
 7. The facts are frozen. The PDF(s) and Excel file are made, the owner checks and approves them, and on Thursday at 9:00 am the client sees it on the private website.

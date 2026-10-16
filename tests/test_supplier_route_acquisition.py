@@ -290,6 +290,31 @@ class SupplierRouteTests(unittest.TestCase):
         self.assertEqual(len(self.reader.calls), 1)
         self.assertEqual(browser.calls, [])
 
+    def test_a_sign_in_wall_in_the_signed_in_profile_is_a_retryable_route_block(self):
+        # As Trends does, and as the shared reader does (signed_in_wall_response).
+        import re
+        from product_radar.supplier_route_acquisition import _result, _search_access_failure
+        from test_indiamart_results import WALL, page
+        aid = "signed-in-wall-search"
+        url = supplier_route_url("indiamart", QUERY)
+        item = {"id": key("supplier-route-request", [aid, "browser"]), "url": url}
+        for name, profile, status, actual, expected in (("sign-in wall", "signed-in", 200, True, (True, True)),
+                                                        ("challenge", None, 200, True, (True, False)),
+                                                        ("429", None, 429, True, (True, True)),
+                                                        ("never sent", "signed-in", 200, False, (False, False))):
+            with self.subTest(name):
+                value = dict(receipt(item, body=page(WALL), status=status, actual=actual), text=re.sub(r"<[^>]+>", " ", page(WALL)))
+                if profile:
+                    value["profile"] = profile
+                parsed = parse_supplier_route_receipt("indiamart", QUERY, item, value)
+                if status == 429:
+                    parsed = {"state": "blocked", "reason": "PUBLIC_HTTP_UNAVAILABLE", "results": []}
+                self.assertEqual(parsed["state"], "blocked")
+                records = [{"transport": "browser", "receipt": value, "parsed": parsed}]
+                record = {"acquisition_id": aid, "request": {"route": "indiamart", "url": url, "query": QUERY},
+                          "records": records, "result": _result(records)}
+                self.assertEqual(_search_access_failure(record, "saved-search.json"), expected)
+
     def test_challenge_including_empty_marker_is_blocked_not_empty(self):
         item = {"id": "fixture", "url": supplier_route_url("indiamart", QUERY)}
         parsed = parse_supplier_route_receipt("indiamart", QUERY, item,

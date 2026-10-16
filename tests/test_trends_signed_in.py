@@ -70,6 +70,8 @@ class SignedInTrendsTests(unittest.TestCase):
         self.memory.put("concepts", "chair", {"status": "active", "description": {"label": "chair cover"}})
         self.calls, self.state = [], "captured"
         self.snap, self.status, self.visibility, self.frame = page(), 200, "visible", None
+        self.download = "completed"  # Chrome's own download event for the CSV (None: never reported)
+        self.events = True  # the read listened to Chrome's download events (False: a read saved before they existed)
         browser = patch("product_radar.native_public_browser.native_snapshot", side_effect=self.native)
         browser.start(); self.addCleanup(browser.stop)
 
@@ -95,9 +97,13 @@ class SignedInTrendsTests(unittest.TestCase):
                   "owned_process_exited": True, "window_state": "minimized", "page_visibility": self.visibility,
                   "animation_frame": self.visibility == "visible" if self.frame is None else self.frame,
                   "snapshot": dict(self.snap, url=self.snap.get("redirect", url))}
+        if self.events and options.get("download_folder") is not None:
+            output["download_events"] = True  # as the real read marks every read that listened to them
         if self.snap.get("download_found"):
             term = self.snap["text"].split("\n", 1)[0].encode()
             (folder / "multiTimeline.csv").write_bytes(original()["csv_bytes"].replace(b"chair cover:", term + b":"))
+            if self.snap.get("download_clicked") and self.download:
+                output["download_state"] = self.download  # as the real read records Chrome's own event
         atomic_json(folder / "native_result.json", output)
         return output
 
@@ -214,6 +220,76 @@ class SignedInTrendsTests(unittest.TestCase):
         record = gate.proof_gate(self.signed)
         self.assertEqual((record["state"], record["sign_in_at"], len(record["reads"])), ("in_progress", signed_at, 1))
         self.assertEqual(gate.proof_gate_line(self.signed), "Google Trends check: 1 of 3 signed-in reads saved complete results.")
+
+    def test_a_csv_counts_only_once_chrome_reports_its_download_complete(self):
+        self.sign_in()
+        # A file of that name is on disk each time; only Chrome's own "completed" event makes it the export.
+        for name, state in (("canceled", "canceled"), ("unreported", None)):
+            with self.subTest(download=name):
+                self.download = state
+                receipt = self.capture(name)
+                folder = Path(receipt["folder"])
+                self.assertTrue((folder / "multiTimeline.csv").is_file())
+                self.assertEqual((receipt["state"], receipt["reason"]), ("insufficient", "DIRECT_TRENDS_CHART_EXPORT_MISSING"))
+                self.assertNotIn("multiTimeline.csv", receipt["artifacts"])
+                self.assertEqual(load_json(folder / "transport.json").get("download_state"), state)
+                self.assertEqual(replay_direct_trends(folder), receipt)
+        record = gate.proof_gate(self.signed)  # never a complete read for the proof gate
+        self.assertEqual((record["state"], [(row["passed"], row["reason"]) for row in record["reads"]]),
+                         ("failed", [(False, "DIRECT_TRENDS_CHART_EXPORT_MISSING")]))
+        self.download = "completed"
+        receipt = self.capture("completed")
+        self.assertEqual((receipt["state"], receipt["reason"]), ("usable", "DIRECT_TRENDS_CHART_EXPORT_VERIFIED"))
+        self.assertIn("multiTimeline.csv", receipt["artifacts"])
+
+    def test_an_interrupted_read_is_reinterpreted_with_its_csv_only_after_chrome_completed_it(self):
+        from product_radar.source_deadline import SourceActionDeadline
+        from product_radar.trends_controller import reconcile_direct_trends
+        self.sign_in()
+        for name, state, expected in (("unreported", None, ("insufficient", "DIRECT_TRENDS_CHART_EXPORT_MISSING")),
+                                      ("completed", "completed", ("usable", "DIRECT_TRENDS_CHART_EXPORT_VERIFIED"))):
+            with self.subTest(download=name):
+                self.download = state
+                # The round's deadline ends the read while its saved page is being interpreted.
+                with patch("product_radar.trends_controller._interpret", side_effect=SourceActionDeadline()), \
+                        self.assertRaises(SourceActionDeadline):
+                    self.capture(name)
+                folder = self.captures / name
+                self.assertIn("multiTimeline.csv", load_json(folder / "receipt.json")["artifacts"])  # its bytes stay bound
+                recovered = reconcile_direct_trends(folder)
+                self.assertEqual((recovered["state"], recovered["reason"]), expected)
+                self.assertEqual(replay_direct_trends(folder)["reason"], "SOURCE_ACTION_TIMEOUT")
+
+    def test_a_read_saved_before_download_events_keeps_its_original_csv_rule(self):
+        from product_radar import trends_controller as controller
+        from product_radar.source_deadline import SourceActionDeadline
+        native = "owned_native_windows_chrome"
+        # The rule itself: only a read that listened to Chrome's events needs its "completed".
+        for actual, kept in (({"download_events": True, "download_state": "completed"}, True),
+                             ({"download_events": True, "download_state": "canceled"}, False),
+                             ({"download_events": True}, False), ({"download_state": "canceled", "download_events": "yes"}, True),
+                             ({}, True), (None, False)):
+            self.assertIs(controller.native_download_kept([native], actual), kept)
+        self.assertIs(controller.native_download_kept(["owned_playwright_browser"], None), True)
+        self.assertIs(controller.native_download_kept([], {"download_events": True}), True)
+        self.sign_in()
+        self.events, self.download = False, None  # saved before the read listened to Chrome's download events
+        receipt = self.capture("older")
+        self.assertNotIn("download_events", load_json(Path(receipt["folder"]) / "transport.json"))
+        self.assertEqual((receipt["state"], receipt["reason"]), ("usable", "DIRECT_TRENDS_CHART_EXPORT_VERIFIED"))
+        self.assertIn("multiTimeline.csv", receipt["artifacts"])
+        self.assertEqual(replay_direct_trends(receipt["folder"]), receipt)
+        # An interrupted older read was reinterpreted with its CSV before this rule existed; checking
+        # it again (the shared and rising re-verification) gives that same answer, never a conflict.
+        with patch("product_radar.trends_controller._interpret", side_effect=SourceActionDeadline()), \
+                self.assertRaises(SourceActionDeadline):
+            self.capture("older-interrupted")
+        folder = self.captures / "older-interrupted"
+        with patch.object(controller, "native_download_kept", return_value=True):  # the rule before download events
+            before = controller.reconcile_direct_trends(folder)
+        self.assertEqual((before["state"], before["reason"]), ("usable", "DIRECT_TRENDS_CHART_EXPORT_VERIFIED"))
+        self.assertEqual(controller.reconcile_direct_trends(folder), before)
+        self.assertEqual(rising_queries(folder)["acquisition_id"], "older-interrupted")
 
     def test_a_page_showing_the_sign_in_link_makes_later_reads_wait_for_the_owner(self):
         self.sign_in(); self.snap = page(avatar=False, link=True)

@@ -4,6 +4,12 @@ Actual rendered India/year/Web Search scope, chart rows and original CSV must
 agree before import. A readable no-data widget completes a check without
 inventing poor demand. Acquisition replay never starts a replacement browser.
 Old native/manual/Playwright packets retain their original acceptance paths.
+A chart CSV from an owned native Chrome read that listened to Chrome's own
+download events counts only once Chrome reported that download complete
+(``native_download_kept``): a canceled or unconfirmed download is never
+imported, so the read is short of its export
+(``DIRECT_TRENDS_CHART_EXPORT_MISSING``) rather than built on a partial file.
+A read saved before those events existed keeps its original rule.
 
 The controller's handlers read Trends only in the owner's signed-in research
 profile (``transport="signed-in"``, Plan R10 W2; ``trends_signed_in``): paced,
@@ -147,6 +153,25 @@ def source_state(receipt):
     if receipt["state"] == "no_data":
         return "empty"
     return "blocked" if receipt["reason"] == MINIMISED_NOT_RENDERED else receipt["state"]
+
+
+def native_download_kept(attempts, actual):
+    """Whether a saved chart CSV may be used. An owned native Chrome read that
+    listened to Chrome's own download events (``download_events``) counts its
+    CSV only once Chrome reported that download complete (``download_state``):
+    a canceled, unfinished or unconfirmed download is never imported or
+    reinterpreted, even when a file of that name is on disk. A read saved
+    before those events were recorded keeps its original rule (the one CSV on
+    disk), so re-checking it (replay, reconcile, the shared and rising
+    re-verification) gives the same answer as before. Other transports hand
+    their CSV bytes over directly."""
+    if not attempts or attempts[-1] != "owned_native_windows_chrome":
+        return True
+    if not isinstance(actual, dict):
+        return False
+    if actual.get("download_events") is True:
+        return actual.get("download_state") == "completed"
+    return True  # saved before Chrome's download events were recorded: the original rule
 
 
 def build_trends_request(query, *, country="IN"):
@@ -308,7 +333,8 @@ def capture_direct_trends(request, acquisition_id, *, data_root=DATA_ROOT, timeo
                     actual = _playwright(request, folder, min(timeout, int(remaining)), browser_path)
         snapshot = deepcopy(actual.get("snapshot"))
         raw = actual.get("csv_bytes")
-        if raw is None and receipt["transport_attempts"][-1] == "owned_native_windows_chrome":
+        if (raw is None and receipt["transport_attempts"][-1] == "owned_native_windows_chrome"
+                and native_download_kept(receipt["transport_attempts"], actual)):
             files = list(folder.glob("*.csv"))
             if len(files) == 1 and not files[0].is_symlink() and files[0].stat().st_size <= MAX_BYTES:
                 raw = files[0].read_bytes()
@@ -494,7 +520,8 @@ def reconcile_direct_trends(folder):
         if actual is None:
             return original
         snapshot = deepcopy(actual["snapshot"]); snapshot.pop("html", None)
-        raw = (folder / "multiTimeline.csv").read_bytes() if "multiTimeline.csv" in original["artifacts"] else None
+        raw = ((folder / "multiTimeline.csv").read_bytes() if "multiTimeline.csv" in original["artifacts"]
+               and native_download_kept(original.get("transport_attempts"), actual) else None)
         interpreted = _interpret(snapshot, original["request"], actual.get("navigation_status"), raw, actual["completed_at"])
         if interpreted["state"] != "blocked" and interpreted["scope_verified"] is not True:
             return original

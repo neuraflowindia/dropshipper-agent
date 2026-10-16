@@ -3,6 +3,7 @@
 import base64
 from contextlib import ExitStack
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -14,8 +15,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from product_radar.models import SafetyError
-from product_radar.native_public_browser import (SCRIPT, SIGNED_IN_OVERHEAD_SECONDS, SIGNED_IN_SCRIPT_MARGIN, SIGNED_IN_START,
-                                                native_snapshot, signed_in_budget, _cleanup_owned)
+from product_radar.native_public_browser import (ARTIFACTS, SCRIPT, SIGNED_IN_OVERHEAD_SECONDS, SIGNED_IN_SCRIPT_MARGIN,
+                                                SIGNED_IN_START, native_snapshot, signed_in_budget, _cleanup_owned)
 from product_radar import signed_in_browser
 from product_radar.storage import file_lock
 
@@ -53,6 +54,78 @@ class NativePublicBrowserTests(unittest.TestCase):
         self.assertEqual(actual["navigation_started_at"], result["navigation_started_at"])
         self.assertTrue(actual["owned_process_exited"])
         self.assertEqual(actual["exit_code"], 0)
+
+    def flushed_read(self, write, *, fail_after_exit=False):
+        """A read whose browser child writes its files as PowerShell and Chrome do
+        (plain writes, never flushed); returns the result. ``self.events`` keeps
+        every flush (each path, in order), also when the read is interrupted."""
+        self.events, url = [], "https://trends.google.com/trends/explore?geo=IN&q=desk"
+
+        def run(command, **kwargs):
+            if command[0] == "wslpath": return SimpleNamespace(stdout=command[-1] + "\n", returncode=0)
+            script = base64.b64decode(command[-1]).decode("utf-16le")
+            self.events.append("child exited")
+            write(json.loads(base64.b64decode(re.search(r"FromBase64String\('([^']+)'\)", script)[1])))
+            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+        def fsync(descriptor):
+            name = os.path.realpath(os.readlink("/proc/self/fd/" + str(descriptor)))
+            self.events.append(name)
+            if fail_after_exit and "child exited" in self.events:
+                raise OSError(5, "Input/output error")
+        with self.installed(), patch("os.fsync", side_effect=fsync):
+            return native_snapshot(url, "JSON.stringify({ok:true})", self.folder, runner=run, timeout=15,
+                                   ready_expression="true", download_folder=self.folder)
+
+    def test_every_saved_file_is_flushed_to_disk_before_the_read_returns(self):
+        result = {"state": "captured", "snapshot": {"ok": True}, "navigation_started": True,
+                  "navigation_started_at": "2026-10-16T10:00:00.125Z", "owned_process_exited": True, "download_events": True}
+
+        def write(payload):
+            Path(payload["ownership"]).write_text(json.dumps({"pid": 7}))
+            Path(payload["dispatch"]).write_text(json.dumps({"url": payload["url"], "navigation_started": True}))
+            (self.folder / "multiTimeline.csv").write_bytes(b"Category: All categories\n")  # Chrome's download
+            Path(payload["output"]).write_text(json.dumps(result), encoding="utf-8")
+        actual = self.flushed_read(write)
+        events = self.events
+        self.assertEqual((actual["state"], actual["download_events"]), ("captured", True))
+        exited = events.index("child exited")
+        saved = {os.path.realpath(self.folder / name) for name in ARTIFACTS + ("multiTimeline.csv",) if (self.folder / name).is_file()}
+        self.assertEqual(len(saved), 7)  # result, ownership, dispatch, the three instruction files and the CSV
+        # Every saved file, and the folder, is flushed after the child exited and before the read returns.
+        self.assertLessEqual(saved | {os.path.realpath(self.folder)}, set(events[exited + 1:]))
+        # The instruction files were saved whole (a flushed copy renamed into place) before the child started.
+        self.assertEqual(sum("/.save-" in event for event in events[:exited]), 3)
+
+    def test_a_read_whose_files_cannot_be_flushed_fails_but_keeps_what_the_browser_did(self):
+        result = {"state": "captured", "snapshot": {"ok": True}, "navigation_started": True,
+                  "navigation_started_at": "2026-10-16T10:00:00.125Z", "owned_process_exited": True}
+        actual = self.flushed_read(lambda payload: Path(payload["output"]).write_text(json.dumps(result)), fail_after_exit=True)
+        self.assertEqual((actual["state"], actual["reason"], actual["unflushed_state"]),
+                         ("failed", "NATIVE_PUBLIC_SAVE_NOT_FLUSHED", "captured"))
+        self.assertEqual((actual["navigation_started"], actual["navigation_started_at"], actual["owned_process_exited"]),
+                         (True, "2026-10-16T10:00:00.125Z", True))
+
+    def test_an_interrupted_read_is_flushed_and_a_failed_flush_never_hides_the_interruption(self):
+        from product_radar.source_deadline import SourceActionDeadline
+
+        def interrupted(payload):
+            Path(payload["dispatch"]).write_text(json.dumps({"url": payload["url"], "navigation_started": True}))
+            (self.folder / "multiTimeline.csv").write_bytes(b"partial")
+            raise SourceActionDeadline()
+        for failing in (False, True):
+            with self.subTest(failing_flush=failing):
+                for name in list(ARTIFACTS) + ["multiTimeline.csv"]:
+                    (self.folder / name).unlink(missing_ok=True)
+                with self.assertRaises(SourceActionDeadline):  # never replaced by a failed flush
+                    self.flushed_read(interrupted, fail_after_exit=failing)
+                after = self.events[self.events.index("child exited") + 1:]
+                # The browser's own write is flushed by the read itself, before the interruption reaches the caller
+                # (with a failing disk, the flush is still tried).
+                self.assertIn(os.path.realpath(self.folder / "native_dispatch.json"), after)
+                if not failing:
+                    for name in ("native_expression.js", "native_script.ps1", "multiTimeline.csv", ""):
+                        self.assertIn(os.path.realpath(self.folder / name), after)
 
     def test_browser_not_installed_does_not_claim_navigation_or_start_runner(self):
         def forbidden(*args, **kwargs): raise AssertionError("Native process must not start")
@@ -186,9 +259,12 @@ class SignedInNativeBrowserTests(unittest.TestCase):
     def test_signed_in_read_uses_the_lasting_profile_minimised_without_focus(self):
         actual = self.read({"state": "captured", "snapshot": {"ok": True}, "navigation_started": True,
                             "owned_process_exited": True, "sign_in_window_open": False, "close_method": "browser_close",
-                            "window_state": "minimized", "page_visibility": "hidden", "animation_frame": True})
+                            "window_state": "minimized", "page_visibility": "hidden", "animation_frame": True,
+                            "focus_emulation": True, "download_state": "completed"})
         self.assertEqual(actual["state"], "captured"); self.assertEqual(actual["close_method"], "browser_close")
         self.assertEqual((actual["window_state"], actual["page_visibility"], actual["animation_frame"]), ("minimized", "hidden", True))
+        # What the read records about drawing and Chrome's own download state reaches the caller unchanged.
+        self.assertEqual((actual["focus_emulation"], actual["download_state"]), (True, "completed"))
         self.assertTrue(self.payload["signed_in"]); self.assertEqual(self.payload["profile"], PROFILE)
         self.assertFalse(self.payload["headed"])
         self.assertFalse(any(path.name.startswith("owned-native-profile-") for path in self.capture.iterdir()))
@@ -267,6 +343,48 @@ class SignedInNativeBrowserTests(unittest.TestCase):
         self.assertLess(minimise, SCRIPT.index("Page.navigate"))
         self.assertIn("visibility:document.visibilityState", SCRIPT); self.assertIn("requestAnimationFrame(", SCRIPT)
         self.assertLess(SCRIPT.index("$result.page_visibility="), SCRIPT.index("$reply=Invoke-Cdp 'Runtime.evaluate' @{expression=$request.expression"))
+
+    def test_a_minimised_signed_in_page_keeps_drawing_through_focus_emulation(self):
+        # Chrome draws no frames for a minimised (hidden) page: the read asks the
+        # browser's own focus emulation to keep this page visible, before it navigates.
+        signed = SCRIPT.index("  if($request.signed_in){\n    # A minimised window's page")
+        focus = SCRIPT.index("Invoke-Cdp 'Emulation.setFocusEmulationEnabled' @{enabled=$true}")
+        self.assertLess(SCRIPT.index("$null=Invoke-Cdp 'Page.enable' @{}"), signed)
+        self.assertLess(signed, focus)
+        self.assertLess(focus, SCRIPT.index("Browser.getWindowForTarget"))
+        self.assertLess(focus, SCRIPT.index("Page.navigate"))
+        # Recorded either way; a browser that refuses it never stops the read.
+        self.assertIn("try {$null=Invoke-Cdp 'Emulation.setFocusEmulationEnabled' @{enabled=$true};$result.focus_emulation=$true} "
+                      "catch {$result.focus_emulation=$false}", SCRIPT)
+        self.assertEqual(SCRIPT.count("setFocusEmulationEnabled"), 1)
+        self.assertNotIn("bringToFront", SCRIPT); self.assertNotIn("SetForegroundWindow", SCRIPT)
+
+    def test_a_download_is_finished_only_by_chromes_own_completed_or_canceled_event(self):
+        self.assertIn("@{behavior='allow';downloadPath=$request.downloads;eventsEnabled=$true}", SCRIPT)
+        # Only Chrome's final states are kept, from its own download events.
+        self.assertIn("if(($reply.method -eq 'Browser.downloadProgress' -or $reply.method -eq 'Page.downloadProgress') "
+                      "-and @('completed','canceled') -contains $reply.params.state){", SCRIPT)
+        self.assertIn("$script:result.download_state=[string]$reply.params.state", SCRIPT)
+        self.assertEqual(SCRIPT.count("download_state="), 1)
+        # The wait ends on that event (or the deadline), never on a file name appearing; each
+        # small call reads the events that arrived meanwhile.
+        self.assertNotIn("Get-ChildItem $request.downloads", SCRIPT)
+        wait = SCRIPT[SCRIPT.index("$result.stage='download'"):SCRIPT.index("$result.state='captured'")]
+        self.assertIn("$null=Invoke-Cdp 'Runtime.evaluate' @{expression='0';returnByValue=$true}", wait)
+        self.assertIn("} while(-not $result.download_state -and [DateTime]::UtcNow -lt $deadline.AddSeconds(-3))", wait)
+        self.assertLess(SCRIPT.index("if($request.downloads -and $result.snapshot.download_clicked){"), SCRIPT.index(wait))
+
+    def test_a_read_that_listens_to_download_events_says_so(self):
+        # Only a read that asked Chrome for its download events carries the mark: its download_state is the
+        # answer. A read saved before these events existed has no mark (and keeps its original rule).
+        self.assertIn("if($request.downloads){$null=Invoke-Cdp 'Browser.setDownloadBehavior' "
+                      "@{behavior='allow';downloadPath=$request.downloads;eventsEnabled=$true};$result.download_events=$true}",
+                      SCRIPT)
+        self.assertEqual(SCRIPT.count("download_events="), 1)
+        self.assertLess(SCRIPT.index("$result.download_events=$true"), SCRIPT.index("$result.stage='navigation'"))
+        actual = self.read({"state": "captured", "snapshot": {"ok": True}, "navigation_started": True,
+                            "owned_process_exited": True, "download_events": True, "download_state": "canceled"})
+        self.assertEqual((actual["download_events"], actual["download_state"]), (True, "canceled"))
 
     def test_close_order_browser_command_then_window_close_then_forced(self):
         close = SCRIPT.index("""'{"id":1,"method":"Browser.close"}'""")

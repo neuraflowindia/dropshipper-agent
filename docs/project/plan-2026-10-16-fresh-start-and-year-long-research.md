@@ -2,7 +2,7 @@
 
 **Project stage: Development and testing** (no real users; precautions that only protect real users are not planned).
 
-**Status (16 October 2026): built, tested and loaded.** The owner's message of 16 October asked for: research to start again from scratch; a long, exhaustive list of product types; a map that keeps adding products on the AI's judgment so research never runs out (at least 8–9 months, ideally a year or more); marketing-grade, illustrative report files; as much automation as possible. The earlier open answers were: the owner signed in to the research sites; close the leftovers of the deleted Movers & Shakers route (yes); build the three small round improvements (yes).
+**Status (16 October 2026): built, tested and loaded; the same-day live fixes (P9) were loaded later the same day.** The owner's message of 16 October asked for: research to start again from scratch; a long, exhaustive list of product types; a map that keeps adding products on the AI's judgment so research never runs out (at least 8–9 months, ideally a year or more); marketing-grade, illustrative report files; as much automation as possible. The earlier open answers were: the owner signed in to the research sites; close the leftovers of the deleted Movers & Shakers route (yes); build the three small round improvements (yes).
 
 ## What was done
 
@@ -16,6 +16,7 @@
 | P6 | Second fresh start | Research records, reports, run logs and old backups archived (nothing deleted); money ledger, the owner's switch and the allowance watch carried; research started on the new code | Receipt `data/operations/fresh-start-20261016/fresh-start.md` (working-data folder) |
 | P7 | Report redesign | **Plan and mock-ups only, waiting for the owner** (a material visual redesign needs owner approval first) | [Report redesign plan](../client-preview/design/report-redesign-2026-10-16/plan.md) |
 | P8 | Stale documents (W14) | Runner guide, benchmark plan/record, quick-commerce connection, client-preview blueprint brought up to date | — |
+| P9 | Same-day live fixes (found watching the first rounds) | DeoDap/BaapStore feed crash fixed; Trends draws while the window stays minimised (proven: chart and a 54-row file); Dropdash reads its real pages; saved catalogue answers no longer counted as fresh reads; browser files forced to disk and power-cut-damaged saved reads set aside and read once more; IndiaMART's sign-in page waits calmly for the owner's sign-in; the meter shows each wait's real reason | [Implementation record R13](../operations/implementation_2026-10-11.md#r13-same-day-live-fixes-after-the-second-fresh-start-16-october) |
 
 ## Lead decisions (within the owner's request)
 

@@ -1,0 +1,781 @@
+{
+ "_note": "Trimmed real Dropdash pages, read signed in on 16 October 2026 by the signed-in page read (platform_signed_in.EXPRESSION) and re-run on the saved pages in a local browser without the site's style sheets, so a card's text also shows its hover-only 'DD ...' and 'Push to Shopify' lines. home: 5 of its 21 sections (30 of 126 cards), all 21 categories; category_288 ('Profitable Products', the configured winning list): its first 8 of 18 cards; product_13227: one product page. Each page's text is the live page's text, trimmed, with the account holder's name replaced by 'Research Owner' and the account's billing/KYC prompt removed. Product names, prices, Dropdash product and seller numbers and image addresses are as shown.",
+ "home": {
+  "url": "https://app.dropdash.co/home",
+  "title": "Dropdash - Home",
+  "text": "B2B Marketplace\nDD Id\nWelcome, Research Owner\n \nTesting Products\nProfitable Products\nHome Decor & Lighting\nReligious & Spirituals\nKitchen & Household\nPet Care\nFitness & Wellness\nMen\nGardening Products\nAccessories\nBeauty & Personal Care\nCar & Bike Accessories\nMonsoon Arrivals\nKids\nWomen\nQuirky Home Essentials\nSports & fitness\nJewellery\nElectronics\nOther\nOrganizers\nTesting Products\n\n32 products\n\nView All \n249\n220\n₹ 29 OFF\nFigure 8 Workout Resistance Band for Yoga (Pack of 1)\n5K+\n7494\n360\n350\n₹ 10 OFF\nBluetooth Portable Pillow Speaker\n2K-4K\n150\n620\n520\n₹ 100 OFF\nBaby Mosquito Net for Bed\n1K-2K\n36\n450\n440\n₹ 10 OFF\nElectric Makeup Brush Cleaner\n1K-2K\n76\n299\n260\n₹ 39 OFF\nFoldable Shopping Trolley Bag with Wheels\n1K-2K\n271\n399\n300\n25% OFF\nScary Car Headrest Covers (Pack of 2)\n1K-2K\n158\nProfitable Products\n\n144 products\n\nView All \n201\n101\n₹ 100 OFF\nInvisible Waterproof Glue\n2K-4K\n194\n201\n101\n₹ 100 OFF\nLily Equinox Flower Bulbs Seeds\n5K+\n2000\n201\n101\n₹ 100 OFF\nKiwi,Juicy, Sour And Sweet, Suitable For Home Planting\n100-500\n200\n201\n101\n₹ 100 OFF\nDrive Snake 200g\n100-500\n100\n201\n101\n₹ 100 OFF\nRoot Boosting Powder 200 gm Pack of 1\n1K-2K\n200\n201\n101\n₹ 100 OFF\nDurable Cat Pattern Car Sticker (Pack of 1)\n100-500\n1968",
+  "password": false,
+  "cards": [
+   {
+    "href": "https://app.dropdash.co/productDetails?id=12344&sellerId=1627",
+    "title": "Figure 8 Workout Resistance Band for Yoga (Pack of 1)",
+    "text": "DD 12344\nPush to Shopify  \n249\n220\n₹ 29 OFF\nFigure 8 Workout Resistance Band for Yoga (Pack of 1)\n5K+\n7494",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/72dd30bc-443a-4ec5-bae0-485016c418c6.jpg",
+    "badges": [
+     "₹ 29 OFF",
+     "5K+\n7494",
+     "5K+",
+     "7494"
+    ],
+    "price": "220",
+    "mrp": "249",
+    "stock": "7494",
+    "sold": "5K+",
+    "section": "Testing Products"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=12094&sellerId=1739",
+    "title": "Bluetooth Portable Pillow Speaker",
+    "text": "DD 12094\nPush to Shopify  \n360\n350\n₹ 10 OFF\nBluetooth Portable Pillow Speaker\n2K-4K\n150",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/1438fcbb-eaed-441d-8d7d-622887434ada.jpg",
+    "badges": [
+     "₹ 10 OFF",
+     "2K-4K\n150",
+     "2K-4K",
+     "150"
+    ],
+    "price": "350",
+    "mrp": "360",
+    "stock": "150",
+    "sold": "2K-4K",
+    "section": "Testing Products"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=9553&sellerId=1739",
+    "title": "Baby Mosquito Net for Bed",
+    "text": "DD 9553\nPush to Shopify  \n620\n520\n₹ 100 OFF\nBaby Mosquito Net for Bed\n1K-2K\n36",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/f31b80a4-883b-43d5-a5d4-b4d60a0e1566.jpg",
+    "badges": [
+     "₹ 100 OFF",
+     "1K-2K\n36",
+     "1K-2K",
+     "36"
+    ],
+    "price": "520",
+    "mrp": "620",
+    "stock": "36",
+    "sold": "1K-2K",
+    "section": "Testing Products"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=11227&sellerId=1739",
+    "title": "Electric Makeup Brush Cleaner",
+    "text": "DD 11227\nPush to Shopify  \n450\n440\n₹ 10 OFF\nElectric Makeup Brush Cleaner\n1K-2K\n76",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/24d0c230-801c-478d-9e89-3d22e33ab0e2.jpg",
+    "badges": [
+     "₹ 10 OFF",
+     "1K-2K\n76",
+     "1K-2K",
+     "76"
+    ],
+    "price": "440",
+    "mrp": "450",
+    "stock": "76",
+    "sold": "1K-2K",
+    "section": "Testing Products"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=12710&sellerId=1230",
+    "title": "Foldable Shopping Trolley Bag with Wheels",
+    "text": "DD 12710\nPush to Shopify  \n299\n260\n₹ 39 OFF\nFoldable Shopping Trolley Bag with Wheels\n1K-2K\n271",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/d7b2140b-33d9-43bc-afff-c2213fbfa828.jpg",
+    "badges": [
+     "₹ 39 OFF",
+     "1K-2K\n271",
+     "1K-2K",
+     "271"
+    ],
+    "price": "260",
+    "mrp": "299",
+    "stock": "271",
+    "sold": "1K-2K",
+    "section": "Testing Products"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=12782&sellerId=1627",
+    "title": "Scary Car Headrest Covers (Pack of 2)",
+    "text": "DD 12782\nPush to Shopify  \n399\n300\n25% OFF\nScary Car Headrest Covers (Pack of 2)\n1K-2K\n158",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/ed687122-8a37-49ef-b448-9d109dd62a88.jpg",
+    "badges": [
+     "25% OFF",
+     "1K-2K\n158",
+     "1K-2K",
+     "158"
+    ],
+    "price": "300",
+    "mrp": "399",
+    "stock": "158",
+    "sold": "1K-2K",
+    "section": "Testing Products"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=9240&sellerId=1704",
+    "title": "Invisible Waterproof Glue",
+    "text": "DD 9240\nPush to Shopify  \n201\n101\n₹ 100 OFF\nInvisible Waterproof Glue\n2K-4K\n194",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/d49d3804-0826-4736-939a-86766d29befa.jpg",
+    "badges": [
+     "₹ 100 OFF",
+     "2K-4K\n194",
+     "2K-4K",
+     "194"
+    ],
+    "price": "101",
+    "mrp": "201",
+    "stock": "194",
+    "sold": "2K-4K",
+    "section": "Profitable Products"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=9210&sellerId=1704",
+    "title": "Lily Equinox Flower Bulbs Seeds",
+    "text": "DD 9210\nPush to Shopify  \n201\n101\n₹ 100 OFF\nLily Equinox Flower Bulbs Seeds\n5K+\n2000",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/f69c85ac-7de1-4d8f-a3bc-acbd94e8b2ad.png",
+    "badges": [
+     "₹ 100 OFF",
+     "5K+\n2000",
+     "5K+",
+     "2000"
+    ],
+    "price": "101",
+    "mrp": "201",
+    "stock": "2000",
+    "sold": "5K+",
+    "section": "Profitable Products"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=9212&sellerId=1704",
+    "title": "Kiwi,Juicy, Sour And Sweet, Suitable For Home Planting",
+    "text": "DD 9212\nPush to Shopify  \n201\n101\n₹ 100 OFF\nKiwi,Juicy, Sour And Sweet, Suitable For Home Planting\n100-500\n200",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/38c3f6c3-0ad9-4391-9715-1ef88875b87e.jpg",
+    "badges": [
+     "₹ 100 OFF",
+     "100-500\n200",
+     "100-500",
+     "200"
+    ],
+    "price": "101",
+    "mrp": "201",
+    "stock": "200",
+    "sold": "100-500",
+    "section": "Profitable Products"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=9280&sellerId=1704",
+    "title": "Drive Snake 200g",
+    "text": "DD 9280\nPush to Shopify  \n201\n101\n₹ 100 OFF\nDrive Snake 200g\n100-500\n100",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/2dcb65a3-962a-4441-b987-391ea9b50907.jpg",
+    "badges": [
+     "₹ 100 OFF",
+     "100-500\n100",
+     "100-500",
+     "100"
+    ],
+    "price": "101",
+    "mrp": "201",
+    "stock": "100",
+    "sold": "100-500",
+    "section": "Profitable Products"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=9251&sellerId=1704",
+    "title": "Root Boosting Powder 200 gm Pack of 1",
+    "text": "DD 9251\nPush to Shopify  \n201\n101\n₹ 100 OFF\nRoot Boosting Powder 200 gm Pack of 1\n1K-2K\n200",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/77684d50-ea60-4f39-85b1-98ad756450e6.png",
+    "badges": [
+     "₹ 100 OFF",
+     "1K-2K\n200",
+     "1K-2K",
+     "200"
+    ],
+    "price": "101",
+    "mrp": "201",
+    "stock": "200",
+    "sold": "1K-2K",
+    "section": "Profitable Products"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=9274&sellerId=1704",
+    "title": "Durable Cat Pattern Car Sticker (Pack of 1)",
+    "text": "DD 9274\nPush to Shopify  \n201\n101\n₹ 100 OFF\nDurable Cat Pattern Car Sticker (Pack of 1)\n100-500\n1968",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/8cab9381-d260-4cd9-b2ae-2cc3b3e65d1e.jpeg",
+    "badges": [
+     "₹ 100 OFF",
+     "100-500\n1968",
+     "100-500",
+     "1968"
+    ],
+    "price": "101",
+    "mrp": "201",
+    "stock": "1968",
+    "sold": "100-500",
+    "section": "Profitable Products"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=2644&sellerId=1169",
+    "title": "Water Sensor Diya for Electricity (Pack of 24)",
+    "text": "DD 2644\nPush to Shopify  \n699\n450\n36% OFF\nWater Sensor Diya for Electricity (Pack of 24)\n100-500\n0",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/3033/water-sensor-diya-for-electricity-pack-of-24-1726834088.jpg",
+    "badges": [
+     "36% OFF",
+     "100-500\n0",
+     "100-500",
+     "0"
+    ],
+    "price": "450",
+    "mrp": "699",
+    "stock": "0",
+    "sold": "100-500",
+    "section": "Religious & Spirituals"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=2473&sellerId=1169",
+    "title": "RAM MANDIR WOODEN NIGHT LAMP",
+    "text": "DD 2473\nPush to Shopify  \n420\n320\n₹ 100 OFF\nRAM MANDIR WOODEN NIGHT LAMP\n100-500\n300",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/ff352d5d-e4f2-4f39-8bb0-12161c21a8ae.png",
+    "badges": [
+     "₹ 100 OFF",
+     "100-500\n300",
+     "100-500",
+     "300"
+    ],
+    "price": "320",
+    "mrp": "420",
+    "stock": "300",
+    "sold": "100-500",
+    "section": "Religious & Spirituals"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=2048&sellerId=1141",
+    "title": "Men's Silver Chain with Hanuman Pendant",
+    "text": "DD 2048\nPush to Shopify  \n350\n250\n₹ 100 OFF\nMen's Silver Chain with Hanuman Pendant\n100-500\n991",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/f637199d-1dd5-44aa-8def-cc7a4449e820.png",
+    "badges": [
+     "₹ 100 OFF",
+     "100-500\n991",
+     "100-500",
+     "991"
+    ],
+    "price": "250",
+    "mrp": "350",
+    "stock": "991",
+    "sold": "100-500",
+    "section": "Religious & Spirituals"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=10366&sellerId=1194",
+    "title": "Gold-plated Rudraksha bracelets (Pack of 1)",
+    "text": "DD 10366\nPush to Shopify  \n260\n160\n₹ 100 OFF\nGold-plated Rudraksha bracelets (Pack of 1)\n1K-2K\n97",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/d9268939-5daa-4a76-ba75-f60760d834a8.png",
+    "badges": [
+     "₹ 100 OFF",
+     "1K-2K\n97",
+     "1K-2K",
+     "97"
+    ],
+    "price": "160",
+    "mrp": "260",
+    "stock": "97",
+    "sold": "1K-2K",
+    "section": "Religious & Spirituals"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=5038&sellerId=1178",
+    "title": "Rotating Prayer Beads Digital Counter Digital Finger Mini Hand Tally Counter Finger Ring Digital Electronic Head Count",
+    "text": "DD 5038\nPush to Shopify  \n430\n330\n₹ 100 OFF\nRotating Prayer Beads Digital Counter Digital Finger Mini Hand Tally Counter Finger Ring Digital Electronic Head Count\n100-500\n496",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/5729/rotating-prayer-beads-digital-counter-digital-finger-mini-hand-tally-counter-finger-ring-digital-ele-1741246860.jpg",
+    "badges": [
+     "₹ 100 OFF",
+     "100-500\n496",
+     "100-500",
+     "496"
+    ],
+    "price": "330",
+    "mrp": "430",
+    "stock": "496",
+    "sold": "100-500",
+    "section": "Religious & Spirituals"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=2269&sellerId=1125",
+    "title": "Crystal Wealth Orgone Pyramid - 4 inch Approx Crystal Natural Gomati Chakra with Shree Yantra Pyramid, Success, Prosperity",
+    "text": "DD 2269\nPush to Shopify  \n537\n437\n₹ 100 OFF\nCrystal Wealth Orgone Pyramid - 4 inch Approx Crystal Natural Gomati Chakra with Shree Yantra Pyramid, Success, Prosperity\n100-500\n298",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/2184/crystal-wealth-orgone-pyramid---4-inch-approx-crystal-natural-gomati-chakra-with-shree-yantra-pyrami-1723807693.png",
+    "badges": [
+     "₹ 100 OFF",
+     "100-500\n298",
+     "100-500",
+     "298"
+    ],
+    "price": "437",
+    "mrp": "537",
+    "stock": "298",
+    "sold": "100-500",
+    "section": "Religious & Spirituals"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=13227&sellerId=1405",
+    "title": "Posture Corrector Back Straight And Shoulder Support Belt",
+    "text": "DD 13227\nPush to Shopify  \n299\n240\n20% OFF\nPosture Corrector Back Straight And Shoulder Support Belt\n100-500\n97",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/bc834a11-78ef-40a4-9702-06934e5b717f.jpg",
+    "badges": [
+     "20% OFF",
+     "100-500\n97",
+     "100-500",
+     "97"
+    ],
+    "price": "240",
+    "mrp": "299",
+    "stock": "97",
+    "sold": "100-500",
+    "section": "Fitness & Wellness"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=9748&sellerId=1519",
+    "title": "Knee Patches Pack of 20",
+    "text": "DD 9748\nPush to Shopify  \n240\n140\n₹ 100 OFF\nKnee Patches Pack of 20\n100-500\n174",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/1f4de3c4-eac9-4a3a-b76b-3f28032ceb10.jpeg",
+    "badges": [
+     "₹ 100 OFF",
+     "100-500\n174",
+     "100-500",
+     "174"
+    ],
+    "price": "140",
+    "mrp": "240",
+    "stock": "174",
+    "sold": "100-500",
+    "section": "Fitness & Wellness"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=10903&sellerId=1519",
+    "title": "Belly Fat Massager",
+    "text": "DD 10903\nPush to Shopify  \n760\n750\n₹ 10 OFF\nBelly Fat Massager\n100-500\n71",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/707f0786-f96f-4cc6-a352-bef4a7ab1c44.jpeg",
+    "badges": [
+     "₹ 10 OFF",
+     "100-500\n71",
+     "100-500",
+     "71"
+    ],
+    "price": "750",
+    "mrp": "760",
+    "stock": "71",
+    "sold": "100-500",
+    "section": "Fitness & Wellness"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=2936&sellerId=1178",
+    "title": "Heel Pad Silicone Heel Cup Anti-foot Pain Insole Bone Spur Heel Shock Absorbing Insole Latex Insole",
+    "text": "DD 2936\nPush to Shopify  \n799\n254\n68% OFF\nHeel Pad Silicone Heel Cup Anti-foot Pain Insole Bone Spur Heel Shock Absorbing Insole Latex Insole\n100-500\n297",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/2622/heel-pad-silicone-heel-cup-anti-foot-pain-insole-bone-spur-heel-shock-absorbing-insole-latex-insole-1725455385.jpg",
+    "badges": [
+     "68% OFF",
+     "100-500\n297",
+     "100-500",
+     "297"
+    ],
+    "price": "254",
+    "mrp": "799",
+    "stock": "297",
+    "sold": "100-500",
+    "section": "Fitness & Wellness"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=3019&sellerId=1125",
+    "title": "Hands and Foots Spray for Applies to Everyone, for Discomfort Caused by Joints",
+    "text": "DD 3019\nPush to Shopify  \n350\n250\n₹ 100 OFF\nHands and Foots Spray for Applies to Everyone, for Discomfort Caused by Joints\n100-500\n172",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/2178/hands-and-foots-spray-for-applies-to-everyone-for-discomfort-caused-by-joints-1723805416.png",
+    "badges": [
+     "₹ 100 OFF",
+     "100-500\n172",
+     "100-500",
+     "172"
+    ],
+    "price": "250",
+    "mrp": "350",
+    "stock": "172",
+    "sold": "100-500",
+    "section": "Fitness & Wellness"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=8023&sellerId=1075",
+    "title": "Multifunctional Full-Body Massager",
+    "text": "DD 8023\nPush to Shopify  \n335\n235\n₹ 100 OFF\nMultifunctional Full-Body Massager\n2K-4K\n445",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/243995ea-6efe-426a-9d89-d1838a762393.jpeg",
+    "badges": [
+     "₹ 100 OFF",
+     "2K-4K\n445",
+     "2K-4K",
+     "445"
+    ],
+    "price": "235",
+    "mrp": "335",
+    "stock": "445",
+    "sold": "2K-4K",
+    "section": "Fitness & Wellness"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=2301&sellerId=1199",
+    "title": "Men Straight Track Pants (Pack of 2)",
+    "text": "DD 2301\nPush to Shopify  \n385\nMen Straight Track Pants (Pack of 2)\n100-500\n712",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/2680/men-straight-track-pants-pack-of-2-1725951697.jpg",
+    "badges": [
+     "100-500\n712",
+     "100-500",
+     "712"
+    ],
+    "price": "385",
+    "mrp": null,
+    "stock": "712",
+    "sold": "100-500",
+    "section": "Men"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=10286&sellerId=1428",
+    "title": "Muscle Shaper Compression Wear",
+    "text": "DD 10286\nPush to Shopify  \n420\n320\n₹ 100 OFF\nMuscle Shaper Compression Wear\n100-500\n15892",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/bccbef44-2369-43f4-994f-f082289b24a6.jpg",
+    "badges": [
+     "₹ 100 OFF",
+     "100-500\n15892",
+     "100-500",
+     "15892"
+    ],
+    "price": "320",
+    "mrp": "420",
+    "stock": "15892",
+    "sold": "100-500",
+    "section": "Men"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=5243&sellerId=1378",
+    "title": "Men's Ultra Silk Soft Lycra Material Ice Silk Men's Short Plain Underwear Multicolor ( Pack Of 4 )",
+    "text": "DD 5243\nPush to Shopify  \n395\n295\n₹ 100 OFF\nMen's Ultra Silk Soft Lycra Material Ice Silk Men's Short Plain Underwear Multicolor ( Pack Of 4 )\n100-500\n495",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/5954/mens-ultra-silk-soft-lycra-material-ice-silk-mens-short-plain-underwear-multicolor--pack-of-4--1744200607.jpg",
+    "badges": [
+     "₹ 100 OFF",
+     "100-500\n495",
+     "100-500",
+     "495"
+    ],
+    "price": "295",
+    "mrp": "395",
+    "stock": "495",
+    "sold": "100-500",
+    "section": "Men"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=7311&sellerId=1504",
+    "title": "Men's Cotton Polyester Shorts ( Pack of 4 )",
+    "text": "DD 7311\nPush to Shopify  \n520\n420\n₹ 100 OFF\nMen's Cotton Polyester Shorts ( Pack of 4 )\n100-500\n1171",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/4a4a1f38-1cc2-4242-8279-dadb4119d39d.jpeg",
+    "badges": [
+     "₹ 100 OFF",
+     "100-500\n1171",
+     "100-500",
+     "1171"
+    ],
+    "price": "420",
+    "mrp": "520",
+    "stock": "1171",
+    "sold": "100-500",
+    "section": "Men"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=11284&sellerId=1916",
+    "title": "Zodiac Signs Aries liquid body Spray for men women ( 135 ML )",
+    "text": "DD 11284\nPush to Shopify  \n290\n280\n₹ 10 OFF\nZodiac Signs Aries liquid body Spray for men women ( 135 ML )\n100-500\n100",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/afe1b4bf-2ebe-4256-ab7c-d7ec7bc87189.jpg",
+    "badges": [
+     "₹ 10 OFF",
+     "100-500\n100",
+     "100-500",
+     "100"
+    ],
+    "price": "280",
+    "mrp": "290",
+    "stock": "100",
+    "sold": "100-500",
+    "section": "Men"
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=11297&sellerId=1916",
+    "title": "ROMANTIC LOVE BODY SPRAY (INTIMATE)",
+    "text": "DD 11297\nPush to Shopify  \n290\n280\n₹ 10 OFF\nROMANTIC LOVE BODY SPRAY (INTIMATE)\n100-500\n100",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/66d3a8f3-3f4d-4a37-8bf8-5f239424a7ed.jpg",
+    "badges": [
+     "₹ 10 OFF",
+     "100-500\n100",
+     "100-500",
+     "100"
+    ],
+    "price": "280",
+    "mrp": "290",
+    "stock": "100",
+    "sold": "100-500",
+    "section": "Men"
+   }
+  ],
+  "product": null,
+  "categories": [
+   {
+    "href": "https://app.dropdash.co/products?categoryId=282",
+    "text": "Testing Products"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=288",
+    "text": "Profitable Products"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=63",
+    "text": "Home Decor & Lighting"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=295",
+    "text": "Religious & Spirituals"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=293",
+    "text": "Kitchen & Household"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=292",
+    "text": "Pet Care"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=227",
+    "text": "Fitness & Wellness"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=1",
+    "text": "Men"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=284",
+    "text": "Gardening Products"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=233",
+    "text": "Accessories"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=221",
+    "text": "Beauty & Personal Care"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=224",
+    "text": "Car & Bike Accessories"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=296",
+    "text": "Monsoon Arrivals"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=239",
+    "text": "Kids"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=106",
+    "text": "Women"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=218",
+    "text": "Quirky Home Essentials"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=25",
+    "text": "Sports & fitness"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=236",
+    "text": "Jewellery"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=39",
+    "text": "Electronics"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=214",
+    "text": "Other"
+   },
+   {
+    "href": "https://app.dropdash.co/products?categoryId=285",
+    "text": "Organizers"
+   }
+  ],
+  "next": null
+ },
+ "category_288": {
+  "url": "https://app.dropdash.co/products?categoryId=288",
+  "title": "Dropdash - India’s Best Dropshipping Platform | Fast, Reliable & Transparent",
+  "text": "B2B Marketplace\nDD Id\nWelcome, Research Owner\n \n201\n101\n₹ 100 OFF\nInvisible Waterproof Glue\n2K-4K\n194\n201\n101\n₹ 100 OFF\nLily Equinox Flower Bulbs Seeds\n5K+\n2000\n201\n101\n₹ 100 OFF\nKiwi,Juicy, Sour And Sweet, Suitable For Home Planting\n100-500\n200\n201\n101\n₹ 100 OFF\nDrive Snake 200g\n100-500\n100\n201\n101\n₹ 100 OFF\nRoot Boosting Powder 200 gm Pack of 1\n1K-2K\n200\n201\n101\n₹ 100 OFF\nDurable Cat Pattern Car Sticker (Pack of 1)\n100-500\n1968\n201\n101\n₹ 100 OFF\nCar Windshield Crack Repair Resin Kit (PACK OF 2)\n1K-2K\n151\n201\n101\n₹ 100 OFF\nOnychomycosis Repair Bacteriostatic Liquid designed to treat fungal nail infections\n1K-2K\n770",
+  "password": false,
+  "cards": [
+   {
+    "href": "https://app.dropdash.co/productDetails?id=9240&sellerId=1704",
+    "title": "Invisible Waterproof Glue",
+    "text": "DD 9240\nPush to Shopify  \n201\n101\n₹ 100 OFF\nInvisible Waterproof Glue\n2K-4K\n194",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/d49d3804-0826-4736-939a-86766d29befa.jpg",
+    "badges": [
+     "₹ 100 OFF",
+     "2K-4K\n194",
+     "2K-4K",
+     "194"
+    ],
+    "price": "101",
+    "mrp": "201",
+    "stock": "194",
+    "sold": "2K-4K",
+    "section": null
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=9210&sellerId=1704",
+    "title": "Lily Equinox Flower Bulbs Seeds",
+    "text": "DD 9210\nPush to Shopify  \n201\n101\n₹ 100 OFF\nLily Equinox Flower Bulbs Seeds\n5K+\n2000",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/f69c85ac-7de1-4d8f-a3bc-acbd94e8b2ad.png",
+    "badges": [
+     "₹ 100 OFF",
+     "5K+\n2000",
+     "5K+",
+     "2000"
+    ],
+    "price": "101",
+    "mrp": "201",
+    "stock": "2000",
+    "sold": "5K+",
+    "section": null
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=9212&sellerId=1704",
+    "title": "Kiwi,Juicy, Sour And Sweet, Suitable For Home Planting",
+    "text": "DD 9212\nPush to Shopify  \n201\n101\n₹ 100 OFF\nKiwi,Juicy, Sour And Sweet, Suitable For Home Planting\n100-500\n200",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/38c3f6c3-0ad9-4391-9715-1ef88875b87e.jpg",
+    "badges": [
+     "₹ 100 OFF",
+     "100-500\n200",
+     "100-500",
+     "200"
+    ],
+    "price": "101",
+    "mrp": "201",
+    "stock": "200",
+    "sold": "100-500",
+    "section": null
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=9280&sellerId=1704",
+    "title": "Drive Snake 200g",
+    "text": "DD 9280\nPush to Shopify  \n201\n101\n₹ 100 OFF\nDrive Snake 200g\n100-500\n100",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/2dcb65a3-962a-4441-b987-391ea9b50907.jpg",
+    "badges": [
+     "₹ 100 OFF",
+     "100-500\n100",
+     "100-500",
+     "100"
+    ],
+    "price": "101",
+    "mrp": "201",
+    "stock": "100",
+    "sold": "100-500",
+    "section": null
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=9251&sellerId=1704",
+    "title": "Root Boosting Powder 200 gm Pack of 1",
+    "text": "DD 9251\nPush to Shopify  \n201\n101\n₹ 100 OFF\nRoot Boosting Powder 200 gm Pack of 1\n1K-2K\n200",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/77684d50-ea60-4f39-85b1-98ad756450e6.png",
+    "badges": [
+     "₹ 100 OFF",
+     "1K-2K\n200",
+     "1K-2K",
+     "200"
+    ],
+    "price": "101",
+    "mrp": "201",
+    "stock": "200",
+    "sold": "1K-2K",
+    "section": null
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=9274&sellerId=1704",
+    "title": "Durable Cat Pattern Car Sticker (Pack of 1)",
+    "text": "DD 9274\nPush to Shopify  \n201\n101\n₹ 100 OFF\nDurable Cat Pattern Car Sticker (Pack of 1)\n100-500\n1968",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/8cab9381-d260-4cd9-b2ae-2cc3b3e65d1e.jpeg",
+    "badges": [
+     "₹ 100 OFF",
+     "100-500\n1968",
+     "100-500",
+     "1968"
+    ],
+    "price": "101",
+    "mrp": "201",
+    "stock": "1968",
+    "sold": "100-500",
+    "section": null
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=12607&sellerId=1648",
+    "title": "Car Windshield Crack Repair Resin Kit (PACK OF 2)",
+    "text": "DD 12607\nPush to Shopify  \n201\n101\n₹ 100 OFF\nCar Windshield Crack Repair Resin Kit (PACK OF 2)\n1K-2K\n151",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/39b22a50-4b0b-4717-8bd6-bdb3882dc6f9.png",
+    "badges": [
+     "₹ 100 OFF",
+     "1K-2K\n151",
+     "1K-2K",
+     "151"
+    ],
+    "price": "101",
+    "mrp": "201",
+    "stock": "151",
+    "sold": "1K-2K",
+    "section": null
+   },
+   {
+    "href": "https://app.dropdash.co/productDetails?id=9576&sellerId=1704",
+    "title": "Onychomycosis Repair Bacteriostatic Liquid designed to treat fungal nail infections",
+    "text": "DD 9576\nPush to Shopify  \n201\n101\n₹ 100 OFF\nOnychomycosis Repair Bacteriostatic Liquid designed to treat fungal nail infections\n1K-2K\n770",
+    "image": "https://sp-api.dropdash.co/upload/ProductImages/bd861fb0-540b-49ec-b30b-f8fcaff2dfb7.jpg",
+    "badges": [
+     "₹ 100 OFF",
+     "1K-2K\n770",
+     "1K-2K",
+     "770"
+    ],
+    "price": "101",
+    "mrp": "201",
+    "stock": "770",
+    "sold": "1K-2K",
+    "section": null
+   }
+  ],
+  "product": null,
+  "categories": [],
+  "next": null
+ },
+ "product_13227": {
+  "url": "https://app.dropdash.co/productDetails?id=13227&sellerId=1405",
+  "title": "Dropdash - Product Details",
+  "text": "B2B Marketplace\nDD Id\nWelcome, Research Owner\n \n Back to Products\n1 / 4\nDD 13227\nCopy Code\nPosture Corrector Back Straight And Shoulder Support Belt\nCopy\n240\n299\n20% OFF\n\nIncluding GST and Shipping Charges\n\nIn Stock\n\n97 units\n\nWeight\n\n500 g\n\nRTO Cost\n\n70 per return\n\nUnits Sold\n\n100-500\nDelivery Rate\nLow\n Profit Calculator\n Push to Shopify\nVerified Seller\nDispatch in 24 hrs\nVariants\n0\nProduct Description\nPosture Corrector Back Straight And Shoulder Support Belt\nPosture Corrector Back Straight And Shoulder Support Belt",
+  "password": false,
+  "cards": [],
+  "product": {
+   "title": "Posture Corrector Back Straight And Shoulder Support Belt",
+   "text": "DD 13227\nCopy Code\nPosture Corrector Back Straight And Shoulder Support Belt\nCopy\n240\n299\n20% OFF\n\nIncluding GST and Shipping Charges\n\nIn Stock\n\n97 units\n\nWeight\n\n500 g\n\nRTO Cost\n\n70 per return\n\nUnits Sold\n\n100-500\nDelivery Rate\nLow\n Profit Calculator Push to Shopify\nVerified Seller\nDispatch in 24 hrs\nVariants0\nProduct Description\nPosture Corrector Back Straight And Shoulder Support Belt\nPosture Corrector Back Straight And Shoulder Support Belt",
+   "terms": [
+    "Including GST and Shipping Charges",
+    "In Stock 97 units",
+    "Weight 500 g",
+    "RTO Cost 70 per return",
+    "Units Sold 100-500",
+    "Delivery Rate Low",
+    "Verified Seller",
+    "Dispatch in 24 hrs"
+   ],
+   "price": "240",
+   "mrp": "299",
+   "stock": "97 units"
+  },
+  "categories": [],
+  "next": null
+ }
+}

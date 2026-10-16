@@ -550,7 +550,10 @@ def _search_access_failure(record, reference):
 
     A browser refusing to start after an unreadable HTTP page is not a proved
     platform block. A useful fallback, parser issue or company-page failure
-    likewise cannot pause every supplier question.
+    likewise cannot pause every supplier question. A received page in the
+    owner's signed-in profile that showed the site's sign-in wall
+    (``OWNER_SIGN_IN_REQUIRED``) is a route block that is retryable once the
+    owner signs in again, as in the shared reader (``signed_in_wall_response``).
     """
     if record["result"]["state"] != "blocked":
         return False, False
@@ -569,9 +572,11 @@ def _search_access_failure(record, reference):
                     and not _host_allowed(request["route"], urlsplit(proof["final_url"]).hostname))):
             continue
         status = proof["http_status"]
-        if status in (401, 403, 429) or row["parsed"]["reason"] == "SUPPLIER_ROUTE_CHALLENGE":
+        sign_in_wall = (row["parsed"]["reason"] == "OWNER_SIGN_IN_REQUIRED" and receipt.get("profile") == "signed-in"
+                        and type(status) is int)
+        if status in (401, 403, 429) or row["parsed"]["reason"] == "SUPPLIER_ROUTE_CHALLENGE" or sign_in_wall:
             shared = True
-            retryable = retryable or status == 429
+            retryable = retryable or status == 429 or sign_in_wall
     return shared, retryable
 
 

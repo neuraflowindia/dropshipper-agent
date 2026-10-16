@@ -61,12 +61,13 @@ def _fallback(state, route, request):
     bounded, no-click read. Google Maps and IndiaMART need no such proof: their
     first read is already a browser read (``FIRST_TRANSPORT``).
     """
-    from .source_acquisitions import _owners, _response
+    from .source_acquisitions import _owners, saved_response_or_replacement
     from .source_coverage import source_response_closed
     http = dict(request, transport="public-http")
     owners = _owners(state, physical_request_fingerprint(route, http))
     if not owners: return None
-    aid, owner = owners[-1]; response = _response(state, owner)
+    # Lost (set-aside) plain bytes prove nothing: the plain read is asked again.
+    aid, owner = owners[-1]; response, _ = saved_response_or_replacement(state, owner)
     if not (response and response.get("bridge_contract") == BRIDGE and not response.get("legacy_workflow_id")
             and response["dispatch_started"] is True and response["access"].get("http_status") == 200
             and response["coverage"]["body_complete"] and not response["coverage"]["byte_truncated"]
@@ -112,11 +113,11 @@ def supplier_request_for_state(state, route, query):
     if request["transport"] != "public-http":
         return request
     # A genuinely retained old browser result is not another browser launch.
-    from .source_acquisitions import _owners, _response
+    from .source_acquisitions import _owners, saved_response_or_replacement
     browser = dict(request, transport="public-browser")
     owners = _owners(state, physical_request_fingerprint(route, browser))
     if owners:
-        response = _response(state, owners[-1][1])
+        response, _ = saved_response_or_replacement(state, owners[-1][1])
         if response and response.get("bridge_contract") == BRIDGE and response.get("legacy_workflow_id"):
             return browser
     return dict(request, transport="public-browser") if _fallback(state, route, request) else request
@@ -797,9 +798,11 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
     from .public_pages import fetch_public_page
     from .signed_in_browser import PROJECT_ROOT
     signed_in_root = PROJECT_ROOT if signed_in_root is None else signed_in_root
-    from .source_acquisitions import _owners, _record, _response, _install_legacy_origin, claim_source_acquisition
+    from .source_acquisitions import (_owners, _record, _install_legacy_origin, claim_source_acquisition,
+                                      saved_response_or_replacement)
     from .source_coverage import (guard_shared_source_launch, marketplace_access_admission, acquisition_access_scope,
-                                  source_access_wait, _record_marketplace_access, source_response_closed)
+                                  source_access_wait, _record_marketplace_access, source_response_closed,
+                                  signed_in_wall_response)
     root = safe_path(memory.root / "supplier_routes" / "shared"); handlers = {}
     for route in SEARCH_ROUTES:
         def prepare(context, route=route):
@@ -897,15 +900,20 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
             bridge, original, parsed = _record_response(memory, aid, folder=folder, as_of=commit_at)
             response = memory.snapshot()["source_checks"][bridge["stage_id"]]
             _record_marketplace_access(memory, aid, bridge["stage_id"], as_of=commit_at)
+            owner = _record(memory.snapshot(), aid)
             receipt = {"schema_version": 1, "route": route, "acquisition_id": aid,
                 "observed_at": response["observed_at"], "state": response["source_state"],
                 "dispatch_started": response["dispatch_started"], "reference": response["receipt"]["path"],
                 "capture_ids": [], "observation_ids": [], "target_results": [], "reason": parsed["reason"],
                 "supplier_lead_capture_ref": {"id": bridge["stage_id"], "hash": digest(response)},
                 "supplier_original_pending": not source_response_closed(response),
-                "supplier_results_hash": digest(parsed), "retryable": response["access"].get("http_status") in {429, 500, 502, 503, 504},
+                # A sign-in wall in the owner's signed-in profile is retryable: the
+                # route then waits calmly for the owner's sign-in (``_launch_hold``).
+                "supplier_results_hash": digest(parsed),
+                "retryable": (response["access"].get("http_status") in {429, 500, 502, 503, 504}
+                              or signed_in_wall_response(owner, response)),
                 "failure_scope": "route" if response["source_state"] == "blocked" else "question",
-                "access_wait": source_access_wait(memory.snapshot(), acquisition_access_scope(_record(memory.snapshot(), aid)),
+                "access_wait": source_access_wait(memory.snapshot(), acquisition_access_scope(owner),
                                                   as_of=context["as_of"])}
             receipt["target_results"] = _apply(memory, context, receipt, original, parsed)
             return receipt
@@ -969,7 +977,9 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
         def due_hint(context, route=route, prepare=prepare, *, state=None):
             request = prepare(context); state = memory.snapshot() if state is None else state
             owners = _owners(state, physical_request_fingerprint(route, request))
-            aid, owner = owners[-1] if owners else (None, None); response = _response(state, owner) if owner else None
+            aid, owner = owners[-1] if owners else (None, None)
+            # A set-aside or proven-lost saved read is replaced by a fresh read when allowed.
+            response, replace = saved_response_or_replacement(state, owner)
             wait = source_access_wait(state, acquisition_access_scope({"binding": {"route": route, "request": request}}), as_of=context["as_of"])
             local = bool(response and response["source_state"] in {"usable", "partial", "empty"}
                 and timedelta(0) <= timestamp(context["as_of"]) - timestamp(response["observed_at"]) < timedelta(days=7))
@@ -977,7 +987,7 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
             if response and not response["complete"] and (caller.get("supplier_original_pending")
                     or caller.get("progress", {}).get("supplier_original_pending")):
                 local = False  # Already applied partial bytes are not new work.
-            if owner and not local and request["transport"] in _BROWSER_TRANSPORTS:
+            if owner and not local and not replace and owner["state"] != "set_aside" and request["transport"] in _BROWSER_TRANSPORTS:
                 try:
                     candidate = _native_original(root / aid, request, aid)
                     parsed_candidate = parse_supplier_route_receipt(route, request["query"], _item(aid, request), candidate["receipt"])
@@ -985,7 +995,7 @@ def create_shared_supplier_search_handlers(memory, *, http_reader, browser_reade
                         and timestamp(candidate["receipt"]["checked_at"]) <= timestamp(context["as_of"]))
                 except SafetyError as error:
                     if str(error) not in {"SOURCE_ORIGINAL_RECEIPT_PENDING", "JSON_RESPONSE_INVALID", "SAVED_FILE_UNAVAILABLE"}: raise
-            ready = owner is None or _collectable(state, owner)
+            ready = owner is None or replace or _collectable(state, owner)
             if wait: ready = wait["phase"] == "due" and (ready or wait["acquisition_id"] == aid)
             hold = _launch_hold(state, route, request, as_of=context["as_of"], signed_in_root=signed_in_root) if ready else None
             return {"ready": bool(ready and not hold or local), "local_saved": local,

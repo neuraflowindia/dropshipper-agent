@@ -227,6 +227,21 @@ class IndiaMartSignedInRouteTests(unittest.TestCase):
         self.assertEqual(self.checks(handlers)["counts"], {"acquired": 1})
         self.assertEqual(site_states(self.signed_root)["indiamart"]["state"], "signed_in")
 
+    def test_the_meter_names_a_sign_in_wall_not_just_a_challenge(self):
+        from product_radar.programme_summary import owner_meter
+        from product_radar.source_coverage import source_access_backoffs
+        self.sign_in(); self.page = page(WALL); self.prepare(run="walled-meter")
+        self.checks(self.handlers())
+        state = self.memory.snapshot()
+        waits = source_access_backoffs(state, as_of=self.at)
+        # "challenge" stays the saved record's own field; "reason" is the page's own reason.
+        self.assertEqual(waits, [{"host": "dir.indiamart.com", "transport": SIGNED_IN_TRANSPORT, "attempt": 1,
+            "wait_seconds": 300, "challenge": True, "reason": "OWNER_SIGN_IN_REQUIRED", "http_status": 200,
+            "phase": "waiting", "next_retry_at": (timestamp(self.at) + timedelta(seconds=300)).isoformat()}])
+        meter = owner_meter(baseline=None, state=state, financial_state=None, report_pool=None, programmes=None,
+                            activity=None, run_log=None, as_of=self.at)
+        self.assertEqual(meter["access_waits_now"], waits)
+
     def test_repeated_walls_never_hold_a_new_sign_in_for_hours(self):
         # The owner's sign-in, not an escalating back-off, governs this wait:
         # each wall waits five minutes, however many came before.
@@ -508,6 +523,106 @@ class IndiaMartSignedInRouteTests(unittest.TestCase):
         self.checks(handlers, bounded_call=bounded)
         self.assertEqual(timeouts, [signed_in_budget()])
         self.assertGreater(signed_in_budget(), 45)
+
+    # A sign-in wall is retried once the owner signs in again (16 Oct "Decor Item").
+
+    def run_pause(self):
+        from product_radar.research_memory import key
+        return self.memory.snapshot()["batch_runs"][key("source-run", self.run)]["route_pauses"].get("indiamart")
+
+    def test_a_wall_is_sent_again_once_the_owner_signs_in_and_counts_a_try(self):
+        self.sign_in(); handlers = self.handlers(); self.page = page(WALL)
+        task_id = self.prepare(run="walled")[0]
+        self.assertEqual(self.checks(handlers)["counts"], {"blocked": 1})
+        retry = (timestamp(self.at) + timedelta(seconds=300)).isoformat()
+        task = self.task(task_id)
+        self.assertEqual((task["status"], task["retryable"], task["tries"], task["next_retry_at"]), ("blocked", True, 1, retry))
+        self.assertEqual(self.run_pause()["next_retry_at"], retry)
+        # Before its access wait ends, and after it while the owner is still
+        # signed out: a calm wait every pass, with nothing read.
+        self.advance(60)
+        self.assertEqual(self.checks(handlers)["counts"], {"waiting": 1})
+        self.advance(241)
+        for _ in range(2):
+            result = self.checks(handlers)
+            self.assertEqual((result["handler_calls"], result["counts"]), (0, {"waiting": 1}))
+            self.assertEqual(result["results"][0]["reason"], "OWNER_SIGN_IN_REQUIRED")
+            self.assertEqual(self.task(task_id)["status"], "blocked")
+            self.advance(121)
+        self.assertEqual((len(self.native_calls), self.task(task_id)["tries"]), (1, 1))
+        # The owner signs in again: the same question is sent again, as its second try.
+        self.sign_in(); self.page = visitor_page(); self.advance(1)
+        result = self.checks(handlers)
+        self.assertEqual((result["handler_calls"], result["counts"]), (1, {"acquired": 1}))
+        self.assertEqual(len(self.native_calls), 2)
+        self.assertEqual((self.task(task_id)["status"], self.task(task_id)["tries"]), ("acquired", 2))
+
+    def wall_saved_as_before(self, run):
+        """A wall saved by the code before 16 Oct: blocked, not retryable, its pause never due."""
+        self.sign_in(); self.page = page(WALL)
+        with patch("product_radar.source_coverage.signed_in_wall_response", return_value=False):
+            task_id = self.prepare(run=run)[0]
+            self.assertEqual(self.checks(self.handlers())["counts"], {"blocked": 1})
+        task = self.task(task_id)
+        self.assertEqual((task["status"], task["retryable"], task["next_retry_at"], task["tries"]), ("blocked", False, None, 1))
+        self.assertIsNone(self.run_pause()["next_retry_at"])
+        return task_id, task
+
+    def test_a_wall_saved_before_walls_were_retryable_is_retried_from_its_own_proof(self):
+        wait_at = (timestamp(self.at) + timedelta(seconds=300)).isoformat()
+        task_id, old = self.wall_saved_as_before("walled-before")
+        handlers = self.handlers(); self.advance(301)
+        result = self.checks(handlers)
+        self.assertEqual((result["handler_calls"], result["counts"]), (0, {"waiting": 1}))
+        self.assertEqual(result["results"][0]["reason"], "OWNER_SIGN_IN_REQUIRED")
+        task = self.task(task_id)
+        self.assertEqual((task["status"], task["retryable"], task["tries"]), ("blocked", True, 1))
+        records = [row for row in self.memory.snapshot()["source_checks"].values()
+                   if row.get("kind") == "all_source_retry_rederived_v1"]
+        self.assertEqual([(row["task_id"], row["receipt_id"], row["next_retry_at"], row["reason"]) for row in records],
+                         [(task_id, old["receipt_refs"][-1], wait_at, "OWNER_SIGN_IN_REQUIRED")])
+        self.assertEqual(self.run_pause()["next_retry_at"], wait_at)
+        self.assertEqual(len(self.native_calls), 1)
+        self.sign_in(); self.page = visitor_page(); self.advance(121)
+        result = self.checks(handlers)
+        self.assertEqual((result["handler_calls"], result["counts"]), (1, {"acquired": 1}))
+        self.assertEqual((len(self.native_calls), self.task(task_id)["tries"]), (2, 2))
+        self.assertEqual(len([row for row in self.memory.snapshot()["source_checks"].values()
+                              if row.get("kind") == "all_source_retry_rederived_v1"]), 1)
+
+    def test_a_saved_wall_with_no_try_left_stays_closed(self):
+        task_id, old = self.wall_saved_as_before("walled-spent")
+        self.memory.put("query_tasks", task_id, dict(old, tries=2), previous=old)  # Its tries are used up.
+        self.sign_in(); self.page = visitor_page(); self.advance(301)
+        result = self.checks(self.handlers())
+        self.assertEqual((result["handler_calls"], result["counts"]), (0, {"blocked": 1}))
+        self.assertFalse(self.task(task_id)["retryable"])
+        self.assertFalse([row for row in self.memory.snapshot()["source_checks"].values()
+                          if row.get("kind") == "all_source_retry_rederived_v1"])
+        self.assertEqual(len(self.native_calls), 1)
+
+    def test_a_pass_stopped_before_saving_its_pause_still_retries_the_wall(self):
+        # The re-derivation is saved at once; the route pause's retry time only
+        # at the pass end. A stop in between must not leave the route paused for good.
+        from product_radar.research_memory import key
+        from product_radar.storage import safe_path
+        wait_at = (timestamp(self.at) + timedelta(seconds=300)).isoformat()
+        task_id, _ = self.wall_saved_as_before("walled-stopped")
+        run_key = key("source-run", self.run)
+        staged = safe_path(self.memory.root, "all_source_dispatch", "pass_returns") / (run_key + ".json")
+        run_before, staged_before = self.memory.snapshot()["batch_runs"][run_key], staged.read_bytes()
+        handlers = self.handlers(); self.advance(301)
+        self.checks(handlers)
+        self.assertTrue(self.task(task_id)["retryable"])
+        run_after = self.memory.snapshot()["batch_runs"][run_key]
+        self.memory.put("batch_runs", run_key, run_before, previous=run_after)  # As if the pass never saved.
+        staged.write_bytes(staged_before)
+        self.assertIsNone(self.run_pause()["next_retry_at"])
+        self.sign_in(); self.page = visitor_page(); self.advance(121)
+        result = self.checks(handlers)
+        self.assertEqual((result["handler_calls"], result["counts"]), (1, {"acquired": 1}))
+        self.assertEqual((len(self.native_calls), self.task(task_id)["tries"]), (2, 2))
+        self.assertLessEqual(timestamp(wait_at), timestamp(self.at))
 
 
 if __name__ == "__main__":

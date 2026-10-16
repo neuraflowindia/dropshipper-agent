@@ -41,16 +41,33 @@
       "full_refresh_days": 7,
       "list_refresh_hours": 24,
       "raw_retention_days": 21,
-      "price_basis": "Dropship price shown to the signed-in research account.",
+      "price_basis": "Dropship price shown to the signed-in research account (Dropdash states it includes GST and shipping).",
       "stated_terms": null,
       "terms_url": null,
-      "product_path": "^https://app\\.dropdash\\.co/(?:product|products)/[A-Za-z0-9._~%-]+/?$",
+      "product_path": "^https://app\\.dropdash\\.co/productDetails\\?id=([1-9][0-9]{0,8})&sellerId=[1-9][0-9]{0,8}$",
       "product_pages_per_day": 40,
       "pages": [
-        {"role": "catalogue", "url": "https://app.dropdash.co/products", "max_pages": 5},
-        {"role": "winning", "url": "https://app.dropdash.co/winning-products", "max_pages": 2},
-        {"role": "trending", "url": "https://app.dropdash.co/trending-products", "max_pages": 2}
-      ]
+        {"role": "catalogue", "url": "https://app.dropdash.co/home", "max_pages": 1},
+        {"role": "winning", "url": "https://app.dropdash.co/products?categoryId=288", "max_pages": 1}
+      ],
+      "sales_sections": ["https://app.dropdash.co/products?categoryId=282", "https://app.dropdash.co/products?categoryId=288"],
+      "selectors": {
+        "card": ".dd_id_card",
+        "card_title": ".card-price",
+        "card_price": ".new-price, .new-price-details",
+        "card_mrp": ".old-price, .old-price-details",
+        "card_stock": ".instock-badge",
+        "card_sold": ".inventory-badge",
+        "section": ".category-section",
+        "section_title": ".category-card h6",
+        "category": "#category-carousel .img-body",
+        "product": ".right-row",
+        "product_title": "h5",
+        "product_price": ".current-price",
+        "product_mrp": ".old-price",
+        "product_stock": ".instock",
+        "product_terms": ".gst-text, .info-card, .delivery-box, .assurance-box span"
+      }
     }
   },
   "refresh": {"seconds_per_round": 150},

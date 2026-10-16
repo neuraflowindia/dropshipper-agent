@@ -26,7 +26,8 @@ Saved catalogue (``catalogue.json``, ``CATALOGUE_VERSION``)::
 
 The collection list is also the product-map material for the bigger map
 (W10): ``collections`` keeps every platform category with its roles and, where
-the platform has one, its ``parent`` handle.
+the platform has one, its ``parent`` handle. Only a full cycle replaces it; a
+lists cycle (list pages only) never does.
 
 Refreshing (``advance_platform``) works through one saved cycle at a time: a
 full catalogue at most every ``full_refresh_days`` and the role lists (new
@@ -68,7 +69,52 @@ MAX_RAW = 32 * 1024 * 1024
 BACKOFF_SECONDS = (300, 3600, 6 * 3600, 24 * 3600)
 SHORT_SPACING_SECONDS = 10
 _HANDLE = re.compile(r"[a-z0-9][a-z0-9-]{0,119}")
+# Where a signed-in platform's own page shows each fact (CSS selectors, or
+# null for the generic guess; ``platform_signed_in`` reads them, never clicks).
+SELECTOR_KEYS = ("card", "card_title", "card_price", "card_mrp", "card_stock", "card_sold", "section", "section_title",
+                 "category", "product", "product_title", "product_price", "product_mrp", "product_stock", "product_terms")
 _TEXT_LIMIT = 500
+# A signed-in platform's product-address pattern is read by Python
+# (``re.fullmatch``) and by the page's JavaScript (``new RegExp``): only plain
+# pieces both read alike are allowed. An escape is only of a punctuation mark
+# (never \d, \A, \Z, \b or a back-reference), a group only ``(`` or ``(?:``
+# (never ``(?P<``, ``(?i)``, ``(?>`` or a look-around), and a quantifier
+# never follows another (a possessive ``*+`` is Python-only).
+_PUNCTUATION = r"\\[!-/:-@\[-`{-~]"
+_PATTERN_PIECE = re.compile("|".join((
+    "(?P<escape>" + _PUNCTUATION + ")",
+    r"(?P<set>\[\^?(?:[A-Za-z0-9._~%&=/:,;!@'+-]|" + _PUNCTUATION + r")+\])",
+    r"(?P<open>\((?:\?:)?)", r"(?P<close>\))",
+    r"(?P<repeat>(?:[?*+]|\{[0-9]{1,3}(?:,[0-9]{0,3})?\})\??)",
+    r"(?P<either>\|)", r"(?P<plain>[A-Za-z0-9._~%&=/:,;!@'-])")))
+
+
+def _browser_pattern(pattern, base_url):
+    """Whether a product-address pattern is anchored to the platform's own
+    address (``^`` + its escaped base address + ``/`` .. ``$``) and made only
+    of pieces Python and JavaScript read alike."""
+    prefix = "^" + re.escape(base_url) + "/"
+    if not isinstance(pattern, str) or len(pattern) > 500 or not pattern.startswith(prefix) or not pattern.endswith("$"):
+        return False
+    body, position, depth, previous = pattern[len(prefix):-1], 0, 0, "open"
+    if not body:
+        return False
+    while position < len(body):
+        piece = _PATTERN_PIECE.match(body, position)
+        if piece is None:
+            return False  # an escaped "$" at the end leaves a lone "\" here
+        kind, position = piece.lastgroup, piece.end()
+        if kind == "set" and re.search(r"&&|\|\||--|~~", piece[0]):
+            return False  # kept for set operations in a future Python
+        if kind == "repeat" and previous not in ("escape", "set", "close", "plain"):
+            return False  # nothing to repeat, or a quantifier on a quantifier
+        if kind == "either" and depth == 0:
+            return False  # a top-level "|" would escape the anchors
+        if kind == "close" and (depth == 0 or previous == "open"):
+            return False
+        depth += {"open": 1, "close": -1}.get(kind, 0)
+        previous = kind
+    return depth == 0
 
 
 def _text(value, limit=_TEXT_LIMIT):
@@ -105,7 +151,8 @@ def _settings_value(value):
             feed = route in FEED_ROUTES
             common = {"transport", "base_url", "requests_per_round", "full_refresh_days", "list_refresh_hours",
                       "raw_retention_days", "price_basis", "stated_terms", "terms_url"}
-            expected = common | ({"page_size", "lists"} if feed else {"product_path", "product_pages_per_day", "pages"})
+            expected = common | ({"page_size", "lists"} if feed else {"product_path", "product_pages_per_day", "pages", "selectors",
+                                                                      "sales_sections"})
             if (set(row) != expected or row["transport"] != ("shopify-feed" if feed else "signed-in-browser")
                     or not re.fullmatch(r"https://[a-z0-9.-]+", row["base_url"])
                     or any(type(row[name]) is not int or not low <= row[name] <= high for name, low, high in (
@@ -131,7 +178,23 @@ def _settings_value(value):
                     if rule["pattern"] is not None:
                         re.compile(rule["pattern"])
             else:
-                re.compile(row["product_path"])
+                # Anchored to the platform, read alike by Python and the page's
+                # JavaScript, and one capturing group at most: the platform's own
+                # product number, when its address has one.
+                if not _browser_pattern(row["product_path"], row["base_url"]) or re.compile(row["product_path"]).groups > 1:
+                    raise ValueError
+                # The platform's own sales sections (category links that are no kind of product).
+                sections = row["sales_sections"]
+                if (not isinstance(sections, list) or len(sections) > 50 or len(set(map(str, sections))) != len(sections)
+                        or any(not isinstance(url, str) or len(url) > 300 or not url.startswith(row["base_url"] + "/")
+                               or "#" in url or re.search(r"[\x00-\x20\x7f]", url) for url in sections)):
+                    raise ValueError
+                selectors = row["selectors"]
+                if (not isinstance(selectors, dict) or set(selectors) != set(SELECTOR_KEYS)
+                        or any(selector is not None and (not isinstance(selector, str) or not 1 <= len(selector) <= 300
+                                                         or re.search(r"[\x00-\x1f\x7f]", selector))
+                               for selector in selectors.values())):
+                    raise ValueError
                 if (type(row["product_pages_per_day"]) is not int or not 0 <= row["product_pages_per_day"] <= 300
                         or not row["pages"] or not any(page.get("role") == "catalogue" for page in row["pages"])):
                     raise ValueError
@@ -423,6 +486,8 @@ _OWNER_LINES = {
                               "or accepts a plan; it looks again in a day. Nothing to do unless you choose to upgrade.",
     "OWNER_SIGN_IN_REQUIRED": "{label} needs you to sign in (Sign in to research sites).",
     "DROPSHIP_PAGE_LAYOUT_UNRECOGNISED": "{label}'s product pages were not recognised; the program waits a day and tries again.",
+    "DROPSHIP_PAGE_REDIRECTED": "{label} sent one of its product lists to a different page; the program waits and tries "
+                                "again (at most a day). If this keeps showing, the list may have moved.",
 }
 
 
@@ -554,7 +619,10 @@ def _apply_read(catalogue, cycle, request, parsed, at, relative, config, *, auth
     cycle["items_seen"] += merge_items(catalogue, clean, seen_at=at, source_ref=relative, handle=handle,
                                        role=request.get("role") if request.get("role") != "catalogue" else None,
                                        authoritative=authoritative)
-    if parsed.get("collections_complete"):
+    # Only a full cycle replaces the saved category list: a lists cycle reads
+    # only the list pages, never the whole category list (a feed's lists cycle
+    # gives none; a signed-in list page gives just its own).
+    if parsed.get("collections_complete") and cycle.get("kind") == "full":
         unique = {}
         for row in cycle["collections"]:
             unique.setdefault(row["handle"], row)
@@ -604,7 +672,9 @@ def replay_platform(root, route, reader):
         save_catalogue(root, route, catalogue)
         return catalogue
     windows = sorted((timestamp(row["started_at"]), timestamp(row["completed_at"])) for row in cycles)
-    replay = {"queue": [], "handles": [], "collections": [], "items_seen": 0}
+    full = refresh["completed"].get("full")
+    full_window = (timestamp(full["started_at"]), timestamp(full["completed_at"])) if full else None
+    replay = {"kind": None, "queue": [], "handles": [], "collections": [], "items_seen": 0}
     for relative in raw_files(root, route):
         raw = load_raw(root, route, relative)
         receipt = raw["receipt"]
@@ -618,9 +688,10 @@ def replay_platform(root, route, reader):
         parsed = reader.parse(request, raw)
         if parsed["collections"] is not None and request.get("page") == 1 and request.get("kind") == "collections":
             replay["collections"] = []
+        # As when it was read: only the full cycle's reads replace the category list.
+        replay["kind"] = "full" if full_window and full_window[0] <= read_at <= full_window[1] else "lists"
         _apply_read(catalogue, replay, request, parsed, receipt["read_at"], relative, config,
                     authoritative=getattr(reader, "authoritative", True))
-    full = refresh["completed"].get("full")
     if full:
         _finish_full(catalogue, full["started_at"], complete=getattr(reader, "complete_catalogue", True),
                      at=full["completed_at"], stale_days=4 * config["full_refresh_days"])

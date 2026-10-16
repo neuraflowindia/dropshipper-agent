@@ -1,8 +1,11 @@
 """The three dropshipping platforms' saved catalogues (Plan R10 W4).
 
 DeoDap and BaapStore feed pages are trimmed real public Shopify feeds saved on
-14 October 2026 (tests/fixtures/dropship_platforms); the signed-in pages are
-synthetic. Nothing here opens a network connection or a browser: the feed
+14 October 2026 (tests/fixtures/dropship_platforms); Dropdash's signed-in pages
+are trimmed real reads of 16 October 2026 (home page, its "Profitable Products"
+list, one product page; the account holder's name and billing prompt removed)
+plus invented edge cases (walls, redirects, a changed layout). Nothing here
+opens a network connection or a browser: the feed
 fetcher, the address resolver and the signed-in browser are offline doubles,
 and pacing and sign-ins are local records in a temporary folder.
 """
@@ -13,6 +16,8 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -160,14 +165,99 @@ class SettingsTests(unittest.TestCase):
             lambda v: v["refresh"].update(seconds_per_round=5),
             # Saved reads must outlive a whole catalogue refresh.
             lambda v: v["platforms"]["deodap"].update(raw_retention_days=7),
+            # A signed-in platform names every page selector (text, or null for the generic guess); a feed has none.
+            lambda v: v["platforms"]["dropdash"].pop("selectors"),
+            lambda v: v["platforms"]["dropdash"].update(selectors=[]),
+            lambda v: v["platforms"]["dropdash"]["selectors"].pop("card"),
+            lambda v: v["platforms"]["dropdash"]["selectors"].update(extra=".x"),
+            lambda v: v["platforms"]["dropdash"]["selectors"].update(card=""),
+            lambda v: v["platforms"]["dropdash"]["selectors"].update(card=".a\n.b"),
+            lambda v: v["platforms"]["dropdash"]["selectors"].update(card="x" * 301),
+            lambda v: v["platforms"]["dropdash"]["selectors"].update(card=7),
+            lambda v: v["platforms"]["deodap"].update(selectors={}),
+            # At most one capturing group in a product address: the platform's own product number.
+            lambda v: v["platforms"]["dropdash"].update(product_path=r"^https://app\.dropdash\.co/p/([0-9]+)/([0-9]+)$"),
+            lambda v: v["platforms"]["dropdash"].update(product_path="(unclosed"),
+            # Sales sections: a list of the platform's own category addresses, each named once.
+            lambda v: v["platforms"]["dropdash"].pop("sales_sections"),
+            lambda v: v["platforms"]["dropdash"].update(sales_sections=WINNING),
+            lambda v: v["platforms"]["dropdash"].update(sales_sections=["https://elsewhere.example/products?categoryId=1"]),
+            lambda v: v["platforms"]["dropdash"].update(sales_sections=[WINNING, WINNING]),
+            lambda v: v["platforms"]["dropdash"].update(sales_sections=[WINNING + "#top"]),
+            lambda v: v["platforms"]["dropdash"].update(sales_sections=[WINNING + " x"]),
+            lambda v: v["platforms"]["dropdash"].update(sales_sections=[7]),
+            lambda v: v["platforms"]["dropdash"].update(sales_sections=[{"url": WINNING}]),
+            lambda v: v["platforms"]["deodap"].update(sales_sections=[]),
         ]
         for change in changes:
             broken = deepcopy(value)
             change(broken)
             with self.assertRaisesRegex(SafetyError, "DROPSHIP_SETTINGS_INVALID"):
                 platforms.validate_settings(broken)
+        relaxed = deepcopy(value)
+        relaxed["platforms"]["dropdash"]["selectors"].update(card=None, product_terms=None)  # the generic guess
+        self.assertIsNone(platforms.validate_settings(relaxed)["platforms"]["dropdash"]["selectors"]["card"])
         with self.assertRaisesRegex(SafetyError, "DROPSHIP_ROUTE_INVALID"):
             platforms.platform_settings("amazon-search")
+
+
+    def test_product_address_patterns_are_anchored_and_read_alike_in_python_and_javascript(self):
+        value = platforms.settings()
+        live = value["platforms"]["dropdash"]["product_path"]
+        self.assertTrue(live.startswith("^" + re.escape("https://app.dropdash.co") + "/"))  # the live settings pass
+        rejected = [
+            r"^https://app.dropdash.co/productDetails\?id=([0-9]+)$",  # the platform's address not escaped
+            r"https://app\.dropdash\.co/productDetails\?id=([0-9]+)$",  # not anchored at the start
+            r"^https://app\.dropdash\.co/productDetails\?id=([0-9]+)",  # nor at the end
+            r"^https://app\.dropdash\.co/productDetails\?id=([0-9]+)\$",  # an escaped "$" is no anchor
+            r"^https://app\.dropdash\.co/x$|^https://elsewhere\.example/x$",  # a top-level "|" escapes the anchors
+            r"^https://app\.dropdash\.co/x|.*$",
+            r"^https://elsewhere\.example/productDetails\?id=([0-9]+)$",
+            r"^https://app\.dropdash\.co/$",  # nothing after the platform's address
+            r"^https://app\.dropdash\.co/productDetails\?id=(?P<id>[0-9]+)$",  # Python-only named group
+            r"^https://app\.dropdash\.co/(?i)productdetails\?id=([0-9]+)$",  # Python-only inline flag
+            r"^https://app\.dropdash\.co/productDetails\?id=([0-9]+)\Z$",
+            r"^https://app\.dropdash\.co/\AproductDetails\?id=([0-9]+)$",
+            r"^https://app\.dropdash\.co/productDetails\?id=([0-9]++)$",  # possessive (Python 3.11+ only)
+            r"^https://app\.dropdash\.co/productDetails\?id=((?>[0-9]+))$",  # atomic group
+            r"^https://app\.dropdash\.co/productDetails\?id=(\d+)$",  # \d reads other scripts' digits in Python
+            r"^https://app\.dropdash\.co/productDetails\?id=([0-9]+)(?=&)$",  # look-ahead
+            r"^https://app\.dropdash\.co/p/([0-9]+)/\1$",  # back-reference
+            r"^https://app\.dropdash\.co/productDetails\?id=(*[0-9])$",  # nothing to repeat
+            r"^https://app\.dropdash\.co/productDetails\?id=()[0-9]$",  # an empty group
+            r"^https://app\.dropdash\.co/productDetails\?id=([0-9]+$",  # unclosed
+            r"^https://app\.dropdash\.co/productDetails\?id=[0-9]+)$",
+            r"^https://app\.dropdash\.co/product Details$",
+            r"^https://app\.dropdash\.co/x{1,2}{3}$",
+            r"^https://app\.dropdash\.co/x[]$",
+            r"^https://app\.dropdash\.co/x[a&&b]$",  # kept for set operations in a future Python
+            "^https://app\\.dropdash\\.co/" + "x" * 500 + "$",
+            7, None]
+        for pattern in rejected:
+            broken = deepcopy(value)
+            broken["platforms"]["dropdash"]["product_path"] = pattern
+            with self.subTest(pattern=pattern), self.assertRaisesRegex(SafetyError, "DROPSHIP_SETTINGS_INVALID"):
+                platforms.validate_settings(broken)
+        accepted = [live, r"^https://app\.dropdash\.co/(?:product|products)/[A-Za-z0-9._~%-]+/?$",
+                    r"^https://app\.dropdash\.co/p/([0-9]{1,9})(?:/[a-z0-9-]*)?$",
+                    r"^https://app\.dropdash\.co/item-[^/&]+?\.html$"]
+        for pattern in accepted:
+            fine = deepcopy(value)
+            fine["platforms"]["dropdash"]["product_path"] = pattern
+            self.assertEqual(platforms.validate_settings(fine)["platforms"]["dropdash"]["product_path"], pattern)
+        # Each accepted pattern means the same in the page's JavaScript (new RegExp) as in Python.
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("Node is needed to read the patterns as the page's JavaScript does")
+        urls = [PRODUCT, PRODUCT + "&x=1", "https://app.dropdash.co/productDetails?id=0&sellerId=1",
+                "https://app.dropdash.co/products/sink-caddy", "https://app.dropdash.co/product/", "https://app.dropdash.co/p/12",
+                "https://app.dropdash.co/p/12/steel-caddy", "https://app.dropdash.co/item-caddy.html",
+                "https://app.dropdash.co/item-a/b.html", "https://elsewhere.example/p/12"]
+        script = ("const [patterns, urls] = JSON.parse(process.argv[1]);"
+                  "console.log(JSON.stringify(patterns.map(p => urls.map(u => new RegExp(p).test(u)))));")
+        reply = subprocess.run([node, "-e", script, json.dumps([accepted, urls])], capture_output=True, text=True,
+                               timeout=10, check=True)
+        self.assertEqual(json.loads(reply.stdout), [[bool(re.fullmatch(p, u)) for u in urls] for p in accepted])
 
 
 class FeedParsingTests(unittest.TestCase):
@@ -515,12 +605,29 @@ class FeedRefreshTests(PlatformCase):
             feeds.FeedReader("dropdash", pacing_root=self.pacing_root)
 
 
+HOME = "https://app.dropdash.co/home"
+WINNING = "https://app.dropdash.co/products?categoryId=288"
+PRODUCT = "https://app.dropdash.co/productDetails?id=13227&sellerId=1405"
+
+
+def page_request(role="catalogue", url=HOME, max_pages=1):
+    return {"kind": "page", "handle": "page-" + role, "role": role, "page": 1, "max_pages": max_pages, "url": url}
+
+
+def product_request(item_id="13227", url=PRODUCT, title="Card title"):
+    return {"kind": "product", "item_id": item_id, "handle": "product-page", "role": None, "page": 1, "max_pages": 1,
+            "title": title, "url": url}
+
+
 class SignedInTests(PlatformCase):
+    """Dropdash: trimmed real signed-in pages (16 October 2026) and invented edge cases."""
+
     route = "dropdash"
 
     def setUp(self):
         super().setUp()
-        self.pages = fixture("signed-in-pages-synthetic-2026-10-14.json")
+        self.pages = dict(fixture("dropdash-signed-in-pages-2026-10-16.json"),
+                          **fixture("dropdash-signed-in-edge-cases-synthetic-2026-10-16.json"))
         self.calls, self.serve = [], {}
 
     def browser(self, url, expression, folder, **options):
@@ -532,10 +639,11 @@ class SignedInTests(PlatformCase):
             return {"state": "failed", "reason": "NATIVE_PUBLIC_DEADLINE", "navigation_started": None, "snapshot": None}
         if page == "garbled":
             (folder / "native_result.json").write_text("{not json")
-            page = "catalogue"
+            page = "category_288"
         else:
             (folder / "native_result.json").write_text(json.dumps({"text": "Signed in as research.owner@example.com"}))
         snapshot = deepcopy(self.pages[page])
+        snapshot["url"] = snapshot["url"] or url
         snapshot["text"] += "\nAccount: research.owner@example.com"
         return {"state": "captured", "navigation_started": True, "snapshot": snapshot}
 
@@ -558,60 +666,116 @@ class SignedInTests(PlatformCase):
         self.assertEqual(self.calls, [])
         self.assertEqual(platforms.catalogue_wait(self.store, self.route), "OWNER_SIGN_IN_REQUIRED")
 
-    def test_signed_in_cycle_reads_catalogue_pages_lists_and_product_pages(self):
+    def test_signed_in_cycle_reads_the_home_page_the_winning_list_and_its_product_pages(self):
         self.sign_in()
-        self.serve = {"https://app.dropdash.co/products": "catalogue",
-                      "https://app.dropdash.co/products?page=2": "catalogue_page_2",
-                      "https://app.dropdash.co/trending-products": "trending",
-                      "https://app.dropdash.co/winning-products": "trending",
-                      "https://app.dropdash.co/products/steel-draining-sink-caddy": "product",
-                      "https://app.dropdash.co/products/kids-bath-toy-set": "product_sparse"}
-        outcomes, clock = self.run_reads(5)
-        self.assertEqual([row["state"] for row in outcomes], ["reading"] * 4 + ["current"])
+        self.serve = {HOME: "home", WINNING: "category_288"}
+        outcomes, _ = self.run_reads(3)
+        self.assertEqual([row["state"] for row in outcomes], ["reading", "reading", "current"])
         self.assertEqual(outcomes[-1]["reads"], 0)
-        self.assertEqual([call["url"] for call in self.calls], [
-            "https://app.dropdash.co/products", "https://app.dropdash.co/products?page=2",
-            "https://app.dropdash.co/winning-products", "https://app.dropdash.co/trending-products"])
+        self.assertEqual([call["url"] for call in self.calls], [HOME, WINNING])
         self.assertTrue(all(call["options"] == {"profile": "signed-in", "root": self.pacing_root} for call in self.calls))
+        self.assertTrue(all(call["expression"] == signed.expression(self.route) for call in self.calls))
         catalogue = platforms.load_catalogue(self.store, self.route)
         self.assertEqual(catalogue["scope"], "sample")
-        self.assertEqual(set(catalogue["items"]), {"steel-draining-sink-caddy", "kids-bath-toy-set", "folding-travel-pillow",
-                                                   "best-selling-trending-lunch-box"})
-        caddy_item = catalogue["items"]["steel-draining-sink-caddy"]
-        self.assertEqual((caddy_item["title"], caddy_item["price"], caddy_item["mrp"], caddy_item["in_stock"]),
-                         ("Steel Draining Sink Caddy", "149", "499", True))
-        # Listed on the trending and winning pages; the kids set's own "High Demand" badge is its role.
-        self.assertEqual(sorted(caddy_item["roles"]), ["trending", "winning"])
-        self.assertEqual(sorted(catalogue["items"]["kids-bath-toy-set"]["roles"]), ["high_demand"])
-        self.assertIs(catalogue["items"]["kids-bath-toy-set"]["in_stock"], False)
-        # Words in a title are not list badges; a "/month" plan figure is never a price.
-        lunch = catalogue["items"]["best-selling-trending-lunch-box"]
-        self.assertEqual((lunch["roles"], lunch["price"]), ({}, "120"))
-        self.assertIn("kitchen-tools", {row["handle"] for row in catalogue["collections"]})
+        # 30 home cards and 8 "Profitable Products" cards, 6 of which are also on the home page.
+        self.assertEqual(len(catalogue["items"]), 32)
+        band = catalogue["items"]["12344"]
+        self.assertEqual((band["title"], band["url"], band["price"], band["mrp"], band["in_stock"], band["tags"], band["roles"]),
+                         ("Figure 8 Workout Resistance Band for Yoga (Pack of 1)",
+                          "https://app.dropdash.co/productDetails?id=12344&sellerId=1627", "220", "249", True,
+                          ["Testing Products"], {}))
+        self.assertEqual(band["images"], ["https://sp-api.dropdash.co/upload/ProductImages/72dd30bc-443a-4ec5-bae0-485016c418c6.jpg"])
+        self.assertEqual(band["price_basis"], platforms.platform_settings(self.route)["price_basis"])
+        self.assertIs(catalogue["items"]["2644"]["in_stock"], False)  # its stock count is 0
+        self.assertEqual((catalogue["items"]["2301"]["price"], catalogue["items"]["2301"]["mrp"]), ("385", None))  # no MRP shown
+        # The winning list ("Profitable Products"); its cards on the home page keep their section.
+        glue = catalogue["items"]["9240"]
+        self.assertEqual((glue["price"], glue["mrp"], sorted(glue["roles"]), glue["tags"]),
+                         ("101", "201", ["winning"], ["Profitable Products"]))
+        self.assertEqual(sorted(glue["collections"]), ["page-catalogue", "page-winning"])
+        resin = catalogue["items"]["12607"]  # only on the list page
+        self.assertEqual((sorted(resin["roles"]), resin["tags"], resin["in_stock"]), (["winning"], [], True))
+        listed = sorted(item_id for item_id, item in catalogue["items"].items() if item["roles"])
+        self.assertEqual(listed, sorted(["9240", "9210", "9212", "9280", "9251", "9274", "12607", "9576"]))
+        # The home page's 21 category links less its "Testing Products" sales section, and the winning
+        # list's own page. "Profitable Products" is that list (its role); the home page is no category.
+        collections = {row["handle"]: row for row in catalogue["collections"]}
+        self.assertEqual(len(collections), 20 + 1)
+        self.assertEqual((collections["products-288"]["title"], collections["products-288"]["url"], collections["products-288"]["roles"]),
+                         ("Profitable Products", WINNING, ["winning"]))
+        self.assertEqual(collections["page-winning"]["roles"], ["winning"])
+        self.assertNotIn("page-catalogue", collections)
+        self.assertNotIn("products-282", collections)
+        self.assertEqual(collections["products-63"], {"handle": "products-63", "title": "Home Decor & Lighting",
+                                                      "url": "https://app.dropdash.co/products?categoryId=63",
+                                                      "products_count": None, "roles": [], "parent": None})
+        full_collections = deepcopy(catalogue["collections"])
+        # Product-map material: real categories only, never the home page, a sales section or a list.
+        from product_radar import map_materials
+        titles = [row["label"] for row in map_materials._platform_rows(self.store, self.route, 1)
+                  if row["key"].startswith("dropdash:collection:")]
+        self.assertEqual(len(titles), 19)
+        self.assertIn("Home Decor & Lighting", titles)
+        for title in ("Catalogue page", "Testing Products", "Profitable Products", "Winning page"):
+            self.assertNotIn(title, titles)
         self.assertEqual(site_states(self.pacing_root)[self.route]["state"], "signed_in")
-        # The next day's lists cycle also reads the listed items' product pages for their own stated terms.
-        outcomes, _ = self.run_reads(6, start=later(START, 86400 + 300))
+        # The next day's lists cycle reads the list again, then each listed item's own product page.
+        product_pages = {catalogue["items"][item_id]["url"] for item_id in listed}
+        self.serve.update({url: "product_sparse" for url in product_pages})
+        outcomes, _ = self.run_reads(10, start=later(START, 86400 + 300))
+        self.assertEqual([row["state"] for row in outcomes], ["reading"] * 9 + ["current"])
+        self.assertEqual(self.calls[2]["url"], WINNING)
+        self.assertEqual({call["url"] for call in self.calls[3:]}, product_pages)
         catalogue = platforms.load_catalogue(self.store, self.route)
-        self.assertIn("https://app.dropdash.co/products/steel-draining-sink-caddy", [call["url"] for call in self.calls])
-        caddy_item = catalogue["items"]["steel-draining-sink-caddy"]
-        self.assertEqual(caddy_item["terms"], "Free shipping across India; dispatch within 24 hours; COD available; "
-                                              "Returns accepted within 7 days")
-        self.assertEqual((caddy_item["title"], caddy_item["price"], caddy_item["mrp"]), ("Steel Draining Sink Caddy", "149", "499"))
-        # A sparse product page leaves the card's price, images and stock in place; footer text is never terms.
-        kids = catalogue["items"]["kids-bath-toy-set"]
-        self.assertEqual((kids["price"], kids["in_stock"], kids["terms"]), ("99", False, None))
-        self.assertIn("product-page", kids["collections"])
-        self.assertEqual(sorted(kids["roles"]), ["high_demand"])
+        glue = catalogue["items"]["9240"]
+        # A product page that shows almost nothing leaves the card's title, price, stock and images in place.
+        self.assertEqual((glue["title"], glue["price"], glue["mrp"], glue["in_stock"], glue["terms"]),
+                         ("Invisible Waterproof Glue", "101", "201", True, None))
+        self.assertEqual(len(glue["images"]), 1)
+        self.assertIn("product-page", glue["collections"])
+        self.assertEqual(sorted(glue["roles"]), ["winning"])
+        # A lists cycle reads only the list pages: the full cycle's category list stays whole,
+        # also when the catalogue is rebuilt from the saved reads.
+        self.assertEqual(catalogue["collections"], full_collections)
+        self.assertEqual(platforms.replay_platform(self.store, self.route, self.reader())["collections"], full_collections)
         # A sampled catalogue never drops an item it did not see again.
-        self.serve = {"https://app.dropdash.co/products": "catalogue_page_2",
-                      "https://app.dropdash.co/trending-products": "trending",
-                      "https://app.dropdash.co/winning-products": "trending"}
-        self.run_reads(6, start=later(START, 8 * 86400))
-        self.assertIn("kids-bath-toy-set", platforms.load_catalogue(self.store, self.route)["items"])
+        self.pages["home_short"] = dict(self.pages["home"], cards=self.pages["home"]["cards"][:6])
+        self.serve = {HOME: "home_short", WINNING: "category_288"}
+        self.run_reads(3, start=later(START, 8 * 86400))
+        self.assertEqual([call["url"] for call in self.calls[-2:]], [HOME, WINNING])
+        self.assertIn("2301", platforms.load_catalogue(self.store, self.route)["items"])
+
+    def test_a_product_page_gives_its_own_price_mrp_stock_and_stated_terms(self):
+        page = self.pages["product_13227"]
+        item = signed.parse_snapshot(self.route, product_request(), page)["items"][0]
+        self.assertEqual({name: item[name] for name in ("item_id", "title", "url", "price", "mrp", "in_stock", "terms")},
+                         {"item_id": "13227", "title": "Posture Corrector Back Straight And Shoulder Support Belt",
+                          "url": PRODUCT, "price": "240", "mrp": "299", "in_stock": True,
+                          "terms": "Including GST and Shipping Charges; RTO Cost 70 per return; Delivery Rate Low; "
+                                   "Dispatch in 24 hrs"})
+        # The same product's home card shows the same figures.
+        card = next(row for row in signed.parse_snapshot(self.route, page_request(), self.pages["home"])["items"]
+                    if row["item_id"] == "13227")
+        self.assertEqual((card["price"], card["mrp"], card["in_stock"], card["tags"]), ("240", "299", True, ["Fitness & Wellness"]))
+        sold_out = dict(page, product=dict(page["product"], stock="0 units"))
+        self.assertIs(signed.parse_snapshot(self.route, product_request(), sold_out)["items"][0]["in_stock"], False)
+        # Without its own price element, the block's text; without a title, the card's.
+        textual = dict(page, product={"title": " ", "text": "Dropship price ₹ 50\nMRP ₹ 80\nIn stock", "terms": []})
+        item = signed.parse_snapshot(self.route, product_request(), textual)["items"][0]
+        self.assertEqual((item["title"], item["price"], item["mrp"], item["in_stock"], item["terms"]), ("Card title", "50", "80", True, None))
+        # Read through the signed-in reader, the saved body gives the same item.
+        self.sign_in()
+        self.serve = {PRODUCT: "product_13227"}
+        reader = self.reader()
+        with paced(Clock(START)):
+            result = reader.read(product_request(), self.store, 1, START)
+        self.assertEqual((result["state"], result["reason"], result["receipt"]["final_url"]), ("read", None, PRODUCT))
+        self.assertNotIn("research.owner@example.com", result["body"])
+        self.assertEqual(reader.parse(product_request(), {"body": result["body"]})["items"][0]["price"], "240")
 
     def test_plan_walls_and_redirects_wait_a_day_and_never_click(self):
         self.sign_in()
-        self.serve = {"https://app.dropdash.co/products": "plan_wall"}
+        self.serve = {HOME: "plan_wall"}
         outcomes, _ = self.run_reads(1)
         self.assertEqual((outcomes[0]["state"], outcomes[0]["reason"]), ("waiting", "DROPSHIP_PLAN_REQUIRED"))
         refresh = platforms.load_refresh(self.store, self.route)
@@ -619,7 +783,7 @@ class SignedInTests(PlatformCase):
         self.assertEqual(platforms.platform_lines(self.store), [
             "Dropdash shows a paid plan or membership page instead of products. The program never pays or accepts a "
             "plan; it looks again in a day. Nothing to do unless you choose to upgrade."])
-        self.serve = {"https://app.dropdash.co/products": "redirected_to_plans"}
+        self.serve = {HOME: "redirected_to_plans"}
         outcomes, _ = self.run_reads(1, start=later(START, 86400 + 10))
         self.assertEqual(outcomes[0]["reason"], "DROPSHIP_PLAN_REQUIRED")
         self.assertEqual(len(self.calls), 2)
@@ -627,15 +791,18 @@ class SignedInTests(PlatformCase):
 
     def test_a_redirect_elsewhere_is_refused(self):
         self.sign_in()
-        self.serve = {"https://app.dropdash.co/products": "catalogue"}
-        self.pages["catalogue"]["url"] = "https://app.dropdash.co/products?sort=new"
+        self.serve = {HOME: "home"}
+        self.pages["home"]["url"] = "https://app.dropdash.co/home?sort=new"
         outcomes, _ = self.run_reads(1)
         self.assertEqual(outcomes[0]["reason"], "DROPSHIP_PAGE_REDIRECTED")
         self.assertEqual(platforms.load_catalogue(self.store, self.route)["items"], {})
+        self.assertEqual(platforms.platform_lines(self.store), [
+            "Dropdash sent one of its product lists to a different page; the program waits and tries again "
+            "(at most a day). If this keeps showing, the list may have moved."])
 
     def test_account_details_are_removed_and_unreadable_saved_results_quarantined(self):
         self.sign_in()
-        self.serve = {"https://app.dropdash.co/products": "catalogue"}
+        self.serve = {HOME: "home"}
         self.run_reads(1)
         reads = platforms.platform_folder(self.store, self.route) / "reads"
         saved = (reads / "r000001" / "native_result.json").read_text()
@@ -643,16 +810,16 @@ class SignedInTests(PlatformCase):
         self.assertIn("[email redacted]", saved)
         raw = platforms.load_raw(self.store, self.route, platforms.raw_files(self.store, self.route)[0])
         self.assertNotIn("research.owner@example.com", raw["body"])
-        self.serve = {"https://app.dropdash.co/products?page=2": "garbled"}
+        self.serve = {WINNING: "garbled"}
         self.run_reads(1, start=later(START, 40))
         self.assertFalse((reads / "r000002" / "native_result.json").exists())
         self.assertEqual(len(list((reads / "signed-in-quarantine").iterdir())), 1)
 
     def test_sign_in_wall_records_an_expired_sign_in(self):
         self.sign_in()
-        self.serve = {"https://app.dropdash.co/products": "catalogue"}
+        self.serve = {HOME: "home"}
         self.run_reads(1)
-        self.serve = {"https://app.dropdash.co/products?page=2": "wall"}
+        self.serve = {WINNING: "wall"}
         outcomes, _ = self.run_reads(1, start=later(START, 40))
         self.assertEqual((outcomes[0]["state"], outcomes[0]["reason"]), ("waiting", "OWNER_SIGN_IN_REQUIRED"))
         self.assertEqual(site_states(self.pacing_root)[self.route]["state"], "expired")
@@ -661,18 +828,31 @@ class SignedInTests(PlatformCase):
     def test_unrecognised_layout_drops_the_cycle_instead_of_an_empty_catalogue(self):
         self.sign_in()
         outcomes, _ = self.run_reads(1)
+        self.assertEqual(self.calls[0]["url"], HOME)
         self.assertEqual((outcomes[0]["state"], outcomes[0]["reason"]), ("waiting", "DROPSHIP_PAGE_LAYOUT_UNRECOGNISED"))
         refresh = platforms.load_refresh(self.store, self.route)
         self.assertIsNone(refresh["cycle"])
         self.assertEqual(platforms.catalogue_wait(self.store, self.route), "DROPSHIP_PAGE_LAYOUT_UNRECOGNISED")
+        # A changed layout: the product cards are still found (the generic guess) but none of the
+        # page's own price elements is, and the card text has no price (the rupee sign is a picture).
+        self.pages["unpriced"] = deepcopy(self.pages["home"])
+        for card in self.pages["unpriced"]["cards"]:
+            card.update(price=None, mrp=None, stock=None, sold=None, section=None)
+        self.assertEqual(len(signed.parse_snapshot(self.route, page_request(), self.pages["unpriced"])["items"]), 30)
+        self.assertFalse(signed.shows_priced_products(self.pages["unpriced"], platforms.platform_settings(self.route)["product_path"]))
+        self.serve = {HOME: "unpriced"}
+        outcomes, _ = self.run_reads(1, start=later(START, 600))
+        self.assertEqual((len(self.calls), outcomes[0]["reason"]), (2, "DROPSHIP_PAGE_LAYOUT_UNRECOGNISED"))
+        self.assertEqual(platforms.load_catalogue(self.store, self.route)["items"], {})
+        self.assertIn("Dropdash's product pages were not recognised", " ".join(platforms.platform_lines(self.store)))
 
     def test_a_busy_browser_uncounts_the_read_and_a_broken_one_is_a_failure(self):
         self.sign_in()
-        self.serve = {"https://app.dropdash.co/products": "busy"}
+        self.serve = {HOME: "busy"}
         outcomes, _ = self.run_reads(1)
         self.assertEqual((outcomes[0]["state"], outcomes[0]["reason"], outcomes[0]["reads"]), ("waiting", "SIGNED_IN_BROWSER_BUSY", 0))
         self.assertEqual(load_json(pacing._path(self.pacing_root), 1024 * 1024)["reads"][self.route], [])
-        self.serve = {"https://app.dropdash.co/products": "broken"}
+        self.serve = {HOME: "broken"}
         outcomes, _ = self.run_reads(1, start=later(START, 600))
         self.assertEqual((outcomes[0]["state"], outcomes[0]["reason"]), ("waiting", "DROPSHIP_PAGE_READ_FAILED"))
         self.assertEqual(len(load_json(pacing._path(self.pacing_root), 1024 * 1024)["reads"][self.route]), 1)
@@ -724,66 +904,312 @@ class SignedInTests(PlatformCase):
     def test_reading_only_no_click_no_paid_or_contact_page(self):
         script = signed.expression(self.route)
         for forbidden in (".click(", "submit", "dispatchEvent", ".focus(", "scroll", "location.assign", "location.href =",
-                          "fetch(", "XMLHttpRequest", ".value =", "localStorage", "cookie"):
+                          "fetch(", "XMLHttpRequest", ".value =", "localStorage", "cookie", "__PAGE_SELECTORS__",
+                          "__PRODUCT_PATTERN__"):
             self.assertNotIn(forbidden, script)
+        # The platform's own selectors and product address go in as data (JSON text).
+        config = platforms.platform_settings(self.route)
+        self.assertIn("pick = " + json.dumps(config["selectors"], sort_keys=True) + ";", script)
+        self.assertIn("new RegExp(" + json.dumps(config["product_path"]) + ")", script)
         for url in ("https://app.dropdash.co/checkout", "https://app.dropdash.co/cart/add",
                     "https://app.dropdash.co/plans", "https://app.dropdash.co/pricing",
-                    "https://app.dropdash.co/subscribe?plan=gold", "https://app.dropdash.co/products/x?add_to_store=1",
-                    "https://app.dropdash.co/contact-us", "https://app.dropdash.co/wallet/recharge",
-                    "https://app.dropdash.co/account/settings", "https://app.dropdash.co/orders/1",
-                    "https://app.dropdash.co/upgrade", "https://app.dropdash.co/premium/products",
-                    "https://app.dropdash.co/products/x/buy-now", "https://app.dropdash.co/free-trial",
+                    "https://app.dropdash.co/subscribe?plan=gold", "https://app.dropdash.co/contact-us",
+                    "https://app.dropdash.co/wallet/recharge", "https://app.dropdash.co/account/settings",
+                    "https://app.dropdash.co/orders/1", "https://app.dropdash.co/upgrade",
+                    "https://app.dropdash.co/premium/products", "https://app.dropdash.co/free-trial",
                     "https://app.dropdash.co/membership", "https://app.dropdash.co/place-order",
-                    "https://app.dropdash.co/high-demand-products",  # not a configured page: never opened
-                    "https://app.dropdash.co/products?page=2&plan=gold", "https://app.dropdash.co/products?sort=new",
-                    "https://elsewhere.example/products", "https://app.dropdash.co/products#top"):
-            with self.assertRaisesRegex(SafetyError, "DROPSHIP_PAGE_NOT_READ_ONLY"):
+                    "https://app.dropdash.co/push/13227",
+                    PRODUCT + "&add_to_store=1", PRODUCT + "#variants", PRODUCT + " ",
+                    "https://app.dropdash.co/productDetails?id=13227",  # not the platform's product address
+                    "https://app.dropdash.co/productDetails?sellerId=1405&id=13227",
+                    "https://app.dropdash.co/productDetails?id=0&sellerId=1405",
+                    "https://app.dropdash.co/products",  # the guessed catalogue address: not a configured page
+                    "https://app.dropdash.co/winning-products",
+                    "https://app.dropdash.co/products?categoryId=63",  # a category seen on the home page, not configured
+                    "https://app.dropdash.co/products?categoryId=288&page=2",
+                    "https://app.dropdash.co/home?page=2&plan=gold", "https://app.dropdash.co/home?sort=new",
+                    "https://app.dropdash.co/home?page=0", "https://elsewhere.example/home",
+                    "https://app.dropdash.co/home#top"):
+            with self.subTest(url=url), self.assertRaisesRegex(SafetyError, "DROPSHIP_PAGE_NOT_READ_ONLY"):
                 signed.read_only_url(self.route, url)
-        for url in ("https://app.dropdash.co/products/kids-pay-pretend-set", "https://app.dropdash.co/products",
-                    "https://app.dropdash.co/products?page=3", "https://app.dropdash.co/trending-products?page=2"):
+        for url in (HOME, WINNING, PRODUCT, "https://app.dropdash.co/home?page=2",
+                    "https://app.dropdash.co/productDetails?id=1&sellerId=999999999"):
             self.assertEqual(signed.read_only_url(self.route, url), url)
         # A next-page link to a forbidden step is simply not followed.
-        parsed = signed.parse_snapshot(self.route, {"kind": "page", "handle": "page-catalogue", "role": "catalogue", "page": 1,
-                                                    "max_pages": 5, "url": "https://app.dropdash.co/products"},
-                                       self.pages["catalogue_page_2"])
+        parsed = signed.parse_snapshot(self.route, page_request(max_pages=5), self.pages["text_only_page_2"])
         self.assertEqual(parsed["follow"], [])
 
-    def test_markers_and_card_parsing(self):
+    def test_markers_and_real_card_parsing(self):
         self.assertIs(signed.signed_in_marker(self.pages["wall"]), False)
         self.assertIs(signed.signed_in_marker(dict(self.pages["unrecognised"], url="https://app.dropdash.co/signin")), False)
-        self.assertIs(signed.signed_in_marker(self.pages["catalogue"]), True)
+        for name in ("home", "category_288", "product_13227"):
+            self.assertIs(signed.signed_in_marker(self.pages[name]), True)
         self.assertIsNone(signed.signed_in_marker(self.pages["unrecognised"]))
         self.assertIsNone(signed.signed_in_marker(None))
-        parsed = signed.parse_snapshot(self.route, {"kind": "page", "handle": "page-catalogue", "role": "catalogue", "page": 1,
-                                                    "max_pages": 5, "url": "https://app.dropdash.co/products"},
-                                       self.pages["catalogue"])
-        self.assertEqual([row["item_id"] for row in parsed["items"]], ["steel-draining-sink-caddy", "kids-bath-toy-set",
-                                                                       "best-selling-trending-lunch-box"])
-        self.assertEqual([row["badges"] for row in parsed["items"]], [["trending"], ["high_demand"], []])
-        self.assertEqual([row["title"] for row in parsed["items"]], ["Steel Draining Sink Caddy", "Kids Bath Toy Set",
-                                                                     "Best Selling Trending Lunch Box"])
-        self.assertEqual(signed.prices("Plans from ₹ 499/month\nOnly ₹ 1,299 per year\nPrice ₹ 99"), ("99", None))
-        self.assertIs(signed.plan_wall({"kind": "page"}, self.pages["catalogue"]), False)  # a banner beside products
-        self.assertIs(signed.plan_wall({"kind": "page"}, self.pages["plan_wall"]), True)
-        self.assertEqual(parsed["follow"][0]["url"], "https://app.dropdash.co/products?page=2")
-        self.assertEqual([row["handle"] for row in parsed["collections"]], ["page-catalogue", "kitchen-tools"])
-        product = signed.parse_snapshot(self.route, {"kind": "product", "item_id": "steel-draining-sink-caddy", "role": None,
-                                                     "page": 1, "max_pages": 1, "title": "Card title",
-                                                     "url": "https://app.dropdash.co/products/steel-draining-sink-caddy"},
-                                        dict(self.pages["product"], product={"title": " ", "text": "₹ 50", "terms": []}))
-        # The card's title, never the browser tab's document title.
-        self.assertEqual((product["items"][0]["title"], product["items"][0]["price"]), ("Card title", "50"))
+        # Every real card: its own title, price, MRP, stock and section elements (the rupee sign is a picture).
+        home = signed.parse_snapshot(self.route, page_request(), self.pages["home"])
+        cards = self.pages["home"]["cards"]
+        self.assertEqual(len(home["items"]), len(cards))
+        for card, row in zip(cards, home["items"]):
+            with self.subTest(item=row["item_id"]):
+                self.assertEqual((row["url"], row["title"], row["price"], row["mrp"], row["in_stock"], row["tags"]),
+                                 (card["href"], card["title"], card["price"], card["mrp"], int(card["stock"]) > 0,
+                                  [card["section"]]))
+                self.assertEqual(row["item_id"], re.search(r"\?id=([0-9]+)&", card["href"])[1])
+                # Its own badge ("₹ 29 OFF", "25% OFF") is MRP less price: never taken for a price.
+                off = next((badge for badge in card["badges"] if badge.endswith(" OFF")), None)
+                if off and off.startswith("₹"):
+                    self.assertEqual(int(row["mrp"]) - int(row["price"]), int(off[1:-4].replace(",", "")))
+                elif off:
+                    self.assertAlmostEqual((int(row["mrp"]) - int(row["price"])) / int(row["mrp"]) * 100, int(off[:-5]), delta=1)
+                else:
+                    self.assertIsNone(row["mrp"])
+                self.assertEqual(row["badges"], [])  # discounts, units sold and stock are not list badges
+        self.assertEqual(sorted({row["tags"][0] for row in home["items"]}),
+                         ["Fitness & Wellness", "Men", "Profitable Products", "Religious & Spirituals", "Testing Products"])
+        # The home page is no category; its "Testing Products" sales section is left out (its cards keep
+        # it as a tag) and "Profitable Products", the configured winning list, is that list.
+        categories = home["collections"]
+        self.assertEqual(len(categories), 20)
+        self.assertEqual(categories[0], {"handle": "products-288", "title": "Profitable Products", "url": WINNING,
+                                         "products_count": None, "roles": ["winning"], "parent": None})
+        self.assertEqual(categories[1], {"handle": "products-63", "title": "Home Decor & Lighting",
+                                         "url": "https://app.dropdash.co/products?categoryId=63", "products_count": None,
+                                         "roles": [], "parent": None})
+        self.assertNotIn("Testing Products", [row["title"] for row in categories])
+        self.assertEqual(home["follow"], [])
+        listed = signed.parse_snapshot(self.route, page_request("winning", WINNING), self.pages["category_288"])
+        self.assertEqual([(row["price"], row["mrp"], row["in_stock"], row["tags"]) for row in listed["items"]],
+                         [("101", "201", True, [])] * 8)
+        self.assertEqual((listed["collections"][0]["roles"], len(listed["collections"])), (["winning"], 1))
+        # One product shown in two sections is one item with both.
+        twice = deepcopy(self.pages["home"])
+        twice["cards"].append(dict(twice["cards"][0], section="Profitable Products"))
+        items = signed.parse_snapshot(self.route, page_request(), twice)["items"]
+        self.assertEqual((len(items), items[0]["tags"]), (30, ["Testing Products", "Profitable Products"]))
+        path = platforms.platform_settings(self.route)["product_path"]
+        self.assertIs(signed.plan_wall({"kind": "page"}, self.pages["home"], path), False)
+        self.assertIs(signed.plan_wall({"kind": "page"}, self.pages["plan_wall"], path), True)
+        walled = dict(self.pages["product_13227"], text="Upgrade your plan to view products.")
+        self.assertIs(signed.plan_wall({"kind": "product"}, walled, path), False)  # the page still shows its own price
+        self.assertIs(signed.plan_wall({"kind": "product"}, dict(walled, product=self.pages["product_sparse"]["product"]), path), True)
         with self.assertRaisesRegex(SafetyError, "DROPSHIP_FEED_BODY_INVALID"):
             self.reader().parse({"kind": "page"}, {"receipt": {}, "body": "[]"})
         with self.assertRaisesRegex(SafetyError, "DROPSHIP_ROUTE_INVALID"):
             signed.SignedInReader("deodap", pacing_root=self.pacing_root)
 
+    def test_a_layout_without_its_own_price_elements_falls_back_to_the_card_text(self):
+        parsed = signed.parse_snapshot(self.route, page_request(max_pages=5), self.pages["text_only"])
+        rows = {row["item_id"]: row for row in parsed["items"]}
+        self.assertEqual(list(rows), ["501", "502", "503"])  # the checkout link is not a product
+        caddy = rows["501"]
+        self.assertEqual((caddy["title"], caddy["price"], caddy["mrp"], caddy["in_stock"]), ("Steel Draining Sink Caddy", "149", "499", True))
+        # Shown again in another section: one item with both sections and both badges.
+        self.assertEqual((caddy["tags"], caddy["badges"]), (["Kitchen Tools", "Testing Products"], ["new_arrival", "trending"]))
+        kids = rows["502"]
+        self.assertEqual((kids["title"], kids["price"], kids["in_stock"], kids["badges"]), ("Kids Bath Toy Set", "99", False, ["high_demand"]))
+        # Words in a title are not list badges; a discount or a "/month" plan figure is never a price.
+        self.assertEqual((rows["503"]["badges"], rows["503"]["price"], rows["503"]["mrp"]), ([], "120", None))
+        self.assertEqual(parsed["follow"][0]["url"], "https://app.dropdash.co/home?page=2")
+        self.assertEqual(signed.parse_snapshot(self.route, page_request(), self.pages["text_only"])["follow"], [])  # one page only
+        # A category chosen by a query keeps only that query; another site's category is left out.
+        self.assertEqual([(row["handle"], row["title"], row["url"]) for row in parsed["collections"]],
+                         [("products-77", "Kitchen Tools", "https://app.dropdash.co/products?categoryId=77")])
+        self.assertIs(signed.plan_wall({"kind": "page"}, self.pages["text_only"],  # a plan banner beside priced products
+                                       platforms.platform_settings(self.route)["product_path"]), False)
+        self.assertEqual(signed.prices("Plans from ₹ 499/month\nOnly ₹ 1,299 per year\nPrice ₹ 99"), ("99", None))
+        self.assertEqual(signed.prices("₹ 29 OFF\n₹ 220\nMRP ₹ 249"), ("220", "249"))
+        self.assertEqual(signed.prices("₹ 220\nOff-white"), ("220", None))
+        self.assertEqual(signed.prices("₹ 99\n₹ 120"), ("99", None))  # the first figure is the price
+        # Cards without an address and categories without a name of their own are left out.
+        odd = dict(self.pages["text_only"], cards=[None, {"href": None}, {"href": 5}],
+                   categories=[None, {"href": "https://app.dropdash.co/", "text": "Home"}])
+        parsed = signed.parse_snapshot(self.route, page_request(), odd)
+        self.assertEqual((parsed["items"], parsed["collections"]), ([], []))
+        self.assertFalse(signed.shows_priced_products(odd, platforms.platform_settings(self.route)["product_path"]))
+        for value, figure in (("₹ 1,299", "1299"), ("240", "240"), ("97 units", "97"), ("₹ 2,499.50", "2499.50"),
+                              ("₹ 499/month", None), ("Plans monthly 99", None), ("Low", None), ("", None), (None, None),
+                              ("9" * 41, None)):
+            self.assertEqual(signed._figure(value), figure)
+
     def test_dropdash_uses_its_own_pages_and_product_addresses(self):
         reader = signed.SignedInReader("dropdash", pacing_root=self.pacing_root, browser=self.browser)
         plan = reader.plan_full(platforms.platform_settings("dropdash"), platforms.load_catalogue(self.store, "dropdash"))
-        self.assertEqual([row["role"] for row in plan], ["catalogue", "winning", "trending"])
-        self.assertTrue(re.fullmatch(platforms.platform_settings("dropdash")["product_path"],
-                                     "https://app.dropdash.co/products/sink-caddy"))
+        self.assertEqual([(row["role"], row["url"], row["max_pages"]) for row in plan], [("catalogue", HOME, 1), ("winning", WINNING, 1)])
+        config = platforms.platform_settings("dropdash")
+        self.assertEqual(re.fullmatch(config["product_path"], PRODUCT)[1], "13227")
+        for url in ("https://app.dropdash.co/products/sink-caddy", PRODUCT + "&x=1", "https://app.dropdash.co/productDetails?id=13227"):
+            self.assertIsNone(re.fullmatch(config["product_path"], url))
+        # Every element the read uses is named from the pages seen signed in on 16 October 2026.
+        self.assertEqual(sorted(config["selectors"]), sorted(platforms.SELECTOR_KEYS))
+        self.assertTrue(all(config["selectors"].values()))
+
+    def test_a_cycle_saved_under_earlier_addresses_is_dropped_never_opened(self):
+        # Not signed in yet: the cycle is planned and saved while it waits for the owner.
+        self.assertEqual(self.advance(self.reader(), self.route)["reason"], "OWNER_SIGN_IN_REQUIRED")
+        refresh = platforms.load_refresh(self.store, self.route)
+        refresh["cycle"]["queue"][0]["url"] = "https://app.dropdash.co/products"  # an earlier settings' address
+        platforms._save_refresh(self.store, self.route, refresh)
+        self.sign_in()
+        self.serve = {HOME: "home", WINNING: "category_288"}
+        outcomes, _ = self.run_reads(1)
+        self.assertEqual((outcomes[0]["state"], outcomes[0]["reason"]), ("waiting", "DROPSHIP_PAGE_NOT_READ_ONLY"))
+        self.assertEqual(self.calls, [])  # never opened
+        self.assertFalse(pacing._path(self.pacing_root).exists())  # nothing counted against the platform's pacing
+        self.assertIsNone(platforms.load_refresh(self.store, self.route)["cycle"])
+        receipt = platforms.load_raw(self.store, self.route, platforms.raw_files(self.store, self.route)[0])["receipt"]
+        self.assertEqual((receipt["state"], receipt["execution_stage"], receipt["requested_url"]),
+                         ("failed", "not_dispatched", "https://app.dropdash.co/products"))
+        # After the short wait, a new cycle from the current settings reads the configured pages.
+        outcomes, _ = self.run_reads(3, start=later(START, 400))
+        self.assertEqual([call["url"] for call in self.calls], [HOME, WINNING])
+        self.assertEqual(outcomes[-1]["state"], "current")
+        # An item whose saved address the settings no longer allow is never planned for a product page.
+        catalogue = platforms.load_catalogue(self.store, self.route)
+        catalogue["items"]["9240"]["url"] = "https://app.dropdash.co/products/invisible-glue"
+        plan = self.reader().plan_lists(platforms.platform_settings(self.route), catalogue)
+        products = [row["item_id"] for row in plan if row["kind"] == "product"]
+        self.assertNotIn("9240", products)
+        self.assertIn("9210", products)
+
+    def test_odd_figures_and_placeholder_prices_never_break_or_pass_a_read(self):
+        page = deepcopy(self.pages["home"])
+        page["cards"][0]["stock"] = "1.2K"  # a shortened count is a figure, never an error
+        page["cards"][1]["stock"] = "0.0"
+        items = {row["item_id"]: row for row in signed.parse_snapshot(self.route, page_request(), page)["items"]}
+        self.assertIs(items["12344"]["in_stock"], True)
+        self.assertIs(items["12094"]["in_stock"], False)
+        # Every card showing a zero price (a placeholder) shows no priced product.
+        zero = dict(page, cards=[dict(card, price="0", mrp=None, text="") for card in page["cards"]])
+        self.assertFalse(signed.shows_priced_products(zero, platforms.platform_settings(self.route)["product_path"]))
+
+    def test_selectors_and_product_pattern_are_put_in_once_as_data(self):
+        config = deepcopy(platforms.platform_settings(self.route))
+        config["selectors"]["card"] = ".x__PRODUCT_PATTERN__"  # the other placeholder's text, inside a selector
+        with patch.object(signed, "platform_settings", return_value=config):
+            script = signed.expression(self.route)
+        self.assertIn("pick = " + json.dumps(config["selectors"], sort_keys=True) + ";", script)
+        self.assertEqual(script.count(json.dumps(config["product_path"])), 1)
+
+    def test_a_list_page_that_lands_on_another_allowed_page_is_a_redirect(self):
+        self.sign_in()
+        # The winning list now opens the home page (an allowed page): its cards are not the list's.
+        self.serve = {HOME: "home", WINNING: "home"}
+        outcomes, _ = self.run_reads(2)
+        self.assertEqual([(row["state"], row["reason"]) for row in outcomes],
+                         [("reading", None), ("waiting", "DROPSHIP_PAGE_REDIRECTED")])
+        catalogue = platforms.load_catalogue(self.store, self.route)
+        self.assertEqual(len(catalogue["items"]), 30)  # the home page's own read stays
+        self.assertFalse(any(item["roles"] for item in catalogue["items"].values()))
+        receipt = platforms.load_raw(self.store, self.route, platforms.raw_files(self.store, self.route)[-1])["receipt"]
+        self.assertEqual((receipt["state"], receipt["requested_url"], receipt["final_url"]), ("failed", WINNING, None))
+        # Like a redirect off the allowed pages: the cycle keeps what it read; only that page is tried again.
+        refresh = platforms.load_refresh(self.store, self.route)
+        self.assertEqual(([row["url"] for row in refresh["cycle"]["queue"]], refresh["failures"]), ([WINNING], 1))
+        self.assertIsNotNone(refresh["blocked_until"])
+        self.serve = {WINNING: "category_288"}
+        outcomes, _ = self.run_reads(2, start=later(START, 400))
+        self.assertEqual([row["state"] for row in outcomes], ["reading", "current"])
+        self.assertEqual([call["url"] for call in self.calls], [HOME, WINNING, WINNING])
+        listed = [item for item in platforms.load_catalogue(self.store, self.route)["items"].values() if item["roles"]]
+        self.assertEqual(len(listed), 8)
+
+    def test_harmless_differences_in_the_landed_address_are_the_same_page(self):
+        for landed, requested in ((HOME + "/", HOME), ("https://APP.Dropdash.co:443/home#top", HOME),
+                                  ("https://app.dropdash.co/productDetails?sellerId=1405&id=13227", PRODUCT),
+                                  ("https://app.dropdash.co/products?categoryId=%32%38%38", WINNING), (WINNING, WINNING)):
+            self.assertTrue(signed.same_page(landed, requested), landed)
+        for landed, requested in ((HOME + "?page=2", HOME), ("http://app.dropdash.co/home", HOME),
+                                  ("https://app.dropdash.co:8443/home", HOME), ("https://app.dropdash.co/Home", HOME),
+                                  ("https://app.dropdash.co/products?categoryId=282", WINNING), (None, HOME), ("", HOME),
+                                  ("https://app.dropdash.co:99999/home", HOME), (HOME, None)):
+            self.assertFalse(signed.same_page(landed, requested), landed)
+        self.sign_in()
+        self.pages["home_spelled"] = dict(self.pages["home"], url="https://APP.dropdash.co:443/home/#top")
+        self.serve = {HOME: "home_spelled", WINNING: "category_288"}
+        outcomes, _ = self.run_reads(3)
+        self.assertEqual([row["state"] for row in outcomes], ["reading", "reading", "current"])
+        receipt = platforms.load_raw(self.store, self.route, platforms.raw_files(self.store, self.route)[0])["receipt"]
+        self.assertEqual((receipt["state"], receipt["final_url"]), ("read", "https://APP.dropdash.co:443/home/"))
+        # A product page Chrome reports with its parameters in another order is still that product's.
+        reordered = dict(self.pages["product_13227"], url="https://app.dropdash.co/productDetails?sellerId=1405&id=13227")
+        self.assertEqual(signed.parse_snapshot(self.route, product_request(), reordered)["items"][0]["price"], "240")
+
+    def test_a_product_page_that_opens_another_product_records_no_item(self):
+        page = self.pages["product_13227"]  # product 13227's own page
+        other = product_request(item_id="99", url="https://app.dropdash.co/productDetails?id=99&sellerId=1")
+        self.assertEqual(signed.parse_snapshot(self.route, other, page)["items"], [])
+        for landed in (HOME, WINNING, None, 7):  # no product's page, or no address at all
+            self.assertEqual(signed.parse_snapshot(self.route, product_request(), dict(page, url=landed))["items"], [])
+        moved = dict(page, url="https://app.dropdash.co/productDetails?id=13227&sellerId=77#reviews")  # the same product number
+        item = signed.parse_snapshot(self.route, product_request(), moved)["items"][0]
+        self.assertEqual((item["item_id"], item["url"], item["price"]), ("13227", PRODUCT, "240"))
+        # In a lists cycle, one listed product (a deleted one) now opens another product's page.
+        self.sign_in()
+        self.serve = {HOME: "home", WINNING: "category_288"}
+        self.run_reads(3)
+        catalogue = platforms.load_catalogue(self.store, self.route)
+        listed = sorted(item_id for item_id, item in catalogue["items"].items() if item["roles"])
+        self.serve.update({catalogue["items"][item_id]["url"]: "product_sparse" for item_id in listed})
+        glue_url = catalogue["items"]["9240"]["url"]
+        self.serve[glue_url] = "product_13227"
+        outcomes, _ = self.run_reads(12, start=later(START, 86400 + 300))
+        # The read is kept and the cycle finishes; later rounds read nothing more (no retry every round).
+        self.assertEqual([row["state"] for row in outcomes], ["reading"] * 9 + ["current"] * 3)
+        self.assertEqual(sorted(call["url"] for call in self.calls[2:]),
+                         sorted([WINNING] + [catalogue["items"][item_id]["url"] for item_id in listed]))
+        refs = platforms.raw_files(self.store, self.route)
+        receipts = [platforms.load_raw(self.store, self.route, ref)["receipt"] for ref in refs]
+        redirected = next(row for row in receipts if row["requested_url"] == glue_url)
+        self.assertEqual((redirected["state"], redirected["final_url"]), ("read", PRODUCT))
+        after = platforms.load_catalogue(self.store, self.route)
+        glue, posture = after["items"]["9240"], after["items"]["13227"]
+        # Nothing from product 13227's page was recorded for product 9240, or for 13227 itself.
+        self.assertNotIn("product-page", glue["collections"])
+        self.assertEqual((glue["title"], glue["price"], glue["mrp"], glue["terms"]), ("Invisible Waterproof Glue", "101", "201", None))
+        self.assertNotEqual(glue["source_ref"], refs[receipts.index(redirected)])
+        self.assertEqual(posture, catalogue["items"]["13227"])
+        self.assertTrue(all("product-page" in after["items"][item_id]["collections"] for item_id in listed if item_id != "9240"))
+
+    def test_a_plan_wall_over_unpriced_cards_waits_for_the_plan_not_a_new_layout(self):
+        walled = deepcopy(self.pages["home"])
+        walled["text"] = "Upgrade your plan to view products. Choose a plan: Basic ₹ 999/month.\n" + walled["text"]
+        for card in walled["cards"]:
+            card.update(price=None, mrp=None, text=card["title"])  # the cards show, their prices do not
+        self.pages["walled_cards"] = walled
+        path = platforms.platform_settings(self.route)["product_path"]
+        self.assertIs(signed.plan_wall({"kind": "page"}, walled, path), True)
+        self.assertIs(signed.plan_wall({"kind": "page"}, dict(walled, text="Welcome back"), path), False)  # no plan words
+        self.sign_in()
+        self.serve = {HOME: "walled_cards"}
+        outcomes, _ = self.run_reads(1)
+        self.assertEqual((outcomes[0]["state"], outcomes[0]["reason"]), ("waiting", "DROPSHIP_PLAN_REQUIRED"))
+        refresh = platforms.load_refresh(self.store, self.route)
+        self.assertEqual(timestamp(refresh["blocked_until"]) - timestamp(START), timedelta(days=1))
+        self.assertIsNotNone(refresh["cycle"])  # a plan wall is looked at again, never a dropped cycle
+        self.assertEqual(platforms.load_catalogue(self.store, self.route)["items"], {})
+
+    def test_a_category_link_around_the_category_element_is_read(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("Node is needed to run the page read on a small page double")
+        selectors = platforms.platform_settings(self.route)["selectors"]
+        page = r"""
+const selectors = SELECTORS;
+const linked = (text, inner, outer) => ({innerText:text, matches(){return false;},
+  querySelector(s){return s === 'a[href]' ? inner : null;}, closest(s){return s === 'a[href]' ? outer : null;}});
+const rows = [linked('Home Decor & Lighting', null, {href:'https://app.dropdash.co/products?categoryId=63'}),
+              linked('Pet Care', {href:'https://app.dropdash.co/products?categoryId=292'}, null),
+              linked('No link', null, null)];
+globalThis.location = {href:'https://app.dropdash.co/home'};
+globalThis.document = {title:'Dropdash', body:{innerText:'Home'}, querySelector(){return null;},
+  querySelectorAll(s){return s === selectors.category ? rows : [];}};
+console.log(READ);
+""".replace("SELECTORS", json.dumps(selectors)).replace("READ", signed.expression(self.route))
+        reply = subprocess.run([node, "-e", page], capture_output=True, text=True, timeout=10, check=True)
+        self.assertEqual(json.loads(reply.stdout)["categories"],
+                         [{"href": "https://app.dropdash.co/products?categoryId=63", "text": "Home Decor & Lighting"},
+                          {"href": "https://app.dropdash.co/products?categoryId=292", "text": "Pet Care"}])
 
 
 if __name__ == "__main__":

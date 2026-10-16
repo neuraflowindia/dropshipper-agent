@@ -448,3 +448,33 @@ class SharedSupplierTests(unittest.TestCase):
         self.assertEqual(response["observed_at"], "2026-10-05T10:00:02+00:00")
         self.assertTrue(response["complete"]); self.assertEqual(len(self.http_calls), 1)
 
+
+    def test_lost_saved_page_is_set_aside_once_and_read_afresh(self):
+        # 16 Oct power cut: a recorded supplier page was left empty. Planning,
+        # readiness and the next question set it aside once and read again.
+        handlers = self.handlers(); self.prepare(handlers)
+        self.assertEqual(self.checks(handlers)["counts"], {"acquired": 1})
+        ((lost, owner),) = self.owners().items()
+        response = self.memory.snapshot()["source_checks"][owner["active_response_id"]]
+        page = Path(response["artifacts"]["original.json"]["path"])
+        with open(page, "wb"):
+            pass
+        description_hash = digest(self.before["concepts"][self.cid]["description"])
+        hint = handlers["tradeindia"]["source_due_hint"]({"request": {"query": self.query, "country": "IN"},
+                                                          "as_of": self.at, "task_id": "hint"})
+        self.assertEqual((hint["ready"], hint["local_saved"]), (True, False))
+        self.prepare(handlers, run="supplier-checks-again")  # Planning reads the lost page without failing.
+        result = self.checks(handlers)
+        self.assertEqual((result["handler_calls"], result["counts"]), (1, {"acquired": 1}))
+        self.assertEqual(len(self.http_calls), 2)
+        owners = self.owners()
+        self.assertEqual((owners[lost]["state"], owners[lost]["active_response_id"]), ("set_aside", None))
+        (replacement,) = [aid for aid in owners if aid != lost]
+        self.assertEqual(owners[replacement]["binding"]["damage_recovery"]["acquisition_id"], lost)
+        self.assertEqual(page.read_bytes(), b"")  # Kept as found, never rewritten.
+        # Only the fresh read's nominations are current; the lost page's are not.
+        checks = current_supplier_search_checks(self.memory.snapshot(), self.cid, description_hash=description_hash)
+        self.assertEqual({check["acquisition_id"] for check in checks.values()}, {replacement})
+        self.prepare(handlers, run="supplier-checks-third")
+        self.assertEqual(self.checks(handlers)["handler_calls"], 0)
+        self.assertEqual((len(self.http_calls), len(self.owners())), (2, 2))

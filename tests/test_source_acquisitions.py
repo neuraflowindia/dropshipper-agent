@@ -18,7 +18,9 @@ from product_radar.research_questions import physical_request_fingerprint
 from product_radar.source_acquisitions import (
     ACQUISITION_KIND, CAPTURE_SOURCES, claim_source_acquisition, mark_source_dispatching,
     mark_source_execution_unknown, record_source_parse, record_source_response, recover_source_prelaunch,
+    saved_response_or_replacement, set_aside_damaged_acquisition,
 )
+from product_radar import source_acquisitions as sa_module
 from product_radar.storage import Journal, atomic_json
 
 NOW = "2026-10-09T10:00:00+00:00"
@@ -475,6 +477,155 @@ class SourceAcquisitionTests(unittest.TestCase):
         with patch.object(self.memory, "commit", side_effect=changed), self.assertRaisesRegex(SafetyError, "SOURCE_ACQUISITION_FILE_CHANGED"):
             self.claim(as_of=LATER, refresh_due_at=DUE, refresh_reason="The original capture is due.")
         self.assertEqual(len(self.owners()), 1)
+
+    # A power cut can leave recorded files empty (or zero bytes): set aside once, read afresh.
+
+    def lose(self, path, raw=b""):
+        with open(path, "wb") as stream:  # The bytes a cut-short write left behind.
+            stream.write(raw)
+
+    def saved(self):
+        first = self.claim(); self.response(first)
+        return first, self.memory.root / first["acquisition_id"]
+
+    def test_lost_bytes_are_set_aside_once_and_one_fresh_read_is_reserved(self):
+        first, folder = self.saved()
+        old_row = self.row(first); response_id = old_row["active_response_id"]
+        response = deepcopy(self.memory.snapshot()["source_checks"][response_id])
+        receipt_bytes = (folder / "receipt.json").read_bytes()
+        snapshot_bytes = (folder / "snapshot.json").read_bytes()
+        self.lose(folder / "snapshot.json")
+        # Still well inside the 7-day freshness: a lost answer is no answer.
+        second = self.claim(owner_id="question-two", as_of=AFTER)
+        self.assertEqual((second["action"], second["generation"], second["state"]), ("reserved", 2, "reserved"))
+        self.assertNotEqual(second["acquisition_id"], first["acquisition_id"])
+        self.assertFalse(second["launch_authority"])
+        old, new = self.row(first), self.row(second)
+        state = self.memory.snapshot()
+        # Set aside, auditable, nothing deleted or rewritten.
+        self.assertEqual((old["state"], old["active_response_id"], old["response_ids"]), ("set_aside", None, [response_id]))
+        self.assertEqual(state["source_checks"][response_id], response)
+        set_aside = state["source_checks"][old["stage_ids"][-1]]
+        self.assertEqual((set_aside["stage_type"], set_aside["reason"], set_aside["response_id"]),
+                         ("set_aside", "SOURCE_ACQUISITION_ARTIFACT_DAMAGED", response_id))
+        self.assertEqual(set_aside["damaged_files"], [{"role": "artifact", "name": "snapshot.json",
+            "path": str(folder / "snapshot.json"), "recorded_sha256": response["artifacts"]["snapshot.json"]["sha256"],
+            "found_sha256": sha256(b"").hexdigest(), "found_bytes": 0, "damage": "empty"}])
+        self.assertEqual((folder / "receipt.json").read_bytes(), receipt_bytes)
+        self.assertEqual((folder / "snapshot.json").read_bytes(), b"")
+        # The replacement is linked to that exact proof and is an ordinary reservation.
+        self.assertEqual(new["binding"]["previous_acquisition_id"], first["acquisition_id"])
+        self.assertEqual(new["binding"]["damage_recovery"], {"acquisition_id": first["acquisition_id"],
+            "set_aside_id": old["stage_ids"][-1], "set_aside_hash": digest(set_aside),
+            "reason": "SOURCE_ACQUISITION_ARTIFACT_DAMAGED"})
+        self.assertEqual((new["stage_ids"], new["active_dispatch_intent_id"]), ([], None))
+        # Once: later claims join the replacement; the lost read is never used again.
+        self.assertEqual(self.claim(owner_id="question-three", as_of=LATER)["acquisition_id"], second["acquisition_id"])
+        self.assertEqual(len(self.owners()), 2)
+        # Even bytes that reappear are never bound to the set-aside owner again.
+        self.lose(folder / "snapshot.json", snapshot_bytes)
+        with self.assertRaisesRegex(SafetyError, "SOURCE_ACQUISITION_SET_ASIDE"):
+            record_source_response(self.memory, first["acquisition_id"], receipt_path=folder / "receipt.json", as_of=LATER)
+        self.assertEqual(self.claim(owner_id="question-four", as_of=LATER)["acquisition_id"], second["acquisition_id"])
+        self.assertEqual(mark_source_dispatching(self.memory, first["acquisition_id"], as_of=LATER)["action"], "join")
+        with self.assertRaisesRegex(SafetyError, "SOURCE_ACQUISITION_TRANSITION_INVALID"):
+            mark_source_execution_unknown(self.memory, first["acquisition_id"], reason="Synthetic", as_of=LATER)
+        self.assertEqual(self.row(first), old)
+
+    def test_zero_filled_bytes_are_the_same_damage(self):
+        first, folder = self.saved()
+        size = (folder / "snapshot.json").stat().st_size
+        self.lose(folder / "snapshot.json", b"\x00" * size)
+        second = self.claim(owner_id="question-two", as_of=AFTER)
+        self.assertEqual(second["generation"], 2)
+        set_aside = self.memory.snapshot()["source_checks"][self.row(first)["stage_ids"][-1]]
+        self.assertEqual((set_aside["damaged_files"][0]["damage"], set_aside["damaged_files"][0]["found_bytes"]),
+                         ("zero_filled", size))
+
+    def test_a_real_content_change_is_never_damage_and_changes_nothing(self):
+        # Edited evidence (a person, an agent or a bug) is not a power cut: it
+        # is refused exactly as before and can never be used to force a read.
+        for name, edits in (("changed", {"snapshot.json": b'{"changed": "synthetic edit"}'}),
+                            ("mixed", {"snapshot.json": b"", "receipt.json": b'{"edited": true}'}),
+                            ("truncated", {"snapshot.json": b'{"title": "Synth'})):
+            with self.subTest(name):
+                self.setUp()
+                first, folder = self.saved()
+                for file, raw in edits.items():
+                    self.lose(folder / file, raw)
+                before = self.memory.snapshot()
+                with self.assertRaisesRegex(SafetyError, "SOURCE_ACQUISITION_ARTIFACT_CHANGED"):
+                    self.claim(owner_id="question-two", as_of=AFTER)
+                with self.assertRaisesRegex(SafetyError, "SOURCE_ACQUISITION_ARTIFACT_CHANGED"):
+                    set_aside_damaged_acquisition(self.memory, first["acquisition_id"], as_of=AFTER)
+                self.assertEqual(self.memory.snapshot(), before)
+
+    def test_a_missing_file_proves_nothing(self):
+        first, folder = self.saved()
+        (folder / "snapshot.json").unlink()
+        before = self.memory.snapshot()
+        with self.assertRaisesRegex(SafetyError, "SOURCE_ACQUISITION_FILE_UNAVAILABLE"):
+            self.claim(owner_id="question-two", as_of=AFTER)
+        self.assertEqual(self.memory.snapshot(), before)
+
+    def test_intact_files_are_never_set_aside(self):
+        first, _ = self.saved()
+        with self.assertRaisesRegex(SafetyError, "SOURCE_ACQUISITION_DAMAGE_NOT_PROVEN"):
+            set_aside_damaged_acquisition(self.memory, first["acquisition_id"], as_of=AFTER)
+        self.assertEqual(self.claim(owner_id="question-two", as_of=AFTER)["action"], "reuse")
+        self.assertEqual(len(self.owners()), 1)
+
+    def test_a_lost_replacement_is_not_replaced_again(self):
+        first, folder = self.saved()
+        self.lose(folder / "snapshot.json")
+        second = self.claim(owner_id="question-two", as_of=AFTER)
+        mark_source_dispatching(self.memory, second["acquisition_id"], as_of=AFTER)
+        self.response(second)
+        self.lose(self.memory.root / second["acquisition_id"] / "snapshot.json")
+        with self.assertRaisesRegex(SafetyError, "SOURCE_ACQUISITION_DAMAGE_REPEATED"):
+            self.claim(owner_id="question-three", as_of=LATER)
+        # The second loss is recorded too, but no third read is reserved.
+        self.assertEqual(self.row(second)["state"], "set_aside")
+        self.assertEqual(len(self.owners()), 2)
+        with self.assertRaisesRegex(SafetyError, "SOURCE_ACQUISITION_DAMAGE_REPEATED"):
+            self.claim(owner_id="question-three", as_of=LATER)
+
+    def test_readiness_reads_see_a_replacement_without_writing(self):
+        first, folder = self.saved()
+        owner = self.row(first)
+        self.assertEqual(saved_response_or_replacement(self.memory.snapshot(), owner)[1], False)
+        self.lose(folder / "snapshot.json")
+        before = self.memory.snapshot()
+        self.assertEqual(saved_response_or_replacement(before, owner), (None, True))
+        self.assertEqual(self.memory.snapshot(), before)
+        self.lose(folder / "snapshot.json", b'{"changed": true}')
+        with self.assertRaisesRegex(SafetyError, "SOURCE_ACQUISITION_ARTIFACT_CHANGED"):
+            saved_response_or_replacement(before, owner)
+        self.lose(folder / "snapshot.json")
+        self.claim(owner_id="question-two", as_of=AFTER)
+        self.assertEqual(saved_response_or_replacement(self.memory.snapshot(), self.row(first)), (None, True))
+
+    def test_a_replacement_never_takes_a_proposed_attempt_id(self):
+        first, folder = self.saved()
+        self.lose(folder / "snapshot.json")
+        second = self.claim(owner_id="question-two", as_of=AFTER, original_acquisition_id=first["acquisition_id"],
+                            original_attempt_id="the-lost-reads-attempt")
+        self.assertEqual(second["original_attempt_id"], second["acquisition_id"])
+
+    def test_a_short_read_of_a_lost_looking_file_proves_nothing(self):
+        # Fewer bytes than the file system reports (an unsettled drive): not damage.
+        first, folder = self.saved()
+        self.lose(folder / "snapshot.json")
+        real = sa_module._file
+        def short(path, roots):
+            proof, fingerprint, raw = real(path, roots)
+            return proof, (fingerprint[:2] + (fingerprint[2] + 64,) + fingerprint[3:]) if not raw else fingerprint, raw
+        before = self.memory.snapshot()
+        with patch.object(sa_module, "_file", short):
+            with self.assertRaisesRegex(SafetyError, "SOURCE_ACQUISITION_FILE_UNAVAILABLE"):
+                self.claim(owner_id="question-two", as_of=AFTER)
+        self.assertEqual(self.memory.snapshot(), before)
+        self.assertEqual(self.claim(owner_id="question-two", as_of=AFTER)["generation"], 2)
 
 
 if __name__ == "__main__":

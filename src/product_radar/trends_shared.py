@@ -154,7 +154,7 @@ def create_shared_trends_handlers(memory, *, data_root=None, capture=None, repla
     """``signed_in_root`` holds the signed-in browser's records (the project by default)."""
     from .signed_in_attempts import SignedInWait, collectable
     from .signed_in_browser import PROJECT_ROOT, signed_in_recheck_at
-    from .source_acquisitions import _owners, _response, _record, claim_source_acquisition
+    from .source_acquisitions import _owners, _record, claim_source_acquisition, saved_response_or_replacement
     from .source_coverage import (marketplace_access_admission, guard_shared_source_launch,
                                  acquisition_access_scope, source_access_wait, _record_marketplace_access)
     from .trends_signed_in import (begin_signed_in_read, not_started_pending, release_unsent_read, reopen_unsent,
@@ -258,11 +258,12 @@ def create_shared_trends_handlers(memory, *, data_root=None, capture=None, repla
         request = prepare_shared_trends(context); state = memory.snapshot() if state is None else state
         owners = _owners(state, physical_request_fingerprint("google-trends", request))
         aid, owner = owners[-1] if owners else (None, None)
-        response = _response(state, owner) if owner else None
+        # A set-aside or proven-lost saved read is replaced by a fresh read when allowed.
+        response, replace = saved_response_or_replacement(state, owner)
         wait = source_access_wait(state, acquisition_access_scope({"binding": {"route": "google-trends", "request": request}}), as_of=context["as_of"])
         local = bool(response and response["complete"])
         fresh = local and timedelta(0) <= timestamp(context["as_of"]) - timestamp(response["observed_at"]) < timedelta(days=7)
-        ready = owner is None or collectable(state, owner) or not_started_pending(root, aid, state, owner)
+        ready = owner is None or replace or collectable(state, owner) or not_started_pending(root, aid, state, owner)
         if wait:
             ready = (wait["phase"] == "due" and (ready or wait["acquisition_id"] == aid)
                      or wait["phase"] == "probe_pending" and ready and wait["probe"]["acquisition_id"] == aid)

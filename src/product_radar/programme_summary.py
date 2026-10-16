@@ -573,6 +573,7 @@ def owner_meter(*, baseline, state, financial_state, report_pool, programmes, ac
         "cost_since_start": costs, "research_now": counts, "research_since_start": since,
         "activity_now": {name: activity[name] for name in keep if isinstance(activity, dict) and name in activity},
         "runs_since_start": run_log if run_log is not None else _unknown("METER_RUN_LOG_NOT_SUPPLIED"),
-        # Websites currently refusing us, with how many refusals in a row.
+        # Websites currently refusing us, with how many refusals in a row and
+        # the page's own reason ("challenge" is true for any page saved blocked).
         "access_waits_now": access_waits,
         "provider_calls": 0, "model_calls": 0, "research_writes": 0, "financial_writes": 0}

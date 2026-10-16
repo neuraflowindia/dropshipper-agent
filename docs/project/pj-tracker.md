@@ -1,45 +1,41 @@
 # Project tracker
 
-Latest state: **15 October 2026, about 15:00 UTC** — **Plan R10 is live.** The switch-over (W13) was done on 15 October with the owner's explicit approval: `r10` merged into `main` and pushed, the research store converted to bounded checkpoints (`research-segments-v1`), the old-rule stock expired for re-judging (`scripts/r10_cutover.py apply`: 132 old intake items), the Windows app rebuilt and reinstalled (native self-test passes), and research restarted at 12:42 UTC. Fresh start was 13 October 2026 at 18:38:54 UTC (owner decision). This is the sole current progress summary. Requirements belong to the [product contract](../product/india_dropshipping_product_opportunity_radar_product_brief.md); technical changes and receipts belong to the [implementation record](../operations/implementation_2026-10-11.md) (fresh start: R08; Plan R10: R10).
+Latest state: **16 October 2026, [LOAD-TIME] UTC** — **research running on the new code since the second fresh start; the same-day live fixes (R13) are loaded.** At the owner's request research restarted from scratch at **06:58:54 UTC on 16 October** (the meter's new start). Code `main` = `r10` (Plan R10 from 15 October plus Plan R11/R12 and the R13 live fixes of 16 October). This is the sole current progress summary. Requirements belong to the [product contract](../product/india_dropshipping_product_opportunity_radar_product_brief.md); technical changes and receipts belong to the [implementation record](../operations/implementation_2026-10-11.md) (fresh starts: R08 and Plan R11; Plan R10: R10; durability: R11; product map and round speed: R12; same-day live fixes: R13); the 16 October programme is [Plan R11](plan-2026-10-16-fresh-start-and-year-long-research.md).
 
-## Current position — 15 October 2026
+## Current position — 16 October 2026
 
-| Measure (owner meter, 15 October 14:20 UTC; first hours on the R10 code) | Count |
+| Measure (owner meter) | Count |
 |---|---:|
-| Candidates | 33 |
-| Accepted narrow product types | 30 |
-| Checklist-assessed types (re-judging under checklist v5) | 9 |
-| Passing the checklist (≥5 Meets) | 8 |
-| **Report-eligible types** (need 20 across the two sets) | **0** (expected at switch-over; rebuilds as the new sources come online) |
+| Candidates / accepted narrow types / assessed / passing | rebuilding from 0 since 06:58:54 UTC |
+| **Report-eligible types** (need 20 across the two sets) | **0** |
 | Report sets produced | 0 / 2 |
-| AI jobs | 356 |
+| Product map | **1,694 headings in 55 sub-areas** (was 224 in 48); grows by itself (AI top-up below 300 unsearched headings) |
 | Provider (Apify) money since the fresh start | USD 0 |
 
-Counts move both ways: new evidence correctly sends a type back for re-checking. The drop from 11 eligible (old rules) to 0 was accepted in advance (A2): every type is re-judged under checklist v5 and every saved listing under relevance review v5, and the crowding check and opportunity score need Amazon/Flipkart crowding answers first.
+**What changed on 16 October** ([Plan R11](plan-2026-10-16-fresh-start-and-year-long-research.md)):
+- **Exhaustive product map:** 1,470 new headings (research directions, one functional kind of product each) across all four categories, plus seven new sub-areas (party decoration, home office, home repair, arts and crafts, pregnancy and new-mother care, car exterior care, swimming). The map never stops growing: soft target 40 per sub-area, and an AI top-up adds up to 12 headings a call (at most 6 calls a day, at most 120 headings a sub-area) whenever fewer than 300 headings are still unsearched. The meter and the window show a "Product map" runway line.
+- **Year-long running:** the weekly programme record is saved in small parts (store growth about −73%), daily backups keep 14 daily + 8 weekly copies and stop before the D: drive drops below 10 GB, unused lookup pages and 90-day-old run logs are tidied, the meter stays fast, cold start replays history once, and the window shows one plain line if any tidying gets stuck.
+- **Round speed and clarity** (owner "yes" to 15 October question 3): "Review group N of M" in the status; a restarted round skips stages it already finished; match stage about 45% faster.
+- **Second fresh start:** old research, reports, run logs and backups archived (nothing deleted); money ledger, the owner's switch and the allowance watch carried. Receipt: `data/operations/fresh-start-20261016/fresh-start.md` in the working-data folder.
+- **Live fixes during the day** ([implementation record, R13](../operations/implementation_2026-10-11.md#r13-same-day-live-fixes-after-the-second-fresh-start-16-october); loaded on 16 October as one update):
+  - **Google Trends works while the window stays minimised.** The first signed-in reads failed because Chrome draws nothing for a minimised window (`TRENDS_MINIMISED_NOT_RENDERED`). Each signed-in read now turns on Chrome's own "act as if focused" setting, so the page draws while the window stays minimised and the owner is not disturbed. Proven live: chart drawn, chart file of 54 rows saved. A chart file is used only when Chrome reports the download finished.
+  - **Dropdash reads its real pages**, seen signed in for the first time: the home page (21 categories, 6 products each) as the catalogue and "Profitable Products" (first 18 products) as its winning list; prices, MRP and stock come from the page's own price and stock boxes. Dropdash prices include GST and shipping (the site says so). Dropdash first waits out a back-off from the morning's failed reads under the old guessed settings, until about 14:18 UTC.
+  - **Saved answers no longer counted as fresh reads.** DeoDap/BaapStore answers served from the saved catalogue were counted as new reads, so the acquire stage failed (`PROGRAMME_ACQUISITION_COUNTS_INVALID`, 7 times) and later review groups lost their turn that round.
+  - **Power cut proofing.** A power cut at about 07:30 UTC left two saved browser files empty, and one saved Amazon bestseller read then failed its check on every round. Every file a browser read saves is now forced to disk before the read counts; a saved read whose files are proven lost (empty or all zeros) is set aside (nothing deleted) and read once more under the normal limits.
+  - **IndiaMART waits for the owner.** The research browser has never been signed in to IndiaMART (its read showed IndiaMART's own mobile-number sign-in page). A question that meets that page now waits calmly for the sign-in (it keeps its try limit) instead of failing; the one question already stopped that way is reopened.
+  - **Clearer meter.** Its access-wait rows show the real reason (for example `OWNER_SIGN_IN_REQUIRED`, `TRENDS_MINIMISED_NOT_RENDERED`) instead of only "challenge: true".
+  - Earlier the same morning: DeoDap/BaapStore feed reads crashed on every round (`platforms_failed`, a socket handling bug since 14 October), fixed (`85ccb0c`); a test-only leak that failed one test in single-process runs, fixed (`2791256`).
+- **Report redesign:** plan and mock-ups ready for the owner ([plan](../client-preview/design/report-redesign-2026-10-16/plan.md)); not built until the owner approves.
 
-**Plan R10** ([plan](plan-2026-10-14-speed-sources-and-selection.md), approved 14 October) is live: signed-in research browser (Google Trends, IndiaMART, Dropdash), three dropshipping platforms (DeoDap and BaapStore read from their public catalogues without signing in; Dropdash signed in; Dropship India was dropped by the owner on 15 October because it showed nothing useful), quick commerce through the paid API, Amazon/Flipkart as a crowding check, the **opportunity score out of 100** with the owner's weights (want 20, early 30, room 25, product 25), wider discovery, the product map with AI expansion, Apify depth reads and the spend watch.
+**Owner action needed (once, after the update is loaded):** click **Sign in to research sites** in the NeuraFlow Dropshipper window. In the **IndiaMART** tab, finish IndiaMART's sign-in with the mobile number and the one-time code IndiaMART texts to it; check the other tabs still show you signed in; then close the Chrome window. This is needed for IndiaMART, and the new sign-in also restarts the Trends check line (its first three reads after a sign-in must be complete).
 
-**Why research went quiet on 15 October (corrected diagnosis):** the 16 MB summary file (`index.json`) was never read by anything, so hitting its limit did not stop work. The real cause was the slow local "readiness" step between rounds: it re-checked every saved review from scratch and had grown from seconds (13 October) to 11–13 minutes per pass (two passes per round), so most wall-clock time went to preparation, plus a round tail with no reads left. Fixed on 15 October (readiness reuses its own reads within one decision: about 690 s → 21 s on a copy of the live store, byte-identical results). Also added on 15 October: the **progress watch** — heartbeats inside long local steps, time limits on them, a worker watchdog that restarts research after 45 minutes with no recorded activity (the owner's on/off switch stays on), plain-language "needs attention" lines and Windows notifications in the app, last-run reason and repeated-failure warnings, and a warning when scheduled runs stop starting.
+**Live checks still open (W13):** Google Trends draws while minimised (one read proven on 16 October); its three-read check after the owner's next sign-in is still to pass. Dropdash's real pages are recognised on saved copies; its first live reads with the new settings come after its back-off (about 14:18 UTC). IndiaMART waits for the owner's sign-in. Still to watch: ten signed-in reads with no focus taken, Apify `map_meta_rows` fields, crowding calibration after 50 types, three-hour round time.
 
-**Owner's "stuck for 31 minutes" notifications (15 October evening): false alarms.** They came from the Windows app's own self-test, which used made-up research text ("no progress for 31 minutes… 45 minutes") and, until then, showed it as real Windows notifications each time an agent rebuilt or checked the app (about 13:30–15:00 UTC). Real research never hit that warning. Fixed (`9f9123e`): the self-test now counts notifications without showing them (32/32 checks). Separately, real research was slow: one round's "match" step took 4–5 minutes per review group (16 groups, about an hour with nothing new to show). Cause: each pass re-checked every type's saved reviews six times. Fixed (`c149294`): only the types a group names are read (about 4 min → 1–2 min per group, identical results). Merged and research restarted on 15 October about 17:30 UTC.
+Next actions, in order: (1) owner's sign-in (above); (2) watch the first rounds on the R13 code: Trends check line 3/3, Dropdash's first real reads, IndiaMART after the sign-in, no `PROGRAMME_ACQUISITION_COUNTS_INVALID`, the set-aside Amazon bestseller read replaced once; (3) remaining W13 live checks; (4) adopt store checkpoints once events exist; (5) research to 20 eligible types, two bilingual report sets (redesigned if the owner approves), portal deploy and private-delivery checks.
 
-**Owner sign-in still needed** (one time, through the app's **Sign in to research sites** button): Google account / Google Trends, IndiaMART and Dropdash. Until then those sources wait; everything else runs. Dropdash's sign-in form takes a **10-digit mobile number** and password, not an e-mail address.
+## Earlier fresh start — 13 October 2026 (history)
 
-**Known gaps:** Brand names show on only about 12% of Amazon result cards and none on Flipkart, so the "many brands" crowding rule rarely decides. The live W13 checks that need the owner's sign-in or real data (platform page layouts incl. Dropdash's real product pages, Trends proof gate 3/3, Apify field names, crowding calibration after 50 types, round-time measurement) are still open. The Apify key's limit was lifted by the owner on 15 October (usage reads now return HTTP 200).
-
-Next actions, in order: (1) owner's one-time sign-in; (2) remaining W13 live checks; (3) W14 remaining documents and the single-process test leak; (4) research to 20 eligible types, the two bilingual report sets, the portal deploy and private-delivery checks.
-
-## Fresh start — 13 October 2026
-
-- Every earlier research record, AI answer, report draft/file, run log, receipt and `media/live` file was moved unchanged to `archive/2026-10-13-before-fresh-start/` (91,219 files, 3,140,062,083 bytes; nothing deleted). Research and reports restart from an empty store with the current code.
-- Working records now live on the Linux disk at `/home/anan/neuraflow-dropshipper-data/`; daily backups still go to the project's `data/backups/` on D:.
-- Spending safety carried over unchanged: the Apify ledger (opening USD 5.00 for the period ending 2 November; USD 0.50040006 known charges, USD 0.88 held, USD 3.06755 earmarked for sources, USD 0.10204994 unallocated headroom) and its 44 prepared requests. Account settings stay in `config/local`.
-- Research is **stopped** (the owner's saved switch). Nothing new runs until the owner clicks **Start**.
-- Progress, money and time since the fresh start: `.venv/bin/python scripts/run_programme.py --meter`. At the start every research and report count was 0.
-- Starting search map: on the first research turn after **Start**, the store prepares its own seed from the repository's branch inventory (28 branches, 145 examples; local work, about 2 seconds), then the AI reviews one branch per round. The inventory's 21 public list pages from 8 October were copied into the store for this; the old seed answers stay archived.
-- The automatic research programme does not spend Apify money (its routes are free websites plus quick-commerce credits). The Apify earmark is the account-period allocation for owner-approved paid runs; nothing in it was tied to archived weeks or reports.
-
-The scope and completion checks below still apply. Sections titled "before the fresh start" are archived history; their evidence files are in the archive.
+The first fresh start moved everything before 13 October 18:38:54 UTC to `archive/2026-10-13-before-fresh-start/` (91,219 files) and moved working records to `/home/anan/neuraflow-dropshipper-data/`. Its research (13–16 October) is now archived again in `/home/anan/neuraflow-dropshipper-archive/2026-10-16-before-fresh-start/`. Sections below titled "before the fresh start" are archived history; their evidence files are in the archive.
 
 ## Scope and remaining work
 
@@ -53,7 +49,7 @@ Complete the connected research programme and **two actual updated private repor
 | Verify private delivery | Ten private objects across the two sets and six byte-matched owner downloads through the existing connection. Renewing the existing owner sign-in is already approved if required. |
 | Retain final files | Include the actual finished reports in the separate final implementation backup. Earlier backup proof cannot cover files that did not yet exist. |
 
-Focused named checks and ordinary approved research are allowed. No local/hosted release gates, broad full-suite run, client publication/access change, supplier contact, paid upgrade or credit purchase. The deferred client email does not prevent owner-only draft work.
+Focused checks, the whole local suites (Plan R10 approval A1) and ordinary approved research are allowed. Hosted release gates, client publication/access changes, supplier contact, paid upgrades and credit purchases still need the owner. Last whole local run (16 October): Python 5,981 tests, 1 order-dependent failure fixed the same day; portal 303/303. The deferred client email does not prevent owner-only draft work.
 
 ## Completion checks
 

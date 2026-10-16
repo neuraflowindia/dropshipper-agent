@@ -147,7 +147,7 @@ class SourceAccessWaitTests(unittest.TestCase):
                 self.assertEqual(held["handler_calls"], 0)  # Still waiting: no new request.
         self.assertEqual(source_access_backoffs(self.memory.snapshot(), as_of=self.now),
             [{"host": "www.amazon.in", "transport": "public-browser", "attempt": 5, "wait_seconds": 86400,
-              "challenge": True, "http_status": 429,
+              "challenge": True, "reason": None, "http_status": 429,  # A plain refusal saves no page reason.
               "phase": "waiting", "next_retry_at": "2026-10-11T17:05:00+00:00"}])
         # A successful read clears the wait and starts the count again.
         self.now = "2026-10-11T17:05:00+00:00"; self.status = 200

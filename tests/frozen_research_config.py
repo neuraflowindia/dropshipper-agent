@@ -11,7 +11,9 @@ the tests were written against (``tests/fixtures/research_config``):
 * ``product_map.json``: its product-map settings with the soft target (40)
   and the AI top-up block;
 * ``dropship_platforms.json``: the platform settings before the r11 routing
-  words were added to the discovery category words.
+  words were added to the discovery category words (its Dropdash row follows
+  the current settings shape: the pages and page selectors seen signed in on
+  16 October 2026).
 
 A test module that needs them uses
 ``setUpModule, tearDownModule = frozen_research_config.module_fixtures()``;

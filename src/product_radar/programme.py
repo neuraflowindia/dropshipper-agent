@@ -1871,9 +1871,16 @@ def _acquire(memory, record, context):
     # genuine retry of that same question must not be excluded with the borrow.
     borrowed = {task["attempt_refs"][0] for task in current_tasks.values()
                 if task.get("reused_acquisition_ref") and task.get("attempt_refs")}
+    # A saved local answer (a dropship per-type match from the saved catalogue,
+    # a shared marketplace reply) is applied with no callback, so it is not in
+    # handler_calls. Its receipt may still add a real attempt ref (the catalogue
+    # reads did happen, earlier and in their own lane): never a fresh dispatch.
+    result = dict(result); saved_answers = result.pop("saved_answer_refs", [])
+    if not isinstance(saved_answers, list) or any(not isinstance(ref, str) for ref in saved_answers):
+        raise SafetyError("PROGRAMME_ACQUISITION_COUNTS_INVALID")
     new_attempts = ({ref for task in current_tasks.values() for ref in task.get("attempt_refs", [])}
-                    - previous_attempts - recovering - borrowed)
-    return dict(result, fresh_dispatches=len(new_attempts),
+                    - previous_attempts - recovering - borrowed - set(saved_answers))
+    return dict(result, fresh_dispatches=len(new_attempts), saved_local_answers=len(set(saved_answers)),
                 callbacks_without_new_dispatch=result["handler_calls"] - len(new_attempts))
 
 
@@ -3609,6 +3616,8 @@ def _advance_programme_locked(memory, programme_id, *, root, runner=None, handle
                                 if previous.get("fresh_dispatches") is not None and result.get("fresh_dispatches") is not None else None)
                         result["callbacks_without_new_dispatch"] = (result["handler_calls"] - result["fresh_dispatches"]
                             if result["handler_calls"] is not None and result["fresh_dispatches"] is not None else None)
+                        result["saved_local_answers"] = (previous.get("saved_local_answers", 0)
+                                                         + result.get("saved_local_answers", 0))
                     acquisition_results[scope["programme_id"]] = result
                 scope["last_results"][stage] = result
                 pause = record.get("model_pause")

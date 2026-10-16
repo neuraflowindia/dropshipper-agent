@@ -11,12 +11,20 @@ profile (see ``signed_in_browser``): a real window started minimised without
 taking focus, one at a time, never while the owner's sign-in window is open or
 the owner's Windows session is locked, and closed with the browser's own close
 command before any forced end, so saved sign-ins survive.
+
+Every file a read saves is on disk before ``native_snapshot`` returns: the
+browser's PowerShell (``WriteAllText``) and Chrome's download are not flushed,
+and a power cut once left empty files behind receipts that name their hashes,
+so each saved file (``ARTIFACTS``, and a downloaded CSV) and the folder are
+flushed (``fsync``) once the browser child has exited, and the files written
+here are saved whole (``storage.atomic_bytes``).
 """
 
 import base64
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -84,6 +92,10 @@ function Invoke-Cdp([string]$method,$parameters) {
         if($reply.params.frameId -eq $script:result.primary_frame_id){$script:result.navigation_status=[int]$reply.params.response.status;$script:result.retry_after=$retry}
         if($script:result.requests.Count -lt 5){$script:result.requests+=@{url=$reply.params.response.url;status=[int]$reply.params.response.status;frame=$reply.params.frameId;retry_after=$retry}}
       }
+      # Chrome's own download events: a CSV is kept only once Chrome says it is complete.
+      if(($reply.method -eq 'Browser.downloadProgress' -or $reply.method -eq 'Page.downloadProgress') -and @('completed','canceled') -contains $reply.params.state){
+        $script:result.download_state=[string]$reply.params.state
+      }
       if($reply.id -eq $script:sequence) {
         if($reply.error){throw 'Browser control failed'}
         return $reply.result
@@ -119,6 +131,11 @@ SIGNED_IN_START
   $null=Invoke-Cdp 'Page.enable' @{}
   $null=Invoke-Cdp 'Network.enable' @{}
   if($request.signed_in){
+    # A minimised window's page is hidden: Chrome draws no frames for it, so
+    # pages that load on view or on a frame (Trends' widgets, lazy product
+    # grids) never fill in. The browser's own focus emulation keeps this one
+    # page visible and drawing while the window stays minimised and unfocused.
+    try {$null=Invoke-Cdp 'Emulation.setFocusEmulationEnabled' @{enabled=$true};$result.focus_emulation=$true} catch {$result.focus_emulation=$false}
     # The owner's sign-in window may have saved a maximised placement in the
     # shared profile: keep every read minimised, and record what it is.
     try {
@@ -127,7 +144,9 @@ SIGNED_IN_START
       $result.window_state=(Invoke-Cdp 'Browser.getWindowBounds' @{windowId=$window.windowId}).bounds.windowState
     } catch {$result.window_state='unknown'}
   }
-  if($request.downloads){$null=Invoke-Cdp 'Browser.setDownloadBehavior' @{behavior='allow';downloadPath=$request.downloads}}
+  # download_events marks a read whose download_state (Chrome's own events) is
+  # the answer; reads saved before these events existed carry no such mark.
+  if($request.downloads){$null=Invoke-Cdp 'Browser.setDownloadBehavior' @{behavior='allow';downloadPath=$request.downloads;eventsEnabled=$true};$result.download_events=$true}
   else {$null=Invoke-Cdp 'Browser.setDownloadBehavior' @{behavior='deny'}}
   $result.stage='navigation';$result.navigation_started=$true;$result.navigation_started_at=[DateTime]::UtcNow.ToString('o')
   [IO.File]::WriteAllText($request.dispatch,(@{url=$request.url;navigation_started=$true;navigation_started_at=$result.navigation_started_at}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
@@ -159,7 +178,13 @@ SIGNED_IN_START
   $result.snapshot=ConvertFrom-Json $reply.result.value
   if($request.downloads -and $result.snapshot.download_clicked){
     $result.stage='download'
-    while(-not (Get-ChildItem $request.downloads -Filter '*.csv') -and [DateTime]::UtcNow -lt $deadline.AddSeconds(-3)){Start-Sleep -Milliseconds 200}
+    # Wait for Chrome's own "completed" event, not the file name: Chrome names
+    # the file, then marks it (Windows' download check), and deletes a
+    # download still in progress when it closes. Each small call reads events.
+    do {
+      Start-Sleep -Milliseconds 200
+      $null=Invoke-Cdp 'Runtime.evaluate' @{expression='0';returnByValue=$true}
+    } while(-not $result.download_state -and [DateTime]::UtcNow -lt $deadline.AddSeconds(-3))
   }
   $result.state='captured';$result.reason='One rendered public page was captured';$result.stage='complete'
 } catch {
@@ -354,12 +379,37 @@ def _outer_deadline_cleanup(folder, url, runner):
         raise
 
 
+def _flush(path):
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def flush_saved(folder, downloads=False):
+    """Flush this read's saved files (``ARTIFACTS``, and with ``downloads`` each
+    CSV Chrome saved there) and the folder itself to disk."""
+    if not folder.is_dir():
+        return
+    names = list(ARTIFACTS) + (sorted(path.name for path in folder.glob("*.csv")) if downloads else [])
+    for name in names:
+        path = folder / name
+        if path.is_file() and not path.is_symlink():
+            _flush(path)
+    _flush(folder)
+
+
 def native_snapshot(url, expression, folder, *, timeout=45, headed=False, runner=subprocess.run,
                     ready_expression=None, download_folder=None, profile="throwaway", root=None):
     """Read one caller-validated URL, return actual execution/DOM status.
 
     A signed-in read that cannot start now returns ``state="waiting"`` with
-    one of ``signed_in_browser.WAIT_CODES`` and no navigation.
+    one of ``signed_in_browser.WAIT_CODES`` and no navigation. Every file the
+    read saved is flushed to disk before this returns (``flush_saved``), also
+    when it is interrupted (a failed flush never replaces the interruption).
+    A finished read whose files could not be flushed is a failed read
+    (``NATIVE_PUBLIC_SAVE_NOT_FLUSHED``) that keeps its navigation facts.
     """
     if (type(timeout) is not int or not 15 <= timeout <= 45 or type(headed) is not bool
             or profile not in PROFILES or profile == "signed-in" and headed
@@ -372,6 +422,26 @@ def native_snapshot(url, expression, folder, *, timeout=45, headed=False, runner
                 "navigation_started": False, "stage": "browser_launch", "snapshot": None}
     from .storage import safe_path
     folder = safe_path(folder)
+    downloads = download_folder is not None
+    try:
+        result = _native_snapshot(url, expression, folder, timeout, headed, runner, ready_expression, download_folder,
+                                  profile, root)
+    except BaseException:
+        try:
+            flush_saved(folder, downloads)
+        except OSError:
+            pass  # the interruption stays the answer
+        raise
+    try:
+        flush_saved(folder, downloads)
+    except OSError:
+        # Its files might not survive a power cut: never a usable read, but
+        # what the browser did (navigation, exit) is kept.
+        return dict(result, state="failed", reason="NATIVE_PUBLIC_SAVE_NOT_FLUSHED", unflushed_state=result.get("state"))
+    return result
+
+
+def _native_snapshot(url, expression, folder, timeout, headed, runner, ready_expression, download_folder, profile, root):
     if profile == "throwaway":
         return _snapshot(url, expression, folder, timeout, headed, runner, ready_expression, download_folder, None)
     from .signed_in_browser import (PROJECT_ROOT, browser_lock, desktop_unavailable, note_desktop_unavailable,
@@ -422,16 +492,15 @@ def _snapshot(url, expression, folder, timeout, headed, runner, ready_expression
     if any((folder / name).exists() or (folder / name).is_symlink() for name in ARTIFACTS):
         raise SafetyError("NATIVE_PUBLIC_ARTIFACT_EXISTS")
     # Windows has a short process-command limit. Original DOM instructions
-    # stay in this owned folder rather than being repeated inside the command.
-    with (folder / "native_expression.js").open("x", encoding="utf-8") as stream:
-        stream.write(expression)
-    if ready_expression is not None:
-        with (folder / "native_ready.js").open("x", encoding="utf-8") as stream:
-            stream.write(ready_expression)
+    # stay in this owned folder rather than being repeated inside the command;
+    # each is saved whole and flushed (none existed: checked just above).
     from .signed_in_browser import CLOSE_LEFTOVERS
-    with (folder / "native_script.ps1").open("x", encoding="utf-8") as stream:
-        stream.write(SCRIPT.replace("SIGNED_IN_START", SIGNED_IN_START.replace("CLOSE_LEFTOVERS", CLOSE_LEFTOVERS)
-                                    if signed_in is not None else ""))
+    from .storage import atomic_bytes
+    atomic_bytes(folder / "native_expression.js", expression.encode("utf-8"))
+    if ready_expression is not None:
+        atomic_bytes(folder / "native_ready.js", ready_expression.encode("utf-8"))
+    atomic_bytes(folder / "native_script.ps1", SCRIPT.replace(
+        "SIGNED_IN_START", SIGNED_IN_START.replace("CLOSE_LEFTOVERS", CLOSE_LEFTOVERS) if signed_in is not None else "").encode("utf-8"))
     with ExitStack() as stack:
         temporary = None if signed_in else stack.enter_context(tempfile.TemporaryDirectory(
             prefix="owned-native-profile-", dir=folder, ignore_cleanup_errors=True))
