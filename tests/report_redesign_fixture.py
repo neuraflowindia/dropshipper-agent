@@ -837,8 +837,8 @@ def _prose(en_reason, en_points, hi_reason, hi_points):
 PROSE = {
     "Self-watering plant spike set": _prose(
         "{{title}} suits shoppers who keep indoor plants but travel or forget to water. Search interest has climbed "
-        "clearly over the last month, several small sellers are advertising it, and two dropshipping catalogues list "
-        "it. Few marketplace listings show strong ratings yet, so there is still room for a careful new seller.",
+        "clearly over the last month, several small sellers advertise it, and two dropshipping catalogues list it. "
+        "Few marketplace listings show strong ratings yet, so a careful new seller has room.",
         ["Easy to explain in a short video: fill the bottle, push the spike in, done",
          "Light, unbreakable packing keeps courier damage and returns handling simple",
          "Works as a gift add-on for plant lovers during festive season sales"],
@@ -878,7 +878,7 @@ PROSE = {
     "Electric baby nail trimmer kit": _prose(
         "{{title}} is clearly wanted: seven advertisers, all three dropshipping catalogues and quick commerce stock "
         "in two cities. The catch is competition, because a bestseller listing already leads on Amazon. It suits "
-        "a seller who can stand out with better content, bundles or service rather than price alone.",
+        "a seller who can stand out with content, bundles or service, not price alone.",
         ["Parents worry about cutting tiny nails, so the gentle filing pads sell the idea",
          "Bundle extra pads or a travel pouch to look different from existing sellers",
          "Baby and battery products both need careful safety and compliance checks"],
@@ -916,8 +916,8 @@ PROSE = {
          "Bade aur bhaari parcel ka shipping kharch zyada hota hai, courier slab pehle dekhein"]),
     "Macrame hanging wall planter": _prose(
         "{{title}} is a decor piece with a loyal audience among people styling small homes and balconies. Three "
-        "advertisers run ads and one dropshipping catalogue lists it as trending, while marketplace listings remain "
-        "few and lightly rated. No search chart was available for this type, so demand rests on ads and listings.",
+        "advertisers run ads and one dropshipping catalogue lists it as trending, while marketplace listings are "
+        "few and lightly rated. No search chart was available, so demand rests on ads and listings.",
         ["Styled photos on a bare wall do most of the selling for decor items",
          "Soft cotton cord packs flat, which keeps shipping simple and cheap",
          "Offer two or three sizes so buyers can build a small wall arrangement"],
@@ -943,14 +943,14 @@ PROSE = {
     "Foldable baby bath tub with cushion": _prose(
         "{{title}} helps parents with small bathrooms who want a safer bath routine. Searches have risen sharply "
         "this month, four advertisers run ads and it is in stock on a quick commerce app in Bengaluru. Marketplace "
-        "competition is moderate. As a baby product it needs careful safety wording and proof.",
+        "competition is moderate. As a baby product it needs careful safety wording.",
         ["Folding flat after use is a strong point for families in small flats",
          "The support cushion is the detail that reassures first time parents",
          "Bulky box size means checking courier dimensions before pricing it"],
         "{{title}} chhote bathroom waale maa baap ki madad karta hai jo surakshit nahaane ka tareeka chahte hain. Is "
         "mahine search tezi se badhi hai, chaar advertiser ad chala rahe hain aur Bengaluru mein ek quick commerce app "
-        "par yeh stock mein hai. Marketplace competition theek thaak hai. Baby product hone se safety ke shabd dhyan "
-        "se likhein.",
+        "par yeh stock mein hai. Marketplace competition theek thaak hai. Baby product hai, safety ke shabd dhyan se "
+        "likhein.",
         ["Istemaal ke baad flat fold hona chhote flat waale parivaron ke liye bada fayda hai",
          "Support cushion woh cheez hai jo pehli baar maa baap bane logon ko bharosa deti hai",
          "Box bada hai, isliye keemat tay karne se pehle courier ke naap dekh lein"]),
@@ -968,3 +968,50 @@ PROSE = {
          "Solar charging ko din ki roshni mein chhote video mein dikhana aasaan hai",
          "Battery aur solar ke daave supplier ke jaanche gaye aankdon se hi milne chahiye"]),
 }
+
+
+# Stress editions (layout checks only) ------------------------------------------------------
+
+STRESS_TITLES = {"en": "Kitchen, decor, baby and travel picks to test this week: ten narrow product types, each with a proof",
+                 "hi-Latn": "Is hafte test karne ke liye kitchen, decor, baby aur travel ke das narrow product type, saboot sahit"}
+_FILLER = {"en": ("steady", "interest", "from", "buyers", "who", "compare", "listings", "before", "they", "order", "online",
+                  "and", "expect", "clear", "photos", "with", "honest", "sizes"),
+           "hi-Latn": ("kharidaaron", "ki", "lagataar", "dilchaspi", "jo", "order", "se", "pehle", "listing", "milate",
+                       "hain", "aur", "saaf", "tasveer", "sahi", "naap", "chahte")}
+
+
+def _filled(start, language, length, title):
+    """Plain words after ``start`` up to ``length`` characters as printed ({{title}} counted as the name)."""
+    words, text, index = _FILLER[language], start, 0
+    while True:
+        word = words[index % len(words)]
+        candidate = (text + " " + word) if text else word.capitalize()
+        if len(candidate.replace("{{title}}", title)) + 1 > length:
+            return text + "."
+        text, index = candidate, index + 1
+
+
+def stress_edition(dataset, language, *, share=1.0):
+    """(dataset copy, narrative) for a layout stress print: the title at its 100-character limit and
+    every writing slot filled to ``share`` of its budget (reason, three points, the update sentence,
+    the ten checklist phrases), with the updated type also given a compliance class, so the
+    hardest page one (compliance bar + "What changed") is exercised. Not a valid packet: it is
+    printed with ``report_view.render_document`` only, never written or delivered."""
+    from product_radar.report_narration import WRITING_LIMITS
+    limits = WRITING_LIMITS[language]
+    stressed = deepcopy(dataset)
+    for product in stressed["products"]:
+        if product["status"] == "Updated":
+            definition = product["functional_definition"]
+            definition["primary_use"] = definition["primary_use"] + " with a battery night light"
+    narrative = deepcopy(dataset["narratives"][language])
+    narrative["title"] = STRESS_TITLES[language]
+    for product, row in zip(stressed["products"], narrative["products"]):
+        title = product["title"]
+        row["reason"] = _filled("{{title}}", language, int(limits["reason"] * share), title)
+        row["points"] = [_filled("", language, int(limits["point"] * share), title) for _ in range(3)]
+        if product["status"] == "Updated":
+            row["update_sentence"] = _filled("", language, int(limits["update_sentence"] * share), title)
+        row["checklist_phrases"] = [dict(phrase, text=_filled("", language, int(limits["checklist"] * share), title))
+                                    for phrase in row["checklist_phrases"]]
+    return stressed, narrative

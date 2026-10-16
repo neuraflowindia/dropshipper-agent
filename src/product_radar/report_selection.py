@@ -530,10 +530,14 @@ _FUNCTIONAL_SUPPLIER_FIELDS = ("suppliers", "supplier_limitation", "supplier_sea
     "supplier_search_check_ids", "supplier_assessment_ids")
 
 
+LEGACY_LEAD_LIMITATION = "This dated supplier lead still needs matching to this product type."
+LEGACY_LEADS_LIMITATION = "These dated supplier leads still need matching to this product type."
+
+
 def _functional_supplier_projection(suppliers):
     """Retain dated company leads, never inherit new-type commercial promises."""
     leads = deepcopy(suppliers["all_leads"])
-    limitation = "This dated supplier lead still needs matching to this product type."
+    limitation = LEGACY_LEAD_LIMITATION
     for lead in leads:
         lead.update(relationship="unclear", type_scope_limitation=limitation,
             relevance={"relationship": "unclear", "reason": limitation, "references": []},
@@ -542,7 +546,7 @@ def _functional_supplier_projection(suppliers):
         lead["terms"] = [{"field": term["field"], "value": "Not stated", "basis": "not_stated",
             "references": [], "quotes": [], "reason": limitation} for term in lead["terms"]]
     return {"suppliers": leads,
-        "supplier_limitation": "These dated supplier leads still need matching to this product type." if leads
+        "supplier_limitation": LEGACY_LEADS_LIMITATION if leads
                                else "Supplier search did not produce any usable results.",
         "supplier_search_status": suppliers["status"], "supplier_leads_checked": suppliers["checked"],
         "supplier_leads_found": len(leads), "supplier_decisions": deepcopy(suppliers["excluded"]),

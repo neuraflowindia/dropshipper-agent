@@ -74,7 +74,7 @@ STATE_SHAPES = {"yes": "yes", "Meets": "yes", "listed": "yes", "in_stock": "yes"
                 "no": "no", "Does not meet": "no", "not_found": "no", "not_in_stock": "no", "not_listed": "no",
                 "Unclear": "half",
                 "unknown": "dashed", "not_stated": "dashed", "not_checked": "dashed",
-                "conflicting": "conflict"}
+                "conflicting": "conflict", "caution": "caution"}
 
 
 def glyph_state(state, size=3.6):
@@ -90,6 +90,11 @@ def glyph_state(state, size=3.6):
     elif shape == "half":
         body = (f'<circle cx="5" cy="5" r="4.1" fill="none" stroke="{navy2}" stroke-width="1"/>'
                 f'<path d="M5 .9A4.1 4.1 0 0 0 5 9.1Z" fill="{navy2}"/>')
+    elif shape == "caution":  # a term that costs the reseller (a subscription or fee is charged)
+        maroon = COLOUR["maroon"]
+        body = (f'<circle cx="5" cy="5" r="4.1" fill="none" stroke="{maroon}" stroke-width="1"/>'
+                f'<path d="M5 2.6V5.7" stroke="{maroon}" stroke-width="1.2" stroke-linecap="round"/>'
+                f'<circle cx="5" cy="7.5" r=".7" fill="{maroon}"/>')
     elif shape == "conflict":
         body = (f'<circle cx="5" cy="5" r="4.1" fill="none" stroke="{grey}" stroke-width="1" stroke-dasharray="1.6 1.1"/>'
                 f'<path d="M3.6 4.1H6.4M3.6 5.9H6.4" stroke="{grey}" stroke-width="1" stroke-linecap="round"/>')
@@ -278,37 +283,69 @@ def _months_back(day, months):
     return date(year, month, min(day.day, last[month - 1]))
 
 
-def timeline_positions(starts, end, *, width=76.0, collision=2.7):
-    """(x, row) for each start date on a 12-month axis ending on ``end``; close dots stack upwards."""
+TIMELINE_ROWS = 3  # dot rows that fit the fixed 15 mm timeline; a fuller stack shows "+n" in its top row
+
+
+def timeline_layout(starts, end, *, width=76.0, collision=2.7, rows=TIMELINE_ROWS):
+    """Where each advertiser's dot goes on the 12-month axis ending on ``end``.
+
+    ``starts`` are (date, recent) pairs. Starts before the axis are never drawn at a
+    false date: they are counted in ``earlier`` and shown as one marker at the left
+    edge. Close dots stack upwards (recent ones placed first, so they stay visible);
+    a stack that would pass the top row turns its top dot into a "+n" label instead,
+    so the drawing keeps its fixed height. Returns {"begin", "dots": [(x, row, recent)],
+    "more": [(x, n)], "earlier": n, "hidden": n}.
+    """
     begin = _months_back(end, 12)
     span = (end - begin).days
     x0, x1 = 1.6, width - 1.6
-    placed = []
-    for day in starts:
-        clamped = min(max(day, begin), end)
-        x = x0 + (x1 - x0) * (clamped - begin).days / span
+    earlier = sum(day < begin for day, _ in starts)
+    items = [{"x": x0, "row": 0, "kind": "earlier"}] if earlier else []
+    shown = [(day, recent) for day, recent in starts if day >= begin]
+    for day, recent in sorted(shown, key=lambda row: (not row[1], row[0])):
+        x = x0 + (x1 - x0) * (min(day, end) - begin).days / span
         row = 0
-        while any(abs(x - px) < collision and pr == row for px, pr in placed):
+        while row < rows and any(abs(x - item["x"]) < collision and item["row"] == row for item in items):
             row += 1
-        placed.append((x, row))
-    return begin, placed
+        if row < rows:
+            items.append({"x": x, "row": row, "kind": "dot", "recent": recent})
+            continue
+        top = min((item for item in items if item["row"] == rows - 1 and abs(x - item["x"]) < collision),
+                  key=lambda item: abs(x - item["x"]))
+        if top["kind"] == "more":
+            top["n"] += 1
+        else:  # the top dot joins the hidden ones under its "+n"
+            top.update(kind="more", n=2)
+    more = [(item["x"], item["n"]) for item in items if item["kind"] == "more"]
+    return {"begin": begin, "earlier": earlier, "more": more, "hidden": sum(n for _, n in more),
+            "dots": [(item["x"], item["row"], item["recent"]) for item in items if item["kind"] == "dot"]}
 
 
-def meta_timeline(starts, end, *, width=76.0, month_names=None, label=""):
+def earlier_glyph(size=2.6):
+    """The left-pointing marker for advertisers that started before the timeline's axis."""
+    return (f'<svg class="glyph" width="{size}mm" height="{size}mm" viewBox="0 0 10 10" aria-hidden="true">'
+            f'<path d="M1 5 8.6 .6V9.4Z" fill="{COLOUR["navy"]}"/></svg>')
+
+
+def meta_timeline(starts, end, *, width=76.0, month_names=None, label="", band=True):
     """One dot per advertiser at the start date of its earliest relevant ad, on the 12
-    months before ``end``. ``starts`` is a sorted list of (date, recent) pairs; recent
-    starts (the score's 30-day rule) are ringed maroon dots, older ones navy dots."""
+    months before ``end``. ``starts`` are (date, recent) pairs; recent starts (the
+    score's 30-day rule) are ringed maroon dots, older ones navy dots. ``band`` shades
+    the 30 days before ``end`` (drawn only when ``end`` is the date the recent rule was
+    measured from, so a ringed dot and the band never disagree)."""
     height, axis = 15.0, 10.2
     x0, x1 = 1.6, width - 1.6
-    begin, placed = timeline_positions([day for day, _ in starts], end, width=width)
+    layout = timeline_layout(starts, end, width=width)
+    begin = layout["begin"]
     span = (end - begin).days
 
     def xpos(day):
         return x0 + (x1 - x0) * (day - begin).days / span
 
-    band = xpos(end - timedelta(days=30))
-    body = [f'<rect x="{band:.2f}" y=".4" width="{x1 - band:.2f}" height="{axis - .4:.2f}" fill="{COLOUR["maroon-pale"]}"/>',
-            f'<path d="M{x0} {axis}H{x1}" stroke="{COLOUR["line"]}" stroke-width=".3"/>']
+    start = xpos(end - timedelta(days=30))
+    body = ([f'<rect x="{start:.2f}" y=".4" width="{x1 - start:.2f}" height="{axis - .4:.2f}" fill="{COLOUR["maroon-pale"]}"/>']
+            if band else [])
+    body.append(f'<path d="M{x0} {axis}H{x1}" stroke="{COLOUR["line"]}" stroke-width=".3"/>')
     month = date(begin.year, begin.month, 1)
     names = month_names or {}
     while month <= end:
@@ -321,17 +358,51 @@ def meta_timeline(starts, end, *, width=76.0, month_names=None, label=""):
                     name += " " + str(month.year)
                 body.append(text(x, axis + 4.4, name, 8, anchor="middle"))
         month = date(month.year + (month.month == 12), month.month % 12 + 1, 1)
-    for (day, recent), (x, row) in zip(starts, placed):
-        cy = axis - 3.0 - row * 2.9
+    def cy(row):
+        return axis - 2.8 - row * 2.85
+
+    if layout["earlier"]:
+        y = cy(0)
+        body.append(f'<path d="M{x0 - 1.4:.2f} {y:.2f}L{x0 + 1.2:.2f} {y - 1.45:.2f}V{y + 1.45:.2f}Z" fill="{COLOUR["navy"]}"/>')
+    for x, row, recent in layout["dots"]:
+        y = cy(row)
         if recent:  # shape, not only colour: a ringed dot survives greyscale printing
-            body.append(f'<circle cx="{x:.2f}" cy="{cy:.2f}" r="1.75" fill="{COLOUR["paper"]}" stroke="{COLOUR["maroon"]}"'
-                        f' stroke-width=".4"/><circle cx="{x:.2f}" cy="{cy:.2f}" r=".9" fill="{COLOUR["maroon"]}"/>')
+            body.append(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="1.75" fill="{COLOUR["paper"]}" stroke="{COLOUR["maroon"]}"'
+                        f' stroke-width=".4"/><circle cx="{x:.2f}" cy="{y:.2f}" r=".9" fill="{COLOUR["maroon"]}"/>')
         else:
-            body.append(f'<circle cx="{x:.2f}" cy="{cy:.2f}" r="1.25" fill="{COLOUR["navy"]}" stroke="{COLOUR["paper"]}"'
+            body.append(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="1.25" fill="{COLOUR["navy"]}" stroke="{COLOUR["paper"]}"'
                         ' stroke-width=".45"/>')
-    rows = max([row for _, row in placed], default=0)
-    top = min(0.0, axis - 3.0 - rows * 2.9 - 2.0)
-    return svg(width, height - top, f'<g transform="translate(0 {-top:.2f})">{"".join(body)}</g>', "timeline", label)
+    for x, count in layout["more"]:
+        body.append(text(min(max(x, x0 + 1.6), x1 - 1.6), cy(TIMELINE_ROWS - 1) + 1.2, f"+{count}", 8, anchor="middle",
+                         weight=600, fill=COLOUR["navy"]))
+    return svg(width, height, "".join(body), "timeline", label)
+
+
+def _hatch(a, b, top, bottom, *, spacing=1.1):
+    """45-degree hatch lines clipped to the box (a, top)-(b, bottom); no pattern ids needed."""
+    h = bottom - top
+    lines, xs = [], a - h
+    while xs < b:
+        t0, t1 = max(0.0, (a - xs) / h), min(1.0, (b - xs) / h)
+        if t0 < t1:
+            lines.append(f"M{xs + h * t0:.2f} {bottom - h * t0:.2f}L{xs + h * t1:.2f} {bottom - h * t1:.2f}")
+        xs += spacing
+    return (f'<path d="{"".join(lines)}" stroke="{COLOUR["maroon"]}" stroke-opacity=".45" stroke-width=".22"'
+            ' fill="none"/>') if lines else ""
+
+
+def _window(kind, a, b, top, bottom):
+    """A compared Trends window: the previous four weeks plain sand, the recent four rose and
+    hatched, so the two stay distinct in greyscale print."""
+    if kind == "previous":
+        return f'<rect x="{a:.2f}" y="{top:.2f}" width="{b - a:.2f}" height="{bottom - top:.2f}" fill="{COLOUR["paper-deep"]}"/>'
+    return (f'<rect x="{a:.2f}" y="{top:.2f}" width="{b - a:.2f}" height="{bottom - top:.2f}" fill="{COLOUR["maroon-pale"]}"/>'
+            + _hatch(a, b, top, bottom))
+
+
+def window_swatch(kind, *, width=4.0, height=3.0):
+    """The key's sample of a compared Trends window (same fill and hatch as the chart)."""
+    return svg(width, height, _window(kind, 0, width, 0, height), "swatch")
 
 
 def spark_window_indexes(points, comparison_starts):
@@ -359,10 +430,10 @@ def trends_spark(points, windows, *, width=48.0, left="", right="", label=""):
     body = []
     if windows:
         previous, recent = windows[:4], windows[4:]
-        for group, colour in ((previous, COLOUR["paper-deep"]), (recent, COLOUR["maroon-pale"])):
+        for group, kind in ((previous, "previous"), (recent, "recent")):
             a = max(x0, x0 + group[0] * step - step / 2)
             b = min(x1 + .8, x0 + group[-1] * step + step / 2)
-            body.append(f'<rect x="{a:.2f}" y="{top:.2f}" width="{b - a:.2f}" height="{bottom - top:.2f}" fill="{colour}"/>')
+            body.append(_window(kind, a, b, top, bottom))
     body.append(f'<path d="M{x0} {bottom}H{x1 + .8:.2f}" stroke="{COLOUR["line"]}" stroke-width=".3"/>')
     runs, current = [], []
     for number, point in enumerate(points):

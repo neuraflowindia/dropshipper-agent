@@ -13,7 +13,18 @@ from .report_theme import CROWD, LABEL_PALE
 
 NAVY, MAROON, GREY = "24384B", "6B1F2B", "5F6062"
 PALE_NAVY, PALE_MUSTARD, PALE_GREY, PALE_ROSE = "E5EAF0", "F1E5C5", "ECECEC", "F1DFE2"
-SCORE_MAXIMA = {"Score": 100, "Want /20": 20, "Early /30": 30, "Room /25": 25, "Product /25": 25}
+
+
+def score_maxima(settings=None):
+    """Data-bar maxima per Shortlist heading, read from the score settings that also name the
+    headings (``opportunity_score.workbook_headers``): the score out of the four parts' total."""
+    from .opportunity_score import PARTS, load_settings, workbook_headers
+    settings = load_settings() if settings is None else settings
+    headings = workbook_headers(settings)
+    parts = [settings["parts"][part] for part in PARTS]
+    return dict(zip(headings[:1 + len(PARTS)], [sum(parts), *parts]))
+
+
 LABEL_FILLS = {"Sweet spot": LABEL_PALE["sweet_spot"][1:], "Early bet": LABEL_PALE["early_bet"][1:],
                "Proven but crowded": LABEL_PALE["proven_but_crowded"][1:]}
 CROWDING_FILLS = {"Low": "F3E6E8", "Medium": "E2C3C8", "High": CROWD["low"][1:]}
@@ -31,8 +42,9 @@ def _fill(style, colour):
     return style.solid(colour)
 
 
-def style_sheet(style, sheet, name, headings, row_count):
+def style_sheet(style, sheet, name, headings, row_count, *, settings=None):
     """Apply the redesign's look to one written sheet (header on row 6, data from row 7)."""
+    maxima = score_maxima(settings)
     rule = Side(style="thin", color=MAROON)
     for column in range(1, len(headings) + 1):
         cell = sheet.cell(6, column)
@@ -45,7 +57,7 @@ def style_sheet(style, sheet, name, headings, row_count):
             value = cell.value
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 cell.alignment = Alignment(wrap_text=True, vertical="top", horizontal="right")
-                if heading in SCORE_MAXIMA:
+                if heading in maxima:
                     cell.number_format = "0"
             fills = VALUE_FILLS.get(name, {}).get(heading)
             if fills and isinstance(value, str) and value in fills:
@@ -55,7 +67,7 @@ def style_sheet(style, sheet, name, headings, row_count):
             if name == "Checklist" and heading == "Basis" and value == "inferred":
                 cell.font = Font(name="Aptos", size=10, italic=True, color=GREY)
     if name == "Shortlist" and row_count:
-        for heading, maximum in SCORE_MAXIMA.items():
+        for heading, maximum in maxima.items():
             if heading in columns:
                 letter = sheet.cell(6, columns[heading]).column_letter
                 sheet.conditional_formatting.add(

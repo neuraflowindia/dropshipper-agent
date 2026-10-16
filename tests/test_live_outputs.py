@@ -1,7 +1,9 @@
 """Synthetic packet checks; these are not real client research or publication."""
 
 from copy import deepcopy
+from html import unescape
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -15,6 +17,7 @@ from product_radar.issue_allocation import allocate_issues, _fingerprint
 from product_radar.live_outputs import (LEGACY_PRICE_DISPLAY_VERSION, PRICE_DISPLAY_VERSION, build_issue_dataset, price_display, render_html, supplier_display,
                                         supplier_terms_display, validate_dataset, write_issue_package, _supplier_minimum_order)
 from product_radar.models import SafetyError, digest
+from product_radar.report_copy import TEXT
 from product_radar.service import CATEGORIES
 from product_radar.storage import atomic_json
 from test_fit_pipeline import older_format_scores
@@ -41,6 +44,17 @@ def fixture(count=10):
         for product in issue["products"]]} for language in ("en", "hi-Latn")}
     dataset = build_issue_dataset(issue, facts, narratives=narratives, evidence_type="synthetic")
     return issue, dataset
+
+
+def price_columns(html, concept_id):
+    """{column label: [(figure, its own wording)]} from one product's market page: each price row's
+    figure and the rest of its exact display text, bound to the column (label) it is printed under."""
+    page = html.split(f'<section class="sheet product-b" data-concept-id="{concept_id}">', 1)[1].split('<section class="sheet ', 1)[0]
+    columns = {}
+    for label, rows in re.findall(r'<p class="sub">(.*?)</p><ul class="price-list">(.*?)</ul>', page):
+        columns[unescape(label)] = [(unescape(figure), unescape(re.sub(r"<[^>]+>", "", what)))
+                                    for figure, what in re.findall(r'<li><b class="price[^"]*">(.*?)</b><span class="p-what">(.*?)</span>', rows)]
+    return columns
 
 
 @older_format_scores
@@ -272,7 +286,7 @@ class LiveOutputTests(unittest.TestCase):
             self.assertTrue("13 October 2026" in html)
             # Two references to the same page seen on the same day are one dated link.
             self.assertEqual(html.count('href="https://example.org/extra"'), 1)
-            self.assertEqual(html.count('Extra source</a> <span>7 Oct</span>'), 1)
+            self.assertEqual(html.count('Extra source</a> <span class="nw">7 Oct</span>'), 1)
             self.assertEqual(html.count('<p class="bulk">'), 1)
         self.assertEqual(dataset, before)
 
@@ -281,7 +295,7 @@ class LiveOutputTests(unittest.TestCase):
         html = render_html(issue, dataset)
         self.assertTrue('@page{size:A4 portrait;margin:15mm 16mm 17mm 16mm;background:#F9F3EC;' in html)
         self.assertTrue('@page cover{margin:0;' in html)
-        self.assertTrue('.cover{page:cover;height:297mm;overflow:hidden}' in html)
+        self.assertTrue('.cover{page:cover;height:297mm}' in html)
         # Screen A4 previews keep their own padding; print relies on the page margins.
         self.assertTrue('.sheet{position:relative;width:210mm;min-height:297mm;margin:0 auto 8mm;padding:15mm 16mm 17mm;' in html)
         self.assertTrue('--fs-label:9pt' in html)
@@ -293,7 +307,8 @@ class LiveOutputTests(unittest.TestCase):
         self.assertTrue('margin-bottom:2mm;break-after:avoid;page-break-after:avoid}' in html)
         for rule in ('.price-list li{display:grid;', '.sup tr,.sup tbody{break-inside:avoid;page-break-inside:avoid}',
                      '.league tr{break-inside:avoid;page-break-inside:avoid}', '.fit-list li{break-inside:avoid;',
-                     '.tile{background:var(--card);', '.src-sec{margin-top:3.2mm;break-inside:avoid;'):
+                     '.tile{background:var(--card);', '.src-sec{margin-top:2mm;break-inside:avoid;',
+                     '.sup-block{padding:1.1mm 0;border-bottom:.25mm solid var(--line-soft);break-inside:avoid;'):
             self.assertTrue(rule in html, rule)
         self.assertFalse("overflow:hidden}" in html.split(".cover{page:cover")[1].split("}")[1])
 
@@ -314,7 +329,7 @@ class LiveOutputTests(unittest.TestCase):
                 self.assertTrue(offer["conditions"] in html)
             self.assertTrue(product["suppliers"][0]["reason"] in html)
             self.assertTrue('href="https://example.org/final-source"' in html)
-            self.assertTrue('Last exact source</a> <span>7 Oct</span>' in html)
+            self.assertTrue('Last exact source</a> <span class="nw">7 Oct</span>' in html)
             self.assertLess(html.index("END-QUOTE-ONE"), html.index("END-QUOTE-TWO"))
             self.assertLess(html.index("END-QUOTE-TWO"), html.index("END-SUPPLIER-EXPLANATION"))
             self.assertLess(html.index("END-SUPPLIER-EXPLANATION"), html.index("Last exact source"))
@@ -629,10 +644,11 @@ class LiveOutputTests(unittest.TestCase):
             packets = [write_issue_package(issue, dataset, folder, language=language) for language in ("en", "hi-Latn")]
             for language, packet in zip(("en", "hi-Latn"), packets):
                 html = Path(packet["artifacts"]["html"]["path"]).read_text()
-                # The figure leads each price row; the rest of the same exact wording follows it.
+                # The figure leads its own price row, under the retail column, with the rest of the same exact wording.
                 figure, rest = price_display(price, language).partition("; ")[::2]
-                self.assertTrue(figure.split(": ", 1)[1] in html)
-                self.assertTrue(rest in html)
+                columns = price_columns(html, dataset["products"][0]["concept_id"])
+                self.assertIn((figure.split(": ", 1)[1], rest), columns[TEXT[language]["retail"]])
+                self.assertNotIn(figure.split(": ", 1)[1], [row[0] for row in columns[TEXT[language]["supplier"]]])
                 self.assertTrue(price["conditions"] in html)
                 self.assertNotIn("Retail listing: Price not stated", html)
                 self.assertNotIn("Retail listing ki keemat: keemat nahi di gayi", html)
@@ -664,10 +680,15 @@ class LiveOutputTests(unittest.TestCase):
         hinglish = render_html(issue, dataset, language="hi-Latn")
         self.assertTrue("Single-piece dispatch is not confirmed." in english)
         self.assertTrue("Single-piece dispatch confirm nahi hai." in hinglish)
-        for html in (english, hinglish):
+        retail, supplier = dataset["products"][0]["prices"][:2]
+        for language, html in (("en", english), ("hi-Latn", hinglish)):
             self.assertTrue('<b class="price">₹149</b>' in html)
             self.assertTrue('<b class="price">₹45</b>' in html)
             self.assertEqual(html.count('<td class="c5">7<span class="of">/13</span></td>'), 10)
+            # Each figure stays bound to its own label (column) and its own conditions.
+            columns = price_columns(html, dataset["products"][0]["concept_id"])
+            self.assertEqual(columns[TEXT[language]["retail"]], [("₹149", price_display(retail, language).partition("; ")[2])])
+            self.assertEqual(columns[TEXT[language]["supplier"]], [("₹45", price_display(supplier, language).partition("; ")[2])])
         self.assertTrue('<p class="sub">Retail listing</p>' in hinglish)
         self.assertTrue('<p class="sub">Supplier aur dropship quote</p>' in hinglish)
         self.assertTrue("minimum order: 100" in hinglish)

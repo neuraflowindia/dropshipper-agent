@@ -12,7 +12,7 @@ those originals fall back to the score's own sub-point facts (text only).
 """
 
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 import re
 
 from .models import SafetyError, timestamp
@@ -87,7 +87,8 @@ def meta_view(score, context):
     ads_facts = score["facts"]["facebook_ads"]
     recent = score["facts"]["new_advertisers"]["recent_start_advertisers"]
     view = {"advertisers": ads_facts["advertisers"], "relevant": ads_facts["relevant_ads"], "active": None,
-            "recent": recent, "starts": None, "end": None, "undated": 0, "observed": None, "unlinked": False}
+            "recent": recent, "starts": None, "end": None, "band": False, "undated": 0, "observed": None,
+            "unlinked": False, "missing": 0}
     if context is None:
         return view
     from .meta_facts import advertiser_firsts, relevant_ads
@@ -101,14 +102,18 @@ def meta_view(score, context):
     firsts = advertiser_firsts(valid)
     if (sum(row["recent"] for row in firsts) if firsts else None) != recent:
         raise SafetyError("LIVE_REPORT_VISUAL_FACTS_CHANGED")
+    missing = max(0, (view["advertisers"] or 0) - len(firsts)) if valid else 0
     view.update(active=depth["active_ads"] if valid else None, undated=depth["ads_without_start_date"],
-                starts=[(timestamp(row["started_at"]).date(), row["recent"]) for row in firsts],
-                unlinked=bool(valid) and view["advertisers"] is not None and len(firsts) < view["advertisers"]
-                and depth["ads_without_start_date"] == 0)
+                starts=[(timestamp(row["started_at"]).date(), row["recent"]) for row in firsts], missing=missing,
+                unlinked=bool(missing) and depth["ads_without_start_date"] == 0)
     if valid:
-        observed = max(timestamp(value["observed_at"]) for value in valid)
-        view["observed"] = observed.date()
-        view["end"] = observed.date()
+        view["observed"] = max(timestamp(value["observed_at"]) for value in valid).date()
+        # One reference for the dots and the 30-day band: the score's recent rule is measured
+        # from the day each first ad was seen, so the axis ends on that day and the band is
+        # drawn only when every first ad was seen on the same day.
+        seen = {timestamp(row["observed_at"]).date() for row in firsts}
+        view["end"] = max(seen) if seen else view["observed"]
+        view["band"] = len(seen) <= 1
     return view
 
 
@@ -120,9 +125,11 @@ def _settings():
 
 
 def _mean_text(low, high):
+    """A compared window's mean in whole points (half up), or 'low–high' when the bounds differ."""
     def number(value):
-        return format(Decimal(repr(value)).quantize(Decimal("0.01")).normalize(), "f")
-    return number(low) if low == high else number(low) + "–" + number(high)
+        return str(int(Decimal(repr(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)))
+    low, high = number(low), number(high)
+    return low if low == high else low + "–" + high
 
 
 def trends_view(score, context):
@@ -147,9 +154,13 @@ def trends_view(score, context):
     parsed = chart_with_related_support(chart, context["charts"], context["as_of"])
     signal = compute_trends_signal(parsed, now=context["as_of"])
     from .report_charts import spark_window_indexes
-    series = [{"start": point["start"], "state": point["state"], "value": point["value"]} for point in parsed["series"]]
+    collected = timestamp(parsed["metadata"]["collected_at"]).date()
+    # Only the completed weeks the score itself compares (``compute_trends_signal``): a partial
+    # or still-running week is never drawn, so the line ends where the recent window ends.
+    series = [{"start": point["start"], "state": point["state"], "value": point["value"]} for point in parsed["series"]
+              if point.get("partial") is not True and date.fromisoformat(point["end"]) < collected]
     view.update(points=series, windows=spark_window_indexes(series, signal.get("comparison_intervals")),
-                collected=timestamp(parsed["metadata"]["collected_at"]).date())
+                collected=collected)
     if signal.get("previous_mean_bounds") and signal.get("recent_mean_bounds"):
         view["previous"] = _mean_text(*signal["previous_mean_bounds"])
         view["recent"] = _mean_text(*signal["recent_mean_bounds"])
@@ -189,7 +200,7 @@ def platform_view(score, context):
             row["roles"] = [role for role in ROLE_ORDER if role in roles]
             prices = [Decimal(item["price"]) for item in items if isinstance(item.get("price"), str) and item["price"]]
             if row["state"] == "listed" and prices:
-                row["price"] = format(min(prices).normalize(), "f")
+                row["price"] = format(min(prices), "f")
         if route in listed and row["state"] != "listed":
             raise SafetyError("LIVE_REPORT_VISUAL_FACTS_CHANGED")
         view["rows"].append(row)
@@ -247,14 +258,14 @@ def qc_view(score, context, checks):
     with a seen listing is checked; one whose question was answered with nothing
     relevant is 'not in stock or not listed'; anything else is 'not checked'."""
     stock = score["facts"]["quick_commerce"]["stock_cities"]
-    view = {"places": None, "rows": None, "in_stock": sorted(stock), "checked": None, "observed": None}
+    view = {"places": None, "rows": None, "in_stock": sorted(stock), "checked": None, "observed": None, "app_dates": {}}
     if context is None or checks is None:
         return view
     if checks["as_of"] != context["as_of"]:
         raise SafetyError("LIVE_REPORT_VISUAL_FACTS_CHANGED")
     from .marketplace_browser import verified_list_observation
     seen = {}
-    dates = []
+    dates, by_app = [], {}
     for value in context["relevant"].values():
         location = value["facts"].get("location") if isinstance(value.get("facts"), dict) else None
         name = location.get("name") if isinstance(location, dict) else None
@@ -265,6 +276,7 @@ def qc_view(score, context, checks):
         cell = seen.setdefault((value["source"], name), set())
         cell.add(value["facts"].get("available") is True)
         dates.append(timestamp(value["observed_at"]))
+        by_app.setdefault(value["source"], []).append(timestamp(value["observed_at"]))
     places = list(checks["places"]) + sorted({name for _, name in seen} - set(checks["places"]))
     rows = {}
     for app in QC_APPS:
@@ -282,8 +294,11 @@ def qc_view(score, context, checks):
         raise SafetyError("LIVE_REPORT_VISUAL_FACTS_CHANGED")
     checked = [place for index, place in enumerate(places) if any(rows[app][index] != "not_checked" for app in QC_APPS)]
     answered = [timestamp(at) for places_at in checks["answered"].values() for at in places_at.values()]
+    for app, places_at in checks["answered"].items():
+        by_app.setdefault(app, []).extend(timestamp(at) for at in places_at.values())
     view.update(places=places, rows=rows, checked=checked,
-                observed=max(dates + answered).date() if dates or answered else None)
+                observed=max(dates + answered).date() if dates or answered else None,
+                app_dates={app: max(by_app[app]).date() for app in QC_APPS if app in by_app})
     return view
 
 
@@ -292,22 +307,56 @@ def qc_view(score, context, checks):
 # A fixed, code-owned rule by product class (owner choice 5a). The class comes
 # from the category (Baby Products) and from fixed words in the accepted
 # product-type wording; the AI's free-text compliance note stays in the workbook.
-COMPLIANCE_RULE = "compliance-classes-v1"
-COMPLIANCE_CLASSES = ("baby", "ingestible", "topical", "medical", "electrical")
+# A word match is not proof of a class, so every word-matched class (including a
+# baby or child word outside the Baby Products category, "child") says "May count
+# as ...". No flag is not a clearance: the key page says every product still needs
+# the client's own check.
+COMPLIANCE_RULE = "compliance-classes-v2"
+COMPLIANCE_CLASSES = ("baby", "child", "ingestible", "topical", "medical", "electrical")
+# A class word that only names what a container, holder or mould is for ("soap
+# dispenser", "snack jar", "tea light holder", "travel bottles for shampoo") does
+# not make the container that class. Baby and child words are not excused this
+# way: a baby bottle or a kids' lunch box is itself a child product.
+_CONTAINERS = (r"bottles?|jars?|containers?|holders?|organi[sz]ers?|dispensers?|racks?|trays?|moulds?|molds?|tins?"
+               r"|canisters?|caddy|caddies|pouch(?:es)?|savers?|dish(?:es)?|cases?|boxe?s?|bags?|baskets?|bins?|shelf"
+               r"|shelves|hangers?|hooks?|pumps?")
+_CONTAINER_FOR = re.compile(r"\b(" + _CONTAINERS + r")\s+for\s+[^,.;:()]*", re.I)
+_NOT_A_CLASS_WORD = re.compile(r"\btea[- ]?lights?\b|\bwith (?:an? )?child[- ]?(?:lock|proof lock|safety lock)s?\b", re.I)
+_LIGHT_ADJECTIVE = (r"(?![- ]?(?:weight|weighted|blue|green|grey|gray|pink|brown|yellow|purple|orange|red|beige|wood"
+                    r"|coloured|colored|and|enough|duty)\b)")
 _WORDS = {
-    "baby": r"bab(?:y|ies)|infants?|toddlers?|newborns?|kids?|child(?:ren)?|teethers?|teething|pacifiers?|soothers?|diapers?|nappies|nappy",
-    "ingestible": r"supplements?|vitamins?|snacks?|cand(?:y|ies)|chocolates?|protein powders?|herbal|nutrition(?:al)?|health drinks?",
+    "child": (r"bab(?:y|ies)|infants?|toddlers?|newborns?|kids?|child(?:ren)?|teethers?|teething|pacifiers?|soothers?"
+              r"|diapers?|nappies|nappy|sippy cups?|strollers?|prams?"),
+    "ingestible": (r"supplements?|vitamins?|snacks?|cand(?:y|ies)|chocolates?|protein (?:powders?|bars?)|herbal"
+                   r"|nutrition(?:al)?|health drinks?|gummies|edible|masala|spices?|seasonings?|honey|pickles?"
+                   r"|dry fruits?|jaggery|ghee|baby food|tea leaves|coffee (?:beans|powder)"),
     "topical": (r"creams?|lotions?|serums?|ointments?|balms?|cosmetics?|make-?up|shampoos?|hair conditioners?|sunscreens?"
-                r"|moisturi[sz]ers?|perfumes?|fragrances?|deodorants?|hair oils?|body oils?|massage oils?|face masks?|scrubs?"
-                r"|soaps?(?!\s*(?:dispensers?|dish(?:es)?|holders?|trays?|stands?|savers?|boxe?s?|cases?|racks?))"),
+                r"|moisturi[sz]ers?|perfumes?|fragrances?|deodorants?|(?:hair|body|massage|essential) oils?"
+                r"|(?:face|sheet|hair) masks?|(?:body|face|facial|foot|lip|skin|sugar|salt|coffee) scrubs?|soaps?"
+                r"|(?:hand )?saniti[sz]ers?|(?:mosquito|insect) repellents?|repellent (?:creams?|sprays?|patch(?:es)?|bands?)"
+                r"|hair (?:dyes?|colou?rs?|gels?|sprays?)|nail (?:polish(?:es)?|paints?)|lipsticks?|kajal|eyeliners?"
+                r"|mascaras?|henna|mehendi|face ?wash(?:es)?|cleansers?|toners?|temporary tattoos?"),
     "medical": (r"medical|medicines?|therap(?:y|eutic)|orthop(?:a)?edic|first[- ]aid|thermometers?|oximeters?|blood pressure"
-                r"|nebuli[sz]ers?|(?:knee|back|wrist|ankle|neck) braces?|posture correctors?|pain relief|wounds?|bandages?"
-                r"|inhalers?|hearing aids?"),
-    "electrical": (r"electric(?:al)?|electronic|battery|batteries|battery-(?:powered|operated)|rechargeable|usb|chargers?|charging"
-                   r"|cordless|plug-?in|mains|led|lamps?|lights?|bulbs?|motori[sz]ed|motors?|heaters?|heating|heated|solar"
-                   r"|power banks?|adapters?|massagers?"),
+                r"|glucometers?|nebuli[sz]ers?|posture correctors?|pain relief|wounds?|bandages?|inhalers?|hearing aids?"
+                r"|surgical masks?|n95|compression (?:socks|stockings|sleeves)|acupressure|crutches|walking sticks?"
+                r"|wheelchairs?|(?:knee|back|lumbar|wrist|ankle|neck|elbow|shoulder) (?:braces?|supports?|belts?|straps?"
+                r"|guards?|sleeves?|caps?)"),
+    "electrical": (r"electric(?:al)?|electronics?|battery|batteries|battery-(?:powered|operated)|rechargeable|usb"
+                   r"|chargers?|charging|cordless|plug-?in|mains|led|lamps?|lights?" + _LIGHT_ADJECTIVE + r"|bulbs?"
+                   r"|torch(?:es)?|flashlights?|motori[sz]ed|motors?|heaters?|heating|heated|solar|power banks?|adapters?"
+                   r"|massagers?|massage guns?|(?<!hand )(?<!paper )(?<!bamboo )fans?|humidifiers?|dehumidifiers?"
+                   r"|purifiers?|induction|cooktops?|hot ?plates?|toasters?|blenders?|mixer grinders?|air fryers?"
+                   r"|rice cookers?|(?<!stovetop )(?<!stove-top )(?<!stove top )(?<!whistling )kettles?|(?:hair|blow) dryers?"
+                   r"|hair straighteners?|curling (?:irons?|wands?)|(?:steam|clothes) irons?|garment steamers?"
+                   r"|(?:beard|hair|body|nose) trimmers?|shavers?|(?:aroma|essential[- ]oil|oil|ultrasonic|mist) diffusers?"
+                   r"|vapori[sz]ers?|(?:digital|weighing|luggage|kitchen|body) scales?"
+                   r"|digital (?:thermometers?|timers?|clocks?|displays?|meters?)|speakers?|earphones?|headphones?"
+                   r"|earbuds?|headsets?|cameras?|sensors?|projectors?|extension (?:boards?|cords?)|power strips?"
+                   r"|sockets?|remote[- ]controll?(?:ed)?|glue guns?|heat sealers?|vacuum cleaners?"),
 }
-_PATTERNS = {name: re.compile(r"\b(?:" + words + r")\b", re.I) for name, words in _WORDS.items()}
+_EXCUSED = re.compile(r"(?![- ]?(?:" + _CONTAINERS + r")\b)", re.I)
+_PATTERNS = {name: re.compile(r"\b(?:" + words + r")\b" + ("" if name == "child" else _EXCUSED.pattern), re.I)
+             for name, words in _WORDS.items()}
 
 
 def _type_wording(product):
@@ -321,11 +370,21 @@ def _type_wording(product):
 
 
 def compliance_classes(product):
-    """The product classes that need the client's own compliance check (fixed order)."""
+    """The product classes that need the client's own compliance check (fixed order).
+
+    "baby" is the Baby Products category (stated plainly); "child" is a baby or child
+    word in any other category; the other classes are fixed words in the accepted
+    type wording, after container phrases ("bottles for shampoo") and a few known
+    non-class phrases ("tea light", "with child lock") are set aside."""
     text = _type_wording(product)
-    found = [name for name in COMPLIANCE_CLASSES if _PATTERNS[name].search(text)]
-    if product.get("category") == "Baby Products" and "baby" not in found:
-        found.insert(0, "baby")
+    plain = _NOT_A_CLASS_WORD.sub(" ", text)
+    contents_free = _CONTAINER_FOR.sub(r"\1", plain)
+    found = []
+    for name in COMPLIANCE_CLASSES[1:]:
+        if _PATTERNS[name].search(plain if name == "child" else contents_free):
+            found.append(name)
+    if product.get("category") == "Baby Products":
+        found = ["baby"] + [name for name in found if name != "child"]
     return found
 
 

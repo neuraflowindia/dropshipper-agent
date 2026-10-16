@@ -3,7 +3,7 @@
 Synthetic inputs only; no packets are written and no browser is started.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 import re
 import tempfile
@@ -45,8 +45,9 @@ class ChartTests(unittest.TestCase):
         self.assertIn("<circle", shapes["sweet_spot"])
         self.assertIn("<path", shapes["early_bet"])
         self.assertEqual(shapes["proven_but_crowded"].count("<rect"), 3)
-        bodies = {state: charts.glyph_state(state) for state in ("yes", "no", "Unclear", "not_stated", "conflicting")}
-        self.assertEqual(len(set(bodies.values())), 5)
+        bodies = {state: charts.glyph_state(state) for state in ("yes", "no", "Unclear", "not_stated", "conflicting", "caution")}
+        self.assertEqual(len(set(bodies.values())), 6)
+        self.assertIn(theme.COLOUR["maroon"], bodies["caution"])
         self.assertEqual(charts.glyph_state("Meets"), charts.glyph_state("listed"))
         self.assertEqual(charts.glyph_state("not_checked"), charts.glyph_state("unknown"))
         self.assertIn("stroke-dasharray", bodies["not_stated"])
@@ -116,12 +117,11 @@ class ChartTests(unittest.TestCase):
 
     def test_timeline_places_dates_on_a_twelve_month_axis_and_stacks_close_dots(self):
         end = date(2026, 10, 15)
-        begin, placed = charts.timeline_positions([end, date(2025, 10, 15), date(2024, 1, 1), end], end, width=76)
-        self.assertEqual(begin, date(2025, 10, 15))
-        self.assertAlmostEqual(placed[0][0], 74.4)
-        self.assertAlmostEqual(placed[1][0], 1.6)
-        self.assertEqual(placed[2], (1.6, 1))  # clamped to the axis start, stacked over the earlier dot there
-        self.assertEqual(placed[3], (74.4, 1))
+        layout = charts.timeline_layout([(end, False), (date(2025, 10, 15), False), (end, True)], end, width=76)
+        self.assertEqual(layout["begin"], date(2025, 10, 15))
+        # Recent dots are placed first, so a stack keeps them at the bottom (always visible).
+        self.assertEqual(layout["dots"], [(74.4, 0, True), (1.6, 0, False), (74.4, 1, False)])
+        self.assertEqual((layout["earlier"], layout["more"], layout["hidden"]), (0, [], 0))
         self.assertEqual(charts._months_back(date(2024, 2, 29), 12), date(2023, 2, 28))
         self.assertEqual(charts._months_back(date(2026, 1, 31), 2), date(2025, 11, 30))
         timeline = charts.meta_timeline([(date(2026, 3, 1), False), (date(2026, 10, 1), True)], end, label="2 advertisers")
@@ -131,8 +131,35 @@ class ChartTests(unittest.TestCase):
         for name in ("Jan 2026", ">Apr<", ">Jul<", ">Oct<"):
             self.assertIn(name, timeline)
         self.assertIn(">Jan 2026<", charts.meta_timeline([], end, month_names={1: "Jan"}))
-        stacked = charts.meta_timeline([(end, False)] * 4, end)
-        self.assertIn('translate(0 ', stacked)
+        self.assertNotIn(theme.COLOUR["maroon-pale"], charts.meta_timeline([(end, True)], end, band=False))
+
+    def test_timeline_keeps_its_height_and_never_misdates_old_starts(self):
+        end = date(2026, 10, 15)
+        # Twenty advertisers on the same week: three rows, the top one a "+n" for the rest.
+        crowd = [(end - timedelta(days=n % 5), n < 4) for n in range(20)]
+        layout = charts.timeline_layout(crowd, end)
+        self.assertEqual(len(layout["dots"]) + layout["hidden"], 20)
+        self.assertEqual(layout["more"][0][1], layout["hidden"])
+        # Recent starts are placed first, so the dots left visible in a full stack are the ringed ones.
+        self.assertEqual([recent for _, _, recent in layout["dots"]], [True] * (charts.TIMELINE_ROWS - 1))
+        spread = charts.timeline_layout([(end - timedelta(days=20 * n), False) for n in range(12)], end)
+        self.assertEqual((spread["hidden"], max(row for _, row, _ in spread["dots"])), (0, 0))
+        drawn = charts.meta_timeline(crowd, end, label="20 advertisers")
+        self.assertIn('height="15.00mm"', drawn)
+        self.assertIn(f'>+{layout["hidden"]}</text>', drawn)
+        # Starts before the 12-month axis are one marker at the left edge, never stacked at a false date.
+        old = [(date(2024, 1, 1), False), (date(2025, 1, 1), False), (date(2026, 9, 1), False)]
+        layout = charts.timeline_layout(old, end)
+        self.assertEqual(layout["earlier"], 2)
+        self.assertEqual(len(layout["dots"]), 1)
+        self.assertIn(f'fill="{NAVY}"/>', charts.meta_timeline(old, end))
+        # A start next to the left edge stacks above the marker instead of hiding it.
+        edge = charts.timeline_layout([(date(2024, 1, 1), False), (date(2025, 10, 16), False)], end)
+        self.assertEqual(edge["dots"][0][1], 1)
+        self.assertIn("<path", charts.earlier_glyph())
+        # Two separate full stacks each get their own "+n".
+        two = charts.timeline_layout([(end, False)] * 4 + [(date(2026, 3, 1), False)] * 5, end)
+        self.assertEqual(sorted(n for _, n in two["more"]), [2, 3])
 
     def test_sparkline_windows_gaps_and_bounded_points(self):
         points = [{"start": f"2026-{month:02d}-01", "state": "observed", "value": month * 5} for month in range(1, 11)]
@@ -143,6 +170,11 @@ class ChartTests(unittest.TestCase):
         spark = charts.trends_spark(points, windows, left="Jan 2026", right="Oct 2026", label="Trends")
         self.assertIn(theme.COLOUR["paper-deep"], spark)
         self.assertIn(theme.COLOUR["maroon-pale"], spark)
+        # The recent window is hatched, so the two windows differ in greyscale too (the key uses the same swatches).
+        self.assertEqual(spark.count('stroke-opacity=".45"'), 1)
+        self.assertIn('stroke-opacity=".45"', charts.window_swatch("recent"))
+        self.assertNotIn('stroke-opacity', charts.window_swatch("previous"))
+        self.assertEqual(charts._hatch(0, 1, 0, 0.0001), "")
         self.assertEqual(spark.count('fill-opacity=".10"'), 1)
         gapped = [dict(p) for p in points]
         gapped[4] = {"start": gapped[4]["start"], "state": "missing", "value": None}
@@ -281,28 +313,63 @@ class VisualFactTests(unittest.TestCase):
         qc = visuals.qc_view(score, None, None)
         self.assertEqual((qc["rows"], qc["in_stock"]), (None, ["Mumbai"]))
 
-    def test_mean_text_keeps_exact_quarter_means(self):
-        self.assertEqual(visuals._mean_text(63.25, 63.25), "63.25")
-        self.assertEqual(visuals._mean_text(20, 20.5), "20–20.5")
+    def test_mean_text_rounds_to_whole_points(self):
+        self.assertEqual(visuals._mean_text(63.25, 63.25), "63")
+        self.assertEqual(visuals._mean_text(34.5, 34.5), "35")  # half up, never banker's rounding
+        self.assertEqual(visuals._mean_text(20, 20.5), "20–21")
+        self.assertEqual(visuals._mean_text(20.25, 20.4), "20")
+
+    # (category, title, expected classes): the reviewed misses and false flags, plus the earlier cases.
+    COMPLIANCE_CASES = (
+        ("Travel and Outdoor", "Rechargeable neck fan", ["electrical"]),
+        ("Home and Decor", "Cool mist humidifier", ["electrical"]),
+        ("Home and Kitchen", "Portable induction cooktop", ["electrical"]),
+        ("Travel and Outdoor", "Foldable hair dryer", ["electrical"]),
+        ("Travel and Outdoor", "Collapsible silicone travel kettle", ["electrical"]),
+        ("Home and Decor", "Wooden aroma diffuser", ["electrical"]),
+        ("Home and Kitchen", "Digital kitchen scale", ["electrical"]),
+        ("Home and Decor", "Natural mosquito repellent patches", ["topical"]),
+        ("Travel and Outdoor", "Pocket hand sanitizer spray", ["topical"]),
+        ("Travel and Outdoor", "Knee support sleeve", ["medical"]),
+        ("Home and Decor", "Glass tea light holder", []),
+        ("Home and Decor", "Light blue storage basket", []),
+        ("Home and Kitchen", "Silicone dish scrub", []),
+        ("Travel and Outdoor", "Leak-proof travel bottles for shampoo", []),
+        ("Home and Kitchen", "Airtight snack jar", []),
+        ("Home and Kitchen", "Glass candy jar with lid", []),
+        ("Home and Kitchen", "Silicone chocolate mould", []),
+        ("Home and Kitchen", "Stovetop kettle with child lock", []),
+        ("Home and Kitchen", "Electric kettle with child lock", ["electrical"]),
+        ("Home and Decor", "Toy organiser for children", ["child"]),
+        ("Home and Kitchen", "Kids lunch box", ["child"]),
+        ("Travel and Outdoor", "Travel lotion bottle set", []),
+        ("Home and Kitchen", "Soap dispenser pump", []),
+        ("Home and Kitchen", "Clip-on sink strainer basket", []),
+        ("Home and Kitchen", "Magnetic spice jar rack", []),
+        ("Home and Decor", "Rechargeable LED picture light", ["electrical"]),
+        ("Baby Products", "Stroller organiser bag", ["baby"]),
+        ("Home and Kitchen", "Herbal tea sampler", ["ingestible"]),
+        ("Travel and Outdoor", "Knee brace support", ["medical"]),
+        ("Home and Decor", "Face wash and body scrub kit", ["topical"]),
+    )
 
     def test_compliance_classes_by_fixed_rule(self):
-        cases = (({"category": "Baby Products", "title": "Stroller organiser bag"}, ["baby"]),
-                 ({"category": "Home and Decor", "title": "Rechargeable LED picture light"}, ["electrical"]),
-                 ({"category": "Home and Kitchen", "title": "Soap dispenser pump"}, []),
-                 ({"category": "Home and Kitchen", "title": "Clip-on sink strainer basket"}, []),
-                 ({"category": "Travel and Outdoor", "title": "Travel lotion bottle set"}, ["topical"]),
-                 ({"category": "Baby Products", "title": "Baby nail trimmer", "functional_definition": {
-                     "report_title": "Electric baby nail trimmer", "primary_use": "trims nails", "mechanism": ["battery motor"]}},
-                  ["baby", "electrical"]),
-                 ({"category": "Home and Kitchen", "title": "Herbal tea sampler"}, ["ingestible"]),
-                 ({"category": "Travel and Outdoor", "title": "Knee brace support"}, ["medical"]))
-        for product, expected in cases:
-            with self.subTest(title=product["title"]):
-                self.assertEqual(visuals.compliance_classes(product), expected)
+        for category, title, expected in self.COMPLIANCE_CASES:
+            with self.subTest(title=title):
+                self.assertEqual(visuals.compliance_classes({"category": category, "title": title}), expected)
+        trimmer = {"category": "Baby Products", "title": "Baby nail trimmer", "functional_definition": {
+            "report_title": "Electric baby nail trimmer", "primary_use": "trims nails", "mechanism": ["battery motor"]}}
+        self.assertEqual(visuals.compliance_classes(trimmer), ["baby", "electrical"])
+        # The accepted type wording counts too, and a Baby Products type is stated plainly, never "May count as".
+        worded = {"category": "Home and Decor", "title": "Wall planter", "functional_definition": {"use_context": ["Nursery for toddlers"]}}
+        self.assertEqual(visuals.compliance_classes(worded), ["child"])
         english = visuals.compliance_text(["baby", "electrical"], "en")
         self.assertTrue(english.startswith("Baby or child product"))
         self.assertTrue(english.endswith("No legal approval is given."))
+        self.assertTrue(visuals.compliance_text(["child"], "en").startswith("May count as a baby or child product"))
         self.assertIn("legal manzoori", visuals.compliance_text(["medical"], "hi-Latn"))
+        self.assertIn("mana ja sakta hai", visuals.compliance_text(["child"], "hi-Latn"))
+        self.assertEqual(visuals.COMPLIANCE_RULE, "compliance-classes-v2")
 
     def checks(self, **changes):
         value = {"version": visuals.QC_CHECKS_VERSION, "as_of": "2026-10-05T10:00:00+00:00",
@@ -355,9 +422,9 @@ class PageHelperTests(unittest.TestCase):
 
     def test_money_hosts_and_fixed_supplier_caveats(self):
         from product_radar import report_pages as pages
-        self.assertEqual(pages.rupees("1299"), "₹1,299")
-        self.assertEqual(pages.rupees("1299.50"), "₹1,299.5")
-        self.assertEqual(pages.rupees("149.05"), "₹149.05")
+        for amount, shown in (("1299", "₹1,299"), ("1299.00", "₹1,299"), ("1299.50", "₹1,299.50"), ("1299.5", "₹1,299.50"),
+                              ("149.05", "₹149.05"), ("0.5", "₹0.50"), ("149.125", "₹149.125"), ("124000", "₹1,24,000")):
+            self.assertEqual(pages.rupees(amount), shown, amount)
         self.assertEqual(pages.host("https://www.example.org/x"), "example.org")
         self.assertIsNone(pages.host(None))
         self.assertIsNone(pages.host("not a url"))
@@ -371,7 +438,7 @@ class PageHelperTests(unittest.TestCase):
 
     def meta(self, **changes):
         view = {"advertisers": 3, "relevant": 4, "active": 2, "recent": 1, "starts": None, "end": None, "undated": 0,
-                "observed": date(2026, 10, 15), "unlinked": False}
+                "observed": date(2026, 10, 15), "unlinked": False, "missing": 0, "band": True}
         view.update(changes)
         return {"meta": view}
 
@@ -379,7 +446,7 @@ class PageHelperTests(unittest.TestCase):
         from product_radar import report_pages as pages
         tile = pages._meta_tile(self.meta(), self.words, {})
         self.assertIn("4 relevant ads · 2 still active", tile)
-        self.assertIn("1 started in the last 30 days", tile)
+        self.assertIn("1 started within 30 days of being seen", tile)
         self.assertIn("Facebook Ads Library · 15 Oct", tile)
         none = pages._meta_tile(self.meta(advertisers=None, relevant=0, active=None, recent=None, observed=None), self.words, {})
         self.assertIn(">0</span> <span>advertisers", none)
@@ -389,10 +456,29 @@ class PageHelperTests(unittest.TestCase):
         dated = pages._meta_tile(self.meta(starts=starts, end=date(2026, 10, 15), undated=2), self.words, {})
         self.assertIn('class="timeline"', dated)
         self.assertIn("2 relevant ads had no start date", dated)
-        unlinked = pages._meta_tile(self.meta(starts=starts[:1], end=date(2026, 10, 15), unlinked=True), self.words, {})
-        self.assertIn(self.words["m_unlinked"], unlinked)
-        one = pages._meta_tile(self.meta(advertisers=1), self.words, {})
+        self.assertIn("1 relevant ad had no start date", pages._meta_tile(self.meta(starts=starts, end=date(2026, 10, 15),
+                                                                                  undated=1), self.words, {}))
+        # Advertisers that could not be placed are counted under the drawn timeline (it is drawn, not hidden).
+        unlinked = pages._meta_tile(self.meta(starts=starts[:1], end=date(2026, 10, 15), unlinked=True, missing=2), self.words, {})
+        self.assertIn("2 advertisers are not on the timeline", unlinked)
+        self.assertIn("1 advertiser is not on the timeline", pages._meta_tile(
+            self.meta(starts=starts[:1], end=date(2026, 10, 15), unlinked=True, missing=1), self.words, {}))
+        one = pages._meta_tile(self.meta(advertisers=1, relevant=1, active=1), self.words, {})
         self.assertIn(">1</span> <span>advertiser<", one)
+        self.assertIn("1 relevant ad · 1 still active", one)
+        self.assertIn(">1 relevant ad<", pages._meta_tile(self.meta(relevant=1, active=None), self.words, {}))
+        self.assertIn("1 relevant ad · 1 abhi active", pages._meta_tile(self.meta(relevant=1, active=1), copy_text.TEXT["hi-Latn"], {}))
+        # Old starts: a marker and its note; a full stack: the recent count is stated, since some dots are hidden.
+        old = pages._meta_tile(self.meta(starts=[(date(2024, 1, 1), False), (date(2026, 10, 1), True)], end=date(2026, 10, 15)),
+                               self.words, {})
+        self.assertIn("1 advertiser started before Oct 2025", old)
+        full = pages._meta_tile(self.meta(starts=[(date(2026, 10, 10), True)] * 5, end=date(2026, 10, 15), recent=5),
+                                self.words, {})
+        self.assertIn(">+3</text>", full)
+        self.assertIn("5 started within 30 days of being seen", full)
+        # No band when the first ads were seen on different days (the recent rule has no single reference date).
+        unbanded = pages._meta_tile(self.meta(starts=starts, end=date(2026, 10, 15), band=False), self.words, {})
+        self.assertNotIn(theme.COLOUR["maroon-pale"], unbanded)
 
     def test_trends_tile_states(self):
         from product_radar import report_pages as pages
@@ -400,7 +486,7 @@ class PageHelperTests(unittest.TestCase):
         drawn = pages._trends_tile({"trends": {"state": "rising_strongly", "points": points, "windows": None,
                                                "previous": "20–22", "recent": "70", "collected": date(2026, 10, 14)}}, self.words)
         self.assertIn("trend-state--up", drawn)
-        self.assertIn("Last 4 weeks 70, the 4 before 20–22", drawn)
+        self.assertIn("Last 4 weeks averaged 70, the 4 before 20–22", drawn)
         self.assertIn("Jan 2026", drawn)
         self.assertIn("Google Trends India · 14 Oct", drawn)
         short = pages._trends_tile({"trends": {"state": "steady", "points": points, "windows": None, "previous": None,
@@ -417,11 +503,11 @@ class PageHelperTests(unittest.TestCase):
 
     def test_platform_and_quick_commerce_tiles(self):
         from product_radar import report_pages as pages
-        rows = [{"route": "deodap", "state": "listed", "roles": ["bestseller", "new_arrival"], "price": "149"},
+        rows = [{"route": "deodap", "state": "listed", "roles": ["bestseller", "new_arrival"], "price": "149.50"},
                 {"route": "baapstore", "state": "delisted", "roles": [], "price": None},
                 {"route": "dropdash", "state": "pending", "roles": [], "price": None}]
         tile = pages._platform_tile({"platform": {"rows": rows, "checked": date(2026, 10, 13), "stale": True}}, self.words)
-        for text in ("₹149", "Bestseller", "New arrival", "No longer listed", "Being checked", "13 Oct", self.words["p_stale"]):
+        for text in ("₹149.50", "Bestseller", "New arrival", "No longer listed", "Being checked", "13 Oct", self.words["p_stale"]):
             self.assertIn(text, tile)
         basis = pages._platform_tile({"platform": {"rows": [dict(rows[0], state="unknown")], "checked": None, "stale": False}},
                                      self.words)
@@ -459,21 +545,35 @@ class PageHelperTests(unittest.TestCase):
         self.assertIn(self.words["supplier_examples"], html)
         long_figure = pages._price_rows([("displayed quote ₹149–₹189 per pack", "x", "y", None)], self.words)
         self.assertIn('class="price price--text"', long_figure)
-        scoped = {"rows": [{"name": "Lead", "url": None, "details": [None], "scoped": ["Offer 1: Pack; Source date 2026-10-01"],
-                            "links": [("Offer source: Pack", "https://example.org/offer")]}],
+        group = {"kind": "offer", "number": 1, "head": "Offer 1", "label": "Pack <4>", "date": "Source date 1 Oct 2026",
+                 "items": ["Minimum purchase: 10 packs", "Offer price: ₹95; pack"], "inherited": ["Subscription: Required"],
+                 "inherited_head": "Applicable company terms", "pages": ["https://example.org/offer", None]}
+        scoped = {"rows": [{"name": "Lead", "url": None, "details": [None], "scoped": {
+                      "groups": [group, dict(group, head="Company information", pages=["https://example.org/a", "https://example.org/b"],
+                                             inherited=[], items=[])],
+                      "notes": ["A supplier lead is not a confirmed offer for this product type."]}}],
                   "notes": [], "empty": "", "columns": pages.TERM_COLUMNS}
         html = pages._suppliers_section({"suppliers": scoped, "rank": 7, "title": "Fixture <type>"}, self.words)
         self.assertIn('<div class="sup-block s-scoped">', html)
         self.assertNotIn('<table class="sup">', html)
         # The repeating head names the product on every page a long lead reaches.
         self.assertIn('<thead><tr><th scope="col">07 · Fixture &lt;type&gt; · Supplier leads</th></tr></thead>', html)
-        groups = pages.scoped_groups(["Intro.", "Company information: A", "Subscription: Yes", "Offer 1: B", "Minimum purchase: 10"])
-        self.assertEqual(groups, [["Intro."], ["Company information: A", "Subscription: Yes"], ["Offer 1: B", "Minimum purchase: 10"]])
+        # Each offer's head links its own saved page; facts are escaped and joined with a dot, never ": ·".
+        self.assertIn('<b><a href="https://example.org/offer">Offer 1</a></b>: Pack &lt;4&gt; <span class="soft">· Source date 1 Oct 2026</span>', html)
+        self.assertIn("<p>Minimum purchase: 10 packs · Offer price: ₹95; pack</p>", html)
+        self.assertIn('Applicable company terms: Subscription: Required', html)
+        self.assertIn('Company information <a href="https://example.org/a">1</a> <a href="https://example.org/b">2</a>', html)
+        self.assertIn("A supplier lead is not a confirmed offer", html)
+        self.assertNotIn(": ·", html)
         grouped = pages._sources_section({"sources": [("Meta", "https://example.org/1", "5 Oct"), ("Meta", "https://example.org/2", "5 Oct"),
-                                                      ("Amazon India", "https://example.org/3", "6 Oct")]}, self.words)
-        self.assertIn('Meta <span>5 Oct:</span> <a href="https://example.org/1">1</a> <a href="https://example.org/2">2</a>', grouped)
-        self.assertIn('<a href="https://example.org/3">Amazon India</a> <span>6 Oct</span>', grouped)
-        self.assertIn('href="https://example.org/offer"', html)
+                                                      ("Amazon India", "https://example.org/3", "6 Oct"), ("Google Trends India", None, "6 Oct"),
+                                                      ("Amazon India", None, "6 Oct")]}, self.words)
+        self.assertIn('<span class="nw">Meta</span> <span class="nw">5 Oct:</span> <a href="https://example.org/1">1</a> '
+                      '<a href="https://example.org/2">2</a>', grouped)
+        self.assertIn('<a class="nw" href="https://example.org/3">Amazon India</a> <span class="nw">6 Oct</span>', grouped)
+        # A site used without a saved page keeps its name and date, unlinked (and once per day); names never break inside.
+        self.assertIn('<li><span class="nw">Google Trends India</span> <span class="nw">6 Oct</span></li>', grouped)
+        self.assertEqual(grouped.count("Amazon India"), 1)
         legacy = {"rows": [{"name": "Lead", "url": "https://example.org/s", "details": ["reviewed 1 Oct"], "scoped": None,
                             "moq": "100", "terms": {"dispatch": "no", "fees": "optional"}, "terms_text": ""}],
                   "notes": ["Note."], "empty": "", "columns": pages.LEGACY_TERM_COLUMNS}
@@ -481,13 +581,34 @@ class PageHelperTests(unittest.TestCase):
         self.assertNotIn("Cash on delivery", html)
         self.assertIn("Optional", html)
         self.assertNotIn("sup-terms", html)
+        self.assertIn("Note. Leads to look into", html)  # the notes read as one short paragraph
         self.assertIn(self.words["sources_none"], pages._sources_section({"sources": []}, self.words))
 
     def test_key_page_demo_score_stays_within_any_part_maxima(self):
         from product_radar import report_pages as pages
-        ctx = {"words": self.words, "maxima": {"want": 10, "early": 10, "room": 10, "product": 70}, "footer": "x", "marker": None}
+        from product_radar.opportunity_score import load_settings
+        settings = load_settings()
+        ctx = {"words": self.words, "maxima": {"want": 10, "early": 10, "room": 10, "product": 70}, "footer": "x", "marker": None,
+               "settings": settings}
         html = pages.key_page(ctx)
         self.assertIn(">50</text>", html)  # half of every maximum, never more than a part allows
+
+    def test_key_page_point_rules_come_from_the_score_settings(self):
+        from copy import deepcopy
+        from product_radar import report_pages as pages
+        from product_radar.opportunity_score import load_settings
+        settings = deepcopy(load_settings())
+        ctx = {"words": self.words, "maxima": settings["parts"], "footer": "x", "marker": None, "settings": settings}
+        html = pages.key_page(ctx)
+        self.assertIn("Low crowding earns all 25 points, Medium 12, High 0.", html)
+        self.assertIn("5 points earn 10, and each extra point adds 3, up to 25.", html)
+        settings["room"].update(low=24, medium=11)
+        settings["product"].update(base_meets=6, base_points=9, per_extra_meet=4)
+        html = pages.key_page(dict(ctx, settings=settings))
+        self.assertIn("Low crowding earns all 24 points, Medium 11, High 0.", html)
+        self.assertIn("6 points earn 9, and each extra point adds 4, up to 25.", html)
+        # The supplier key explains the subscription column's own reading (caution = a fee is charged).
+        self.assertIn(charts.glyph_state("caution", 3.2), html)
 
 
 class ContextViewTests(unittest.TestCase):
@@ -506,7 +627,7 @@ class ContextViewTests(unittest.TestCase):
             view = visuals.platform_view(score, context)
         self.assertEqual([row["state"] for row in view["rows"]], ["listed", "delisted", "not_found"])
         self.assertEqual(view["rows"][0]["roles"], ["bestseller", "new_arrival"])
-        self.assertEqual(view["rows"][0]["price"], "149.5")
+        self.assertEqual(view["rows"][0]["price"], "149.50")  # the saved amount, printed as ₹149.50
         self.assertIsNone(view["rows"][1]["price"])
         with patch("product_radar.opportunity_score.presence_input", return_value=None):
             # A week-old record gave the score no platform points, so nothing is listed.

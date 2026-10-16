@@ -8,7 +8,7 @@ frozen facts, the code-owned score and wording, or the accepted narrative.
 from html import escape
 
 from . import report_pages as pages
-from .report_copy import TEXT, date_window, long_date, short_date
+from .report_copy import SOURCE_LABELS, TEXT, date_window, long_date, medium_date, short_date
 from .report_theme import stylesheet
 from .report_visuals import (compliance_classes, market_context, meta_view, platform_view, qc_view, score_view,
                              trends_view)
@@ -83,34 +83,41 @@ def _subscription(supplier, terms_version):
     return value
 
 
+def _report_money(currency, amount):
+    return pages.rupees(amount) if currency == "INR" else currency + " " + amount
+
+
+def _covered_by(shared, reason, supplier):
+    """Whether the shared note printed under the leads already says what this lead's own caveat says:
+    the identical sentence, or the plural note for the singular "still needs matching" caveat."""
+    from .report_selection import LEGACY_LEAD_LIMITATION, LEGACY_LEADS_LIMITATION
+    return reason == shared or (shared == LEGACY_LEADS_LIMITATION and reason == LEGACY_LEAD_LIMITATION
+                                and supplier.get("type_scope_limitation") == LEGACY_LEAD_LIMITATION)
+
+
 def _suppliers(product, language):
     from .fit_policy import FIT_POLICY_ID
     from .live_outputs import (SUPPLIER_TERMS_DISPLAY_VERSION, _supplier_minimum_order, _supplier_terms_version,
                                supplier_terms_display)
     from .report_source_facts import CONTRACTS as SOURCE_ROUTE_CONTRACTS
-    from .supplier_scoped_display import is_scoped_supplier, scoped_supplier_lines
+    from .supplier_scoped_display import is_scoped_supplier, scoped_supplier_groups
     words = TEXT[language]
     every = product.get("source_route_contract") in SOURCE_ROUTE_CONTRACTS
     shown = product["suppliers"] if every else product["suppliers"][:2]
     terms_version = _supplier_terms_version(product)
     shared = product.get("supplier_limitation")
+    # The shared note is printed under the leads whenever any lead is shown.
+    printed = shared if shown and isinstance(shared, str) and shared.strip() else None
     rows = []
     for supplier in shown:
         seen = supplier.get("source_capture_at") or supplier.get("reviewed_at")
         reason = supplier.get("reason") or ""
         details = [words["lead_seen"].format(d=short_date(seen)) if isinstance(seen, str) else None]
-        if reason and reason not in (supplier.get("type_scope_limitation"), shared):
+        if reason and not _covered_by(printed, reason, supplier):
             details.append(pages.fixed_reason(reason, language))
         row = {"name": supplier["name"], "url": supplier.get("url"), "details": details, "scoped": None}
         if is_scoped_supplier(supplier):
-            row["scoped"] = scoped_supplier_lines(supplier, language)
-            row["links"], seen_pages = [], set()
-            for scope in supplier["company_workflows"] + supplier["product_offers"]:
-                for page in scope["source_pages"]:
-                    if page["url"] not in seen_pages:
-                        seen_pages.add(page["url"])
-                        kind = words["offer_source"] if scope["scope_kind"] == "product_offer" else words["company_source"]
-                        row["links"].append((kind + ": " + scope["scope_label"], page["url"]))
+            row["scoped"] = scoped_supplier_groups(supplier, language, day=medium_date, money=_report_money)
         else:
             text = supplier_terms_display(supplier, language, terms_version=terms_version)
             # Nothing stated beyond the table's own "not stated" cells: no extra line.
@@ -121,9 +128,7 @@ def _suppliers(product, language):
                             **{column: _term(supplier, field) for column, field in TERM_FIELDS.items()},
                             "fees": _subscription(supplier, terms_version)}
         rows.append(row)
-    notes = []
-    if shown and isinstance(shared, str) and shared.strip():
-        notes.append(pages.fixed_reason(shared, language))
+    notes = [pages.fixed_reason(printed, language)] if printed else []
     if len(product["suppliers"]) > len(shown):
         notes.append(words["sup_more"].format(n=len(product["suppliers"]) - len(shown)))
     status = product["supplier_search_status"]
@@ -159,14 +164,41 @@ def product_view(product, prose, dataset, language, image):
         view.update(meta=meta_view(score, context), trends=trends_view(score, context),
                     platform=platform_view(score, context),
                     qc=qc_view(score, context, product.get("quick_commerce_checks")))
-    seen, sources = set(), []
-    for ref in product["source_refs"]:
-        # The same page seen on the same day is one dated link; other dates stay separate.
-        if ref.get("url") and (ref["url"], ref["observed_at"][:10]) not in seen:
-            seen.add((ref["url"], ref["observed_at"][:10]))
-            sources.append((pages.source_name(ref["source"]), ref["url"], short_date(ref["observed_at"])))
-    view["sources"] = sources
+    view["sources"] = _sources(product, view, language)
     return view
+
+
+def site_name(source, language):
+    """The client name of a saved source label ("meta" -> "Facebook Ads Library")."""
+    label = SOURCE_LABELS.get(source)
+    return label[language] if label else pages.source_name(source)
+
+
+def _sources(product, view, language):
+    """Every dated source this product's facts rest on, linked when a page address was saved:
+    the frozen source references (with or without a link), plus the dropshipping-platform and
+    quick-commerce checks the market tiles read, which keep no page link. The same page seen on
+    the same day is one entry; other dates stay separate."""
+    from .report_copy import PLATFORM_NAMES, QC_NAMES
+    seen, sources = set(), []
+
+    def add(name, url, day):
+        if (name, url, day) not in seen:
+            seen.add((name, url, day))
+            sources.append((name, url, day))
+
+    for ref in product["source_refs"]:
+        add(site_name(ref["source"], language), ref.get("url") or None, short_date(ref["observed_at"]))
+    platform = view.get("platform")
+    if platform and platform["checked"]:
+        for row in platform["rows"]:
+            if row["state"] not in ("not_checked", "unknown"):
+                add(PLATFORM_NAMES[row["route"]], None, short_date(platform["checked"].isoformat()))
+    qc = view.get("qc")
+    if qc and qc["rows"]:
+        for app, day in qc["app_dates"].items():
+            add(QC_NAMES[app], None, short_date(day.isoformat()))
+    return sources
 
 
 def render_document(issue, dataset, narrative, language, *, logo, images):
@@ -176,14 +208,14 @@ def render_document(issue, dataset, narrative, language, *, logo, images):
              for product, prose, image in zip(dataset["products"], narrative["products"], images)]
     days = sorted({ref["observed_at"][:10] for product in dataset["products"] for ref in product["source_refs"]
                    if isinstance(ref.get("observed_at"), str)})
-    sites = sorted({pages.source_name(ref["source"]) for product in dataset["products"] for ref in product["source_refs"]
-                    if ref.get("url")}, key=str.casefold)
+    sites = sorted({name for view in views for name, _, _ in view["sources"]}, key=str.casefold)
     marker = words["synthetic"] if dataset["evidence_type"] == "synthetic" else None
     footer = words["foot"].format(date=long_date(dataset["release_date"]))
+    settings = load_settings()
     ctx = {"language": language, "words": words, "views": views, "counts": issue["counts"], "logo": logo,
            "title": narrative["title"], "marker": marker, "footer": footer, "date_long": long_date(dataset["release_date"]),
-           "issue_line": pages.weekday_line(language, dataset["release_date"]), "maxima": load_settings()["parts"],
-           "sites": sites, "window": date_window(days)}
+           "issue_line": pages.weekday_line(language, dataset["release_date"]), "maxima": settings["parts"],
+           "settings": settings, "sites": sites, "window": date_window(days)}
     sheets = [pages.cover(ctx), pages.glance(ctx), pages.key_page(ctx)]
     for view in views:
         sheets += [pages.product_one(ctx, view), pages.product_two(ctx, view)]

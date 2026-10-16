@@ -71,7 +71,7 @@ class ReportPrintLayoutTests(unittest.TestCase):
         html = live.render_html(issue, dataset)
         self.assertTrue('@page{size:A4 portrait;margin:15mm 16mm 17mm 16mm;background:#F9F3EC;' in html)
         self.assertTrue('@page cover{margin:0;@top-right{content:none}@bottom-left{content:none}@bottom-right{content:none}}' in html)
-        self.assertTrue('.cover{page:cover;height:297mm;overflow:hidden}' in html)
+        self.assertTrue('.cover{page:cover;height:297mm}' in html)  # nothing on the cover is ever hidden
         self.assertTrue('html{background:var(--paper)}' in html)
         self.assertTrue('print-color-adjust:exact' in html)
 
@@ -121,9 +121,11 @@ class ReportPrintLayoutTests(unittest.TestCase):
             self.assertEqual(page.count('<li><b class="price'), 61)
             positions = [page.index(escape(price["conditions"])) for price in product["prices"]]
             self.assertEqual(positions, sorted(positions))
-            for price in product["prices"]:
-                self.assertTrue(live.price_display(price, language).partition("; ")[2] in html)
-                self.assertTrue(f'₹{price["amount"]}' in page)
+            # Each figure stays bound to its own row: the same order, each with its own exact conditions.
+            from test_live_outputs import price_columns
+            rows = price_columns(html, product["concept_id"])[TEXT[language]["retail"]]
+            self.assertEqual(rows, [(f'₹{price["amount"]}', live.price_display(price, language).partition("; ")[2])
+                                    for price in product["prices"]])
             self.assertTrue('href="https://example.org/ad"' in page)
             self.assertTrue('.price-list li{display:grid;grid-template-columns:auto 1fr;column-gap:2.4mm;padding:1.1mm 0;border-top:.25mm solid var(--line-soft);font-size:var(--fs-label);line-height:1.35;break-inside:avoid;' in html)
         self.assertEqual(dataset, before)

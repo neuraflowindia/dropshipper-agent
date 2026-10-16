@@ -569,7 +569,7 @@ def _narrative(narrative, products, language):
                     raise SafetyError("LIVE_CHECKLIST_PHRASES_INVALID")
                 from .report_narration import WRITING_LIMITS, _plain
                 try:
-                    _plain(phrase["text"], "checklist", WRITING_LIMITS[language]["checklist"])
+                    _plain(phrase["text"], "checklist", WRITING_LIMITS[language]["checklist"], title=product.get("title"))
                     if not phrase["text"].strip() or language == "hi-Latn" and re.search(r"[\u0900-\u097f]", phrase["text"]):
                         raise SafetyError("LIVE_CHECKLIST_PHRASES_INVALID")
                 except SafetyError:
@@ -578,11 +578,14 @@ def _narrative(narrative, products, language):
             raise SafetyError("LIVE_NARRATIVE_UPDATE_NOT_ADMITTED")
         for field in ("reason", "limitation", "update_sentence"):
             _text(row.get(field, ""), optional=field != "reason")
-        from .report_narration import LIMITATION_LIMIT, WRITING_LIMITS
+        from .report_narration import LIMITATION_LIMIT, WRITING_LIMITS, budget_length
         limits = WRITING_LIMITS[language]
-        if (len(row["reason"]) > limits["reason"] or len(row.get("update_sentence") or "") > limits["update_sentence"]
+        # The page prints {{title}} as the product name, so the budgets count it that way.
+        title = product.get("title") if isinstance(product.get("title"), str) else ""
+        if (budget_length(row["reason"], title) > limits["reason"]
+                or budget_length(row.get("update_sentence") or "", title) > limits["update_sentence"]
                 or len(row.get("limitation") or "") > LIMITATION_LIMIT
-                or isinstance(row.get("points"), list) and any(isinstance(point, str) and len(point) > limits["point"]
+                or isinstance(row.get("points"), list) and any(isinstance(point, str) and budget_length(point, title) > limits["point"]
                                                                for point in row["points"])):
             raise SafetyError("LIVE_NARRATIVE_TOO_LONG")
         if not isinstance(row.get("points"), list) or len(row["points"]) > 3:
@@ -701,9 +704,8 @@ def render_html(issue, dataset, *, language="en", root=None):
     html = render_document(issue, dataset, narrative, language, logo=logo, images=images)
     # The same refusal the native PDF renderer applies, plus: embedded resources
     # are data only (links may open public pages; nothing is fetched to print).
-    if (re.search(r"<(?:script|iframe|object|embed)\b", html, re.I)
-            or re.search(r"\bsrc=(?![\"']?data:)", html, re.I) or re.search(r"url\((?![\"']?data:)", html, re.I)
-            or re.search(r"\bhref=(?![\"']?(?:https?://|#))", html, re.I)):
+    from .report_guard import fetches_or_runs
+    if re.search(r"<(?:script|iframe|object|embed)\b", html, re.I) or fetches_or_runs(html):
         raise SafetyError("LIVE_RENDER_HTML_INVALID")
     return html
 

@@ -8,15 +8,17 @@ Ported from the approved mock-up (report redesign, 16 October 2026).
 
 from decimal import Decimal
 from html import escape
-import re
 from urllib.parse import urlsplit
 
 from . import report_charts as charts
+from .models import SafetyError
 from .report_copy import (FIXED_SUPPLIER_REASONS, HI_STATES, PLATFORM_NAMES, QC_NAMES, TEXT, WEEKDAYS, long_date, month_year,
                           short_date)
 from .report_visuals import compliance_text
 
 COVER_PRODUCTS = 6
+# Width (mm) of each part's column in "How the score adds up" (the stylesheet's .parts grid).
+PART_COLUMNS = {"want": 53.5, "early": 48.0, "room": 28.5, "product": 33.0}
 DENSE_GLANCE_ROWS = 12
 SHOWN_EXAMPLES = 6
 SOURCE_NAMES = {"meta": "Facebook Ads Library", "google-trends": "Google Trends India", "amazon": "Amazon India",
@@ -36,14 +38,23 @@ def source_name(value):
 
 
 def rupees(amount):
-    """'1299.50' -> '₹1,299.50' (Indian digit grouping)."""
+    """'1299.50' -> '₹1,299.50', '1299' or '1299.00' -> '₹1,299' (Indian digit grouping).
+
+    Whole rupees print without decimals; any fraction prints with at least two
+    decimal places (paise), and a longer saved fraction is kept, never rounded."""
     number = Decimal(amount)
     whole = int(number)
     text = "₹" + charts.fmt_in(whole)
     fraction = number - whole
     if fraction:
-        text += "." + format(fraction.normalize(), "f").split(".")[1]
+        digits = format(fraction, "f").split(".")[1].rstrip("0")
+        text += "." + digits.ljust(2, "0")
     return text
+
+
+def plural(words, key, n, **values):
+    """A counted phrase: the "_one" wording when n is 1 and the language has one."""
+    return words[key + "_one" if n == 1 and key + "_one" in words else key].format(n=n, **values)
 
 
 def host(url):
@@ -88,6 +99,13 @@ def kpi_band(values, cls="kpis"):
 
 # Cover -------------------------------------------------------------------------
 
+def display_size(title):
+    """The cover title's size step: 28 pt up to 48 characters, then 24 pt, then 21 pt from
+    76 characters, so a title at the 100-character limit takes at most three lines and the
+    cover (with its photo plates, which shrink to fit) never pushes its notice band off the page."""
+    return "" if len(title) <= 48 else " h-display--long" if len(title) <= 75 else " h-display--xlong"
+
+
 def cover(ctx):
     words, counts, views = ctx["words"], ctx["counts"], ctx["views"]
     scored = all(view["score"] for view in views)
@@ -95,21 +113,22 @@ def cover(ctx):
               (sum(bool(view["compliance"]) for view in views), words["kpi"]["compliance"]))
     kpis = kpi_band([(counts["products"], words["kpi"]["products"]), (counts["new"], words["kpi"]["new"]),
                      (counts["updates"], words["kpi"]["updated"]), fourth], "cover-kpis")
-    tiles = ""
+    tiles = []
     for view in views[:COVER_PRODUCTS]:
         score = (f'<span class="mosaic-score"><b>{view["score"]["score"]}</b>{chip(view["score"]["label"], words, small=True)}</span>'
                  if view["score"] else "")
-        tiles += (f'<a class="mosaic-tile" href="#{view["anchor"]}">{plate(view, words, big=False)}'
-                  f'<div class="mosaic-cap"><span class="mosaic-rank">{view["rank"]:02d}</span>'
-                  f'<span class="mosaic-title">{esc(view["title"])}</span>{score}</div></a>')
-    dek = words["count_dek" if scored else "count_dek_unscored"].format(n=counts["products"], new=counts["new"], upd=counts["updates"])
+        tiles.append(f'<a class="mosaic-tile" href="#{view["anchor"]}">{plate(view, words, big=False)}'
+                     f'<div class="mosaic-cap"><span class="mosaic-rank">{view["rank"]:02d}</span>'
+                     f'<span class="mosaic-title">{esc(view["title"])}</span>{score}</div></a>')
+    tiles = "".join(f'<div class="mosaic-row">{"".join(tiles[start:start + 3])}</div>' for start in range(0, len(tiles), 3))
+    dek = words["count_dek"].format(n=counts["products"], new=counts["new"], upd=counts["updates"])
     if ctx["window"]:
         dek += " " + words["dek_window"].format(window=ctx["window"])
     logo = (f'<img class="logo" src="{ctx["logo"]}" alt="NeuraFlow">' if ctx["logo"] else '<p class="logo-text">NeuraFlow</p>')
     marker = f'<p class="cover-marker">{esc(ctx["marker"])}</p>' if ctx["marker"] else ""
     return (f'<section class="sheet cover" id="cover"><div class="cover-inner">'
             f'<div class="cover-top">{logo}<p class="cover-issue">{esc(ctx["issue_line"])}</p></div>'
-            f'<div class="cover-title"><p class="kicker">{esc(words["brand_line"])}</p><h1 class="h-display">{esc(ctx["title"])}</h1>'
+            f'<div class="cover-title"><p class="kicker">{esc(words["brand_line"])}</p><h1 class="h-display{display_size(ctx["title"])}">{esc(ctx["title"])}</h1>'
             f'<p class="cover-dek">{esc(dek)}</p></div>{kpis}<div class="mosaic">{tiles}</div></div>'
             f'<div class="cover-foot"><p>{esc(words["cover_notice"])}</p>{marker}</div></section>')
 
@@ -151,6 +170,46 @@ def _title_with_shield(view, words):
     return (esc(head) + " " + glued) if head else glued
 
 
+def _rank_key(view):
+    """The score's own order inside a group (``opportunity_score.score_rank``): Low/Medium before
+    High, then score, early and product points, highest first."""
+    score = view["score"]
+    return (score["level"] == "high", -score["score"], -score["points"]["early"], -score["points"]["product"])
+
+
+def order_rule(views):
+    """Which order sentence is true of this issue's actual order; nothing else is ever claimed.
+
+    The allocator picks new types before updates (up to its new-type target) and, within that,
+    less crowded types before crowded ones by score; extras and held types can break either
+    pattern, so the sentence is checked against the rows themselves:
+    "sorted" (every row in score order), "status" (new rows, then updated rows, each group in
+    score order) or "issue" (no ordering claim)."""
+    if not views or not all(view["score"] for view in views):
+        return "issue"
+
+    def ordered(rows):
+        return all(_rank_key(a) <= _rank_key(b) for a, b in zip(rows, rows[1:]))
+
+    if ordered(views):
+        return "sorted"
+    new = [view for view in views if view["status"] == "New"]
+    updated = [view for view in views if view["status"] == "Updated"]
+    if new and updated and views == new + updated and ordered(new) and ordered(updated):
+        return "status"
+    return "issue"
+
+
+def crowded_from(views):
+    """Index of the first High-crowding row when every row from there on is High (the only case
+    in which "listed last" is true), else None."""
+    levels = [view["score"]["level"] if view["score"] else None for view in views]
+    if "high" not in levels:
+        return None
+    first = levels.index("high")
+    return first if all(level == "high" for level in levels[first:]) else None
+
+
 def glance(ctx):
     words, counts, views = ctx["words"], ctx["counts"], ctx["views"]
     scored = all(view["score"] for view in views)
@@ -158,11 +217,11 @@ def glance(ctx):
                      (counts["updates"], words["kpi"]["updated"]),
                      (sum(bool(view["compliance"]) for view in views), words["kpi"]["compliance"])])
     head = "".join(f'<th scope="col" class="c{i}">{esc(h)}</th>' for i, h in enumerate(words["table"]))
-    body, crowded = "", False
-    for view in views:
+    divider = crowded_from(views) if scored else None
+    body = ""
+    for index, view in enumerate(views):
         score = view["score"]
-        if score and score["level"] == "high" and not crowded:
-            crowded = True
+        if index == divider:
             body += f'<tr class="group"><td colspan="6">{esc(words["group_high"])}</td></tr>'
         title = f'<a href="#{view["anchor"]}">{_title_with_shield(view, words)}</a>'
         if score:
@@ -175,9 +234,12 @@ def glance(ctx):
                  f'<span class="meta">{esc(view["category"])} · {esc(words["status"][view["status"]])}</span></td>'
                  f'{cells}<td class="c5">{view["fit"]["matches"]}<span class="of">/{view["fit"]["total"]}</span></td></tr>')
     dense = len(views) > DENSE_GLANCE_ROWS
-    dek = (words["glance_dek_short"] if dense else words["glance_dek"].format(n=counts["products"])) if scored else \
-        words["glance_dek_unscored"].format(n=counts["products"])
-    key = (f'<p class="table-key">{esc(words["score_key"])} {charts.icon("shield", 3.0, 2)} = {esc(words["compliance_short"])}.</p>'
+    rule = order_rule(views)
+    dek = words["glance_dek_short"][rule] if dense else words["glance_dek"][rule].format(n=counts["products"])
+    if scored and not dense and any(view["score"]["level"] == "high" for view in views):
+        dek += " " + words["glance_fill"].format(k=ctx["settings"]["selection"]["high_crowding_only_below"])
+    key = (f'<p class="table-key">{esc(words["score_key"].format(**ctx["maxima"]))} {charts.icon("shield", 3.0, 2)} = '
+           f'{esc(words["compliance_short"])}.</p>'
            if scored else f'<p class="table-key">{charts.icon("shield", 3.0, 2)} = {esc(words["compliance_short"])}.</p>')
     return (f'<section class="sheet glance{" glance--dense" if dense else ""}" id="glance"><header class="page-head">'
             f'<p class="kicker">{esc(words["glance_kicker"])} · {esc(ctx["date_long"])}</p><h1 class="h-title">{esc(words["glance_title"])}</h1>'
@@ -187,6 +249,15 @@ def glance(ctx):
 
 # How to read ---------------------------------------------------------------------------
 
+def score_numbers(settings):
+    """The point rules the key page and closing page quote, read from the score settings
+    (config/research/opportunity_score.json), never typed into the wording."""
+    room, product = settings["room"], settings["product"]
+    return {"low": room["low"], "medium": room["medium"], "high": room["high"], "base_meets": product["base_meets"],
+            "base_points": product["base_points"], "per_extra": product["per_extra_meet"], "max": settings["parts"]["product"],
+            **settings["parts"]}
+
+
 def key_page(ctx):
     words = ctx["words"]
     maxima = ctx["maxima"]
@@ -194,19 +265,21 @@ def key_page(ctx):
     if any(demo[part] > maxima[part] for part in charts.PARTS):
         demo = {part: maxima[part] // 2 for part in charts.PARTS}
     labels = "".join(f'<li>{chip(label, words)}<span>{esc(words["label_meaning"][label])}</span></li>' for label in charts.LABELS)
+    numbers = score_numbers(ctx["settings"])
     parts = "".join(f'<li><p><b>{esc(words["parts"][part])}</b> <span class="max">{esc(words["up_to"].format(n=maxima[part]))}</span></p>'
-                    f'<p>{esc(words["key_parts"][part])}</p></li>' for part in charts.PARTS)
+                    f'<p>{esc(words["key_parts"][part].format(**numbers))}</p></li>' for part in charts.PARTS)
     states = "".join(f'<li>{charts.glyph_state(state, 3.6)}<span><b>{esc(words["states"][state])}.</b> {esc(words["key_states"][state])}</span></li>'
                      for state in ("Meets", "Does not meet", "Unclear"))
     signals = [(f'<i class="dot dot--navy"></i><i class="dot dot--maroon"></i>', words["key_meta"]),
-               ('<i class="band band--sand"></i><i class="band band--rose"></i>', words["key_trends"]),
+               (charts.window_swatch("previous") + charts.window_swatch("recent"), words["key_trends"]),
                (outline_chip(words["roles"]["bestseller"], "chip--role"), words["key_plat"]),
                (charts.glyph_state("in_stock", 3.4) + charts.glyph_state("not_in_stock", 3.4) + charts.glyph_state("not_checked", 3.4),
                 words["key_qc"])]
     signal_items = "".join(f'<li><span class="sig">{symbol}</span><span><b>{esc(title)}</b> {esc(text)}</span></li>'
                            for symbol, (title, text) in signals)
     supplier = esc(words["key_sup_text"]).replace("{yes}", charts.glyph_state("yes", 3.2)).replace(
-        "{no}", charts.glyph_state("no", 3.2)).replace("{unknown}", charts.glyph_state("not_stated", 3.2))
+        "{no}", charts.glyph_state("no", 3.2)).replace("{unknown}", charts.glyph_state("not_stated", 3.2)).replace(
+        "{caution}", charts.glyph_state("caution", 3.2))
     total = sum(demo.values())
     return (f'<section class="sheet key" id="key"><header class="page-head"><p class="kicker">{esc(words["key_kicker"])}</p>'
             f'<h1 class="h-title">{esc(words["key_title"])}</h1><p class="dek">{esc(words["key_dek"])}</p></header>'
@@ -219,32 +292,36 @@ def key_page(ctx):
             f'{charts.crowd_gauge("medium", width=26, low=words["crowd"]["low"], high=words["crowd"]["high"])}<p>{esc(words["key_crowd_text"])}</p></div></section>'
             f'<section class="key-block"><h2 class="h-module">{esc(words["key_comply_title"])}</h2><div class="key-comply">'
             f'{compliance_chip(words)}<p>{esc(words["key_comply_text"])}</p></div></section>'
-            f'<section class="key-block"><h2 class="h-module">{esc(words["key_sup_title"])}</h2><p class="key-p">{supplier}</p></section></div>'
-            f'<div class="key-col"><section class="key-block"><h2 class="h-module">{esc(words["key_check_title"])}</h2><ul class="key-states">{states}'
+            f'</div><div class="key-col"><section class="key-block"><h2 class="h-module">{esc(words["key_check_title"])}</h2><ul class="key-states">{states}'
             f'<li><span class="est">{esc(words["estimated"])}</span><span>{esc(words["key_estimated"])}</span></li></ul>'
             f'<div class="key-pips">{charts.fit_pips(["Meets"] * 7 + ["Unclear", "Does not meet", "Unclear"])}<span>{esc(words["key_pips"])}</span></div></section>'
             f'<section class="key-block"><h2 class="h-module">{esc(words["key_signals_title"])}</h2><ul class="key-signals">{signal_items}</ul></section></div></div>'
+            f'<section class="key-block key-sup"><h2 class="h-module">{esc(words["key_sup_title"])}</h2><p class="key-p">{supplier}</p></section>'
             f'<p class="key-not-line">{esc(words["key_not_line"])}</p>{screen_foot(ctx)}</section>')
 
 
 # Product page one --------------------------------------------------------------------------
 
 def _part_items(view, part, words):
+    """The code-owned sub-points under one part; each label stays whole with its number and
+    lines break only after a separator dot, never before it."""
     score = view["score"]
     if part == "room":
-        return f'{esc(words["items"]["crowding"])}: <b>{esc(words["crowd"][score["level"]])}</b>'
+        return f'<span class="nw">{esc(words["items"]["crowding"])}: <b>{esc(words["crowd"][score["level"]])}</b></span>'
     if part == "product":
         states = view["fit"]["states"]
-        return " · ".join(f'{esc(words["states"][state])}&nbsp;<b>{states.count(state)}</b>'
+        return "&nbsp;· ".join(f'<span class="nw">{esc(words["states"][state])}&nbsp;<b>{states.count(state)}</b></span>'
                           for state in ("Meets", "Unclear", "Does not meet") if states.count(state))
-    return " · ".join(f'{esc(words["items"][name])}&nbsp;<b>{points}</b>' for name, points in score["items"][part].items())
+    return "&nbsp;· ".join(f'<span class="nw">{esc(words["items"][name])}&nbsp;<b>{points}</b></span>'
+                      for name, points in score["items"][part].items())
 
 
 def _adds_up(view, words):
     score = view["score"]
     columns = "".join(
         f'<li class="part"><p class="part-head"><b>{esc(words["parts"][part])}</b><span class="part-val"><b>{score["points"][part]}</b>/{score["maxima"][part]}</span></p>'
-        f'{charts.part_meter(score["points"][part], score["maxima"][part])}<p class="part-items">{_part_items(view, part, words)}</p></li>'
+        f'{charts.part_meter(score["points"][part], score["maxima"][part], width=PART_COLUMNS[part])}'
+        f'<p class="part-items">{_part_items(view, part, words)}</p></li>'
         for part in charts.PARTS)
     return f'<section class="adds-up"><h2 class="h-module">{esc(words["adds_up"])}</h2><ul class="parts">{columns}</ul></section>'
 
@@ -312,20 +389,34 @@ def _dated(name, day):
     return name + (" · " + short_date(day.isoformat()) if day else "")
 
 
+def _count(value, *, missing=0):
+    """A crowding count from the score's facts: a whole non-negative number, or the stated
+    default when the fact was not recorded. Anything else fails closed."""
+    if value is None:
+        return missing
+    if type(value) is not int or value < 0:
+        raise SafetyError("LIVE_REPORT_SCORE_INVALID")
+    return value
+
+
 def _crowd_tile(view, words):
     score = view["score"]
     facts = score["facts"]["crowding"]
     counts = facts["counts"] or {}
+    if not isinstance(counts, dict) or not isinstance(counts.get("relevant_listings") or {}, dict):
+        raise SafetyError("LIVE_REPORT_SCORE_INVALID")
     listings = counts.get("relevant_listings") or {}
-    branded, hidden = counts.get("listings_with_brand") or 0, counts.get("brand_not_shown") or 0
-    brands = (esc(words["c_brands_hidden"]) if not branded else str(counts.get("brands_or_sellers", 0))
+    amazon, flipkart = _count(listings.get("amazon")), _count(listings.get("flipkart"))
+    branded, hidden = _count(counts.get("listings_with_brand")), _count(counts.get("brand_not_shown"))
+    brands = (esc(words["c_brands_hidden"]) if not branded else charts.fmt_in(_count(counts.get("brands_or_sellers")))
               + (f' <span class="soft">({esc(words["c_nobrand"].format(n=hidden))})</span>' if hidden else ""))
-    ratings = counts.get("max_ratings")
-    ratings = charts.fmt_in(ratings) if type(ratings) is int else esc(words["c_not_shown"])
-    facts_html = (f'<dl class="facts"><div><dt>{esc(words["c_listings"])}</dt><dd>Amazon {listings.get("amazon", 0)} · Flipkart {listings.get("flipkart", 0)}</dd></div>'
+    ratings = _count(counts.get("max_ratings"), missing=None)
+    ratings = charts.fmt_in(ratings) if ratings is not None else esc(words["c_not_shown"])
+    facts_html = (f'<dl class="facts"><div><dt>{esc(words["c_listings"])}</dt><dd>Amazon {charts.fmt_in(amazon)} · '
+                  f'Flipkart {charts.fmt_in(flipkart)}</dd></div>'
                   f'<div><dt>{esc(words["c_brands"])}</dt><dd>{brands}</dd></div>'
                   f'<div><dt>{esc(words["c_ratings"])}</dt><dd>{ratings}</dd></div>'
-                  f'<div><dt>{esc(words["c_best"])}</dt><dd>{counts.get("bestseller_hits", 0)}</dd></div></dl>')
+                  f'<div><dt>{esc(words["c_best"])}</dt><dd>{charts.fmt_in(_count(counts.get("bestseller_hits")))}</dd></div></dl>')
     level = score["level"]
     body = (f'<div class="crowd-body"><div class="crowd-left">{charts.crowd_gauge(level, low=words["crowd"]["low"], high=words["crowd"]["high"], label=view["crowd_line"])}'
             f'<p class="stat">{esc(words["crowd"][level])}</p><p class="soft">{esc(words["c_room"].format(p=score["points"]["room"], m=score["maxima"]["room"]))}</p></div>{facts_html}</div>')
@@ -336,24 +427,32 @@ def _meta_tile(view, words, ctx):
     meta = view["meta"]
     advertisers = meta["advertisers"] or 0
     noun = words["m_adv_one"] if advertisers == 1 else words["m_adv"]
-    ads = (words["m_ads"].format(r=meta["relevant"], a=meta["active"]) if meta["active"] is not None
-           else words["m_ads_only"].format(r=meta["relevant"]))
+    relevant = meta["relevant"] or 0
+    ads = (plural(words, "m_ads", relevant, r=relevant, a=meta["active"]) if meta["active"] is not None
+           else plural(words, "m_ads_only", relevant, r=relevant))
     body = (f'<p class="stat-line"><span class="stat">{advertisers}</span> <span>{esc(noun)}</span>'
             f'<span class="soft">{esc(ads)}</span></p>')
     notes = []
-    if not meta["relevant"]:
-        notes.append(words["m_none"])
+    if not relevant:
+        notes.append(esc(words["m_none"]))
     if meta["starts"] is not None and meta["end"] is not None:
-        body += charts.meta_timeline(meta["starts"], meta["end"], label=f'{len(meta["starts"])} {words["m_adv"]}')
+        layout = charts.timeline_layout(meta["starts"], meta["end"])
+        body += charts.meta_timeline(meta["starts"], meta["end"], label=f'{len(meta["starts"])} {words["m_adv"]}',
+                                     band=meta.get("band", True))
         body += (f'<p class="legend"><span><i class="dot dot--navy"></i>{esc(words["m_older"])}</span>'
                  f'<span><i class="dot dot--maroon"></i>{esc(words["m_recent"])}</span></p>')
+        if layout["earlier"]:
+            notes.append(charts.earlier_glyph() + " " + esc(plural(words, "m_earlier", layout["earlier"],
+                                                             month=month_year(layout["begin"].isoformat()))))
+        if layout["hidden"] and meta["recent"]:
+            notes.append(esc(words["m_recent_count"].format(n=meta["recent"])))
         if meta["undated"]:
-            notes.append(words["m_undated"].format(n=meta["undated"]))
+            notes.append(esc(plural(words, "m_undated", meta["undated"])))
         elif meta["unlinked"]:
-            notes.append(words["m_unlinked"])
+            notes.append(esc(plural(words, "m_unlinked", meta["missing"])))
     elif meta["recent"]:
-        notes.append(words["m_recent_count"].format(n=meta["recent"]))
-    body += "".join(f'<p class="tile-note">{esc(note)}</p>' for note in notes)
+        notes.append(esc(words["m_recent_count"].format(n=meta["recent"])))
+    body += "".join(f'<p class="tile-note">{note}</p>' for note in notes)
     return _tile(words["t_meta"], _dated(words["t_meta_src"], meta["observed"]), body, "tile--meta")
 
 
@@ -463,23 +562,44 @@ def _prices_section(view, words):
             f'<p class="tile-note">{esc(words["ex_note"])}</p>{more}{bulk}</section>')
 
 
+TERM_SYMBOLS = {"yes": "yes", "no": "no", "optional": "Unclear", "conflicting": "conflicting", "not_stated": "not_stated"}
+# The subscription column reads the other way round: no fee is the good state (the workbook's
+# pale navy) and a stated subscription is the caution state (its pale rose).
+FEE_SYMBOLS = dict(TERM_SYMBOLS, yes="caution", no="yes")
+
+
 def _term_cell(value, words, column):
-    symbol = {"yes": "yes", "no": "no", "optional": "Unclear", "conflicting": "conflicting", "not_stated": "not_stated"}[value]
+    symbol = (FEE_SYMBOLS if column == "fees" else TERM_SYMBOLS)[value]
     return (f'<td data-term="{esc(words["terms"][column])}"><span class="term">{charts.glyph_state(symbol, 3.2)}'
             f'{esc(words["tv"][value])}</span></td>')
 
 
+def _scoped_group(group, words):
+    """One company workflow or offer of a scoped lead: its head (linked to its own saved pages),
+    source date, then its terms, prices and fees; terms it takes from the company follow."""
+    pages = [url for url in group["pages"] if url]
+    head = esc(group["head"])
+    if len(pages) == 1:
+        head = f'<a href="{esc(pages[0])}">{head}</a>'
+    elif pages:
+        head += " " + " ".join(f'<a href="{esc(url)}">{number}</a>' for number, url in enumerate(pages, 1))
+    items = " · ".join(esc(item) for item in group["items"])
+    inherited = (f'<span class="s-inherited">{esc(group["inherited_head"])}: '
+                 f'{" · ".join(esc(item) for item in group["inherited"])}</span>') if group["inherited"] else ""
+    return (f'<li><p class="s-scope"><b>{head}</b>: {esc(group["label"])} <span class="soft">· {esc(group["date"])}</span></p>'
+            f'{f"<p>{items}</p>" if items else ""}{f"<p>{inherited}</p>" if inherited else ""}</li>')
+
+
 def _scoped_block(row, words):
-    """A lead whose terms differ by offer: full-width paragraphs (one per company or offer), so a long
-    lead may continue on the next page between paragraphs, never inside one."""
+    """A lead whose terms differ by offer: one short paragraph per company workflow and offer.
+    The whole lead stays on one page (it moves to the next page rather than split)."""
     name = f'<a href="{esc(row["url"])}">{esc(row["name"])}</a>' if row["url"] else esc(row["name"])
     details = " · ".join(esc(part) for part in row["details"] if part)
-    lines = "".join(f'<li>{" · ".join(esc(line) for line in group)}</li>' for group in scoped_groups(row["scoped"]))
-    links = " · ".join(f'<a href="{esc(url)}">{esc(label)}</a>' for label, url in row["links"])
-    links = f'<p class="s-links">{links}</p>' if links else ""
+    groups = "".join(_scoped_group(group, words) for group in row["scoped"]["groups"])
+    notes = "".join(f'<li><p>{esc(note)}</p></li>' for note in row["scoped"]["notes"])
     head = (f'<p class="s-head"><b>{name}</b>{f" <span class=\"soft\">· {details}</span>" if details else ""}'
             f' · <b>{esc(words["scoped"])}</b></p>')
-    return f'<div class="sup-block s-scoped">{head}<ul>{lines}</ul>{links}</div>'
+    return f'<div class="sup-block s-scoped">{head}<ul>{groups}{notes}</ul></div>'
 
 
 def _suppliers_section(view, words):
@@ -512,44 +632,36 @@ def _suppliers_section(view, words):
             body += (f'<tbody class="sup-row{" sup-row--terms" if terms else ""}"><tr>{name_cell}<td class="s-moq" data-term="{esc(words["moq"])}">'
                      f'<b>{esc(row["moq"])}</b></td>{cells}</tr>{terms}</tbody>')
         table = f'<table class="sup"><thead><tr>{head}</tr></thead>{body}</table>'
-    notes = "".join(f'<p class="sup-note">{esc(note)}</p>' for note in suppliers["notes"])
-    return (f'<section class="sup-sec">{table}{blocks}'
-            f'{notes}<p class="sup-note">{esc(words["sup_note"])}</p></section>')
-
-
-_GROUP_HEAD = re.compile(r"(?:Company information|Company ki jankari|Offer \d+): ")
-
-
-def scoped_groups(lines):
-    """The fixed scoped-supplier lines as one paragraph per company or offer (same words, same order)."""
-    groups = []
-    for line in lines:
-        if not groups or _GROUP_HEAD.match(line):
-            groups.append([line])
-        else:
-            groups[-1].append(line)
-    return groups
+    notes = " ".join(esc(note) for note in [*suppliers["notes"], words["sup_note"]])
+    return f'<section class="sup-sec">{table}{blocks}<p class="sup-note">{notes}</p></section>'
 
 
 def source_groups(sources):
-    """Links seen on the same site on the same day share one label: 'Facebook Ads Library 5 Oct: 1 · 2 · 3'."""
+    """Sources seen on the same site on the same day share one label: 'Facebook Ads Library 5 Oct: 1 · 2 · 3'.
+    A site used without a saved page address keeps its name and date, unlinked."""
     groups = {}
     for name, url, day in sources:
-        groups.setdefault((name, day), []).append(url)
+        urls = groups.setdefault((name, day), [])
+        if url and url not in urls:
+            urls.append(url)
     return [(name, day, urls) for (name, day), urls in groups.items()]
 
 
 def _sources_section(view, words):
     items = []
     for name, day, urls in source_groups(view["sources"]):
-        if len(urls) == 1:
-            items.append(f'<li><a href="{esc(urls[0])}">{esc(name)}</a> <span>{esc(day)}</span></li>')
+        # Site names and dates never break inside; a line may break between a name and its date.
+        if not urls:
+            items.append(f'<li><span class="nw">{esc(name)}</span> <span class="nw">{esc(day)}</span></li>')
+        elif len(urls) == 1:
+            items.append(f'<li><a class="nw" href="{esc(urls[0])}">{esc(name)}</a> <span class="nw">{esc(day)}</span></li>')
         else:
             numbered = " ".join(f'<a href="{esc(url)}">{number}</a>' for number, url in enumerate(urls, 1))
-            items.append(f'<li>{esc(name)} <span>{esc(day)}:</span> {numbered}</li>')
+            items.append(f'<li><span class="nw">{esc(name)}</span> <span class="nw">{esc(day)}:</span> {numbered}</li>')
     links = "".join(items)
     body = f'<ul class="sources">{links}</ul>' if links else f'<p class="sup-note">{esc(words["sources_none"])}</p>'
-    return f'<section class="src-sec"><h2 class="h-module">{esc(words["sources"])}</h2>{body}</section>'
+    # A run-in heading: the dated sources read as one short paragraph after the leads.
+    return f'<section class="src-sec"><h2 class="h-module">{esc(words["sources"])}:</h2> {body}</section>'
 
 
 def product_two(ctx, view):
@@ -572,8 +684,8 @@ def product_two(ctx, view):
 
 def closing(ctx):
     words, counts = ctx["words"], ctx["counts"]
-    steps = "".join(f'<li><span class="step-n">{number}</span><p class="step-t">{esc(title)}</p><p>{esc(text)}</p></li>'
-                    for number, (title, text) in enumerate(words["steps"], 1))
+    steps = "".join(f'<li><span class="step-n">{number}</span><p class="step-t">{esc(title)}</p>'
+                    f'<p>{esc(text.format(**ctx["maxima"]))}</p></li>' for number, (title, text) in enumerate(words["steps"], 1))
     sites = "".join(f'<li>{esc(name)}</li>' for name in ctx["sites"])
     sites = f'<ul class="sites">{sites}</ul>' if sites else f'<p class="sup-note">{esc(words["sites_none"])}</p>'
     facts = words["issue_facts"]

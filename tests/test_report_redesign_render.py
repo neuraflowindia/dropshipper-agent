@@ -1,6 +1,8 @@
 """Whole-edition proofs for the redesigned report (synthetic fixtures; no browser)."""
 
 from copy import deepcopy
+from datetime import timedelta
+from html import unescape
 import re
 import unittest
 from unittest.mock import patch
@@ -83,7 +85,16 @@ class RedesignedEditionTests(unittest.TestCase):
             self.assertIn(words["not_scored"], html)
             self.assertNotIn('class="dial"', html.split('id="key"')[0])
             self.assertIn("Synthetic ad evidence for a fixture only.", html)  # the saved market check stays visible
-            self.assertTrue(words["count_dek_unscored"].format(n=10, new=10, upd=0) in html)
+            self.assertTrue(words["count_dek"].format(n=10, new=10, upd=0) in html)
+            self.assertIn(words["glance_dek"]["issue"].format(n=10), html)  # no ranking claim without a score
+
+    def test_saved_market_check_details_are_escaped(self):
+        issue, dataset = fixture()
+        dataset["products"][0]["market_checks"][0]["detail"] = 'Detail <b onclick="x()">bold</b> & more'
+        for language in LANGUAGES:
+            html = live.render_html(issue, dataset, language=language)
+            self.assertIn("Detail &lt;b onclick=&quot;x()&quot;&gt;bold&lt;/b&gt; &amp; more", html)
+            self.assertNotIn("<b onclick", html)
 
     def test_compliance_flag_is_code_owned_and_counted(self):
         issue, dataset = fixture()
@@ -136,20 +147,32 @@ class RedesignedEditionTests(unittest.TestCase):
 
     def test_render_refuses_markup_that_could_fetch_or_run_anything(self):
         issue, dataset = fixture()
-        for injected in ('<script>x</script>', '<img src="https://example.org/x.png">', 'url(https://example.org/f.woff2)',
-                         '<a href="javascript:alert(1)">x</a>'):
+        for injected in ('<script>x</script>', '<img src="https://example.org/x.png">', '<style>a{b:url(https://example.org/f.woff2)}</style>',
+                         '<a href="javascript:alert(1)">x</a>', '<img srcset="https://example.org/x.png 2x">',
+                         '<link rel="stylesheet" href="https://example.org/x.css">', '<style>@import "https://example.org/x.css";</style>',
+                         '<svg><image href="https://example.org/x.png"/></svg>', '<p onmouseover="x()">x</p>'):
             with self.subTest(injected=injected), \
                     patch("product_radar.report_view.render_document", return_value="<html>" + injected + "</html>"), \
                     self.assertRaisesRegex(SafetyError, "LIVE_RENDER_HTML_INVALID"):
                 live.render_html(issue, dataset)
 
+    def test_escaped_words_that_look_like_markup_are_not_refused(self):
+        """A title or reason may say "url(" or "href=": escaped text is never mistaken for a fetch."""
+        issue, dataset = fixture()
+        product = dataset["products"][0]
+        product["market_checks"][0]["detail"] = 'Shows url(https://example.org) and href="x" as plain words.'
+        html = live.render_html(issue, dataset)
+        self.assertIn("Shows url(https://example.org) and href=&quot;x&quot; as plain words.", html)
+
     def test_writing_budgets_are_enforced_per_language(self):
         issue, dataset = fixture()
+        title = dataset["products"][0]["title"]
         for language, limit in (("en", 320), ("hi-Latn", 360)):
+            # {{title}} counts as the product name it prints.
             for size, ok in ((limit, True), (limit + 1, False)):
                 changed = deepcopy(dataset)
                 row = changed["narratives"][language]["products"][0]
-                row["reason"] = "{{title}} " + "a" * (size - len("{{title}} "))
+                row["reason"] = "{{title}} " + "a" * (size - len(title) - 1)
                 with self.subTest(language=language, size=size):
                     if ok:
                         live.validate_dataset(issue, changed)
@@ -163,6 +186,41 @@ class RedesignedEditionTests(unittest.TestCase):
         changed = deepcopy(dataset)
         changed["narratives"]["hi-Latn"]["products"][0]["points"] = ["b" * 105]
         live.validate_dataset(issue, changed)
+        changed["narratives"]["hi-Latn"]["products"][0]["points"] = ["{{title}} " + "b" * (105 - len(title))]
+        with self.assertRaisesRegex(SafetyError, "LIVE_NARRATIVE_TOO_LONG"):
+            live.validate_dataset(issue, changed)
+
+    def test_limitation_and_update_sentence_limits_hold_in_packet_validation(self):
+        issue, dataset = fixture()
+        title = dataset["products"][0]["title"]
+        changed = deepcopy(dataset)
+        changed["narratives"]["en"]["products"][0]["limitation"] = "c" * 1000
+        live.validate_dataset(issue, changed)
+        changed["narratives"]["en"]["products"][0]["limitation"] = "c" * 1001
+        with self.assertRaisesRegex(SafetyError, "LIVE_NARRATIVE_TOO_LONG"):
+            live.validate_dataset(issue, changed)
+        # The update sentence: checked with {{title}} expanded (a New product may not carry one at all).
+        changed = deepcopy(dataset)
+        changed["narratives"]["en"]["products"][0]["update_sentence"] = "x"
+        with self.assertRaisesRegex(SafetyError, "LIVE_NARRATIVE_UPDATE_NOT_ADMITTED"):
+            live.validate_dataset(issue, changed)
+        from product_radar.report_narration import WRITING_LIMITS, budget_length
+        self.assertEqual(budget_length("{{title}} rose.", title), len(title) + 6)
+        self.assertEqual((WRITING_LIMITS["en"]["update_sentence"], WRITING_LIMITS["hi-Latn"]["update_sentence"]), (130, 150))
+
+    def test_checklist_phrase_limits_hold_in_packet_validation(self):
+        issue, dataset = current_fit_fixture()
+        title = dataset["products"][0]["title"]
+        for language, limit in (("en", 90), ("hi-Latn", 105)):
+            for size, ok in ((limit, True), (limit + 1, False)):
+                changed = deepcopy(dataset)
+                changed["narratives"][language]["products"][0]["checklist_phrases"][0]["text"] = "{{title}} " + "d" * (size - len(title) - 1)
+                with self.subTest(language=language, size=size):
+                    if ok:
+                        live.validate_dataset(issue, changed)
+                    else:
+                        with self.assertRaisesRegex(SafetyError, "LIVE_CHECKLIST_PHRASES_INVALID"):
+                            live.validate_dataset(issue, changed)
 
 
 if __name__ == "__main__":
@@ -228,13 +286,99 @@ class RichFixtureEditionTests(unittest.TestCase):
         self.assertEqual(feeding["qc"]["rows"]["instamart"][feeding["qc"]["places"].index("Mumbai")], "not_in_stock")
         self.assertIn("not_checked", feeding["qc"]["rows"]["blinkit"])
 
+    @staticmethod
+    def sheet_numbers(html):
+        """Every figure printed on each sheet (text and drawing labels; never markup or style),
+        as a sorted list per sheet: word order may differ between languages, figures may not."""
+        body = html.split("</style>", 1)[1]
+        numbers = []
+        for sheet in re.split(r'(?=<section class="sheet )', body)[1:]:
+            text = re.sub(r"<[^>]+>", " ", sheet)
+            numbers.append(sorted(re.findall(r"\d+(?:[.,]\d+)*", unescape(text))))
+        return numbers
+
     def test_both_editions_show_the_same_figures(self):
+        english, hinglish = self.sheet_numbers(self.html["en"]), self.sheet_numbers(self.html["hi-Latn"])
+        self.assertEqual(len(english), 3 + 2 * 10 + 1)
+        for number, (en, hi) in enumerate(zip(english, hinglish)):
+            with self.subTest(sheet=number):
+                self.assertTrue(en)
+                self.assertEqual(en, hi)
         for pattern in (r'<span class="scorecell">.*?<b>(\d+)</b>', r'class="part-val"><b>(\d+)</b>/(\d+)',
                         r'<span class="p-price">(₹[0-9,.]+)</span>', r'aria-label="(\d+) [a-z]+"'):
             with self.subTest(pattern=pattern):
-                english = re.findall(pattern, self.html["en"])
-                self.assertTrue(english)
-                self.assertEqual(english, re.findall(pattern, self.html["hi-Latn"]))
+                found = re.findall(pattern, self.html["en"])
+                self.assertTrue(found)
+                self.assertEqual(found, re.findall(pattern, self.html["hi-Latn"]))
+
+    def test_a_changed_figure_in_one_language_is_caught(self):
+        changed = self.html["hi-Latn"].replace('<span class="stat">7</span>', '<span class="stat">8</span>', 1)
+        self.assertNotEqual(changed, self.html["hi-Latn"])
+        self.assertNotEqual(self.sheet_numbers(self.html["en"]), self.sheet_numbers(changed))
+
+    def context(self, words):
+        from product_radar.report_visuals import market_context, score_view
+        product = next(p for p in self.dataset["products"] if words in p["title"])
+        return product, score_view(product), market_context(product)
+
+    def test_meta_counts_and_recent_starts_are_cross_checked_with_the_score(self):
+        from product_radar.report_visuals import meta_view
+        _, score, context = self.context("nail trimmer")
+        self.assertEqual(meta_view(score, context)["recent"], score["facts"]["new_advertisers"]["recent_start_advertisers"])
+        for part, fact, change in (("facebook_ads", "relevant_ads", 1), ("new_advertisers", "recent_start_advertisers", 1)):
+            changed = deepcopy(score)
+            changed["facts"][part][fact] += change
+            with self.subTest(fact=fact), self.assertRaisesRegex(SafetyError, "LIVE_REPORT_VISUAL_FACTS_CHANGED"):
+                meta_view(changed, context)
+        changed = deepcopy(context)
+        changed["market"]["sources"]["meta"]["used_ids"] = changed["market"]["sources"]["meta"]["used_ids"][1:]
+        with self.assertRaisesRegex(SafetyError, "LIVE_REPORT_VISUAL_FACTS_CHANGED"):
+            meta_view(score, changed)
+
+    def test_the_trends_chart_must_be_the_one_the_score_used(self):
+        from product_radar.report_visuals import trends_view
+        _, score, context = self.context("plant spike")
+        view = trends_view(score, context)
+        # Only completed weeks the score compares are drawn: the line ends where the recent window ends.
+        self.assertEqual(view["windows"][-1], len(view["points"]) - 1)
+        self.assertTrue(all(len(value) <= 3 for value in (view["recent"], view["previous"])))  # whole points
+        for changed in (dict(context, charts=[]), dict(context, charts=[dict(row, id="other") for row in context["charts"]])):
+            with self.assertRaisesRegex(SafetyError, "LIVE_REPORT_VISUAL_FACTS_CHANGED"):
+                trends_view(score, changed)
+
+    def test_quick_commerce_checks_must_be_dated_with_the_market_proof(self):
+        from product_radar.issue_allocation import selection_fingerprint
+        from product_radar.models import timestamp
+        index = next(n for n, p in enumerate(self.dataset["products"]) if "feeding set" in p["title"])
+        issue, dataset = deepcopy(self.issue), deepcopy(self.dataset)
+        later = (timestamp(dataset["products"][index]["quick_commerce_checks"]["as_of"]) + timedelta(seconds=1)).isoformat()
+        for record in (issue["products"][index], dataset["products"][index]):
+            record["quick_commerce_checks"]["as_of"] = later
+        issue["selection_hash"] = dataset["selection_hash"] = selection_fingerprint(issue)
+        with self.assertRaisesRegex(SafetyError, "LIVE_QUICK_COMMERCE_CHECKS_INVALID"):
+            live.validate_dataset(issue, dataset, root=self.root)
+
+    def test_the_order_sentence_and_divider_match_this_issues_rows(self):
+        glance = self.html["en"].split('id="glance"')[1].split('id="key"')[0]
+        # New types first (each by score, crowded last), then the one update: the "status" sentence.
+        self.assertIn(TEXT["en"]["glance_dek"]["status"].format(n=10), glance)
+        levels = [p["opportunity_basis"]["parts"]["room"]["items"]["crowding"]["facts"]["level"] for p in self.dataset["products"]]
+        first_high = levels.index("high")
+        self.assertTrue(all(level == "high" for level in levels[first_high:]))
+        self.assertLess(glance.index('<tr class="group">'), glance.index(f'<td class="c0">{first_high + 1:02d}</td>'))
+        self.assertIn(TEXT["hi-Latn"]["glance_dek"]["status"].format(n=10), self.html["hi-Latn"])
+
+    def test_every_site_used_is_listed_with_or_without_a_link(self):
+        closing = self.html["en"].split('id="method"')[1]
+        for site in ("Google Trends India", "Facebook Ads Library", "Amazon India", "Flipkart", "DeoDap", "BaapStore", "Dropdash",
+                     "Blinkit", "Zepto", "Supplier pages"):
+            self.assertIn(f"<li>{site}</li>", closing)
+        self.assertNotIn("Supplier page (scoped review)", self.html["en"])
+        self.assertNotIn("Supplier page (scoped review)", self.html["hi-Latn"])
+        self.assertIn("<li>Supplier ke pages</li>", self.html["hi-Latn"].split('id="method"')[1])
+        spikes = self.by_title("plant spike")
+        self.assertIn(("Google Trends India", None, "5 Oct"), spikes["sources"])
+        self.assertIn(("DeoDap", None, "5 Oct"), spikes["sources"])
         for language, html in self.html.items():
             self.assertEqual(len(sheets(html, "product-a")), 10)
             self.assertEqual(html.count('class="timeline"'), sum(view["meta"]["starts"] is not None and view["meta"]["end"] is not None

@@ -206,8 +206,14 @@ SCOPED_SUPPLIER_PROMPT_VERSION = "research-f-v4"
 # v2 (Plan R10 W10): phrases may also be dropship-platform wording.
 CATALOGUE_PROMPT_VERSION = "research-c-v2"
 NARRATION_PROMPT_VERSION = "research-g-v2"
-FIT_NARRATION_PROMPT_VERSION = "research-g-v3"
-FUNCTIONAL_NARRATION_PROMPT_VERSION = "research-g-v4"
+# v5 / v6 (16 October 2026): the v3 fit and v4 functional writing contracts plus the
+# per-language writing budgets (report redesign, owner choice 3). The old versions keep
+# their exact text and limits for genuine saved jobs; new writing uses v5 / v6, so a
+# saved v3 / v4 answer is not reused for a new packet (the writer runs again).
+LEGACY_FIT_NARRATION_PROMPT_VERSION = "research-g-v3"
+LEGACY_FUNCTIONAL_NARRATION_PROMPT_VERSION = "research-g-v4"
+FIT_NARRATION_PROMPT_VERSION = "research-g-v5"
+FUNCTIONAL_NARRATION_PROMPT_VERSION = "research-g-v6"
 QUERY_PROFILE_PROMPT_VERSION = "research-c-query-profile-v1"
 CURRENT_QUERY_PROFILE_PROMPT_VERSION = "research-c-query-profile-v2"
 FUNCTIONAL_QUERY_PROFILE_PROMPT_VERSION = "research-c-query-profile-v3"
@@ -685,23 +691,26 @@ def g_contract(payload, declared_version=None):
                 or payload.get("writing_contract") != "writing-input-v1"
                 or payload.get("fit_policy_id") != FIT_POLICY_ID
                 or payload.get("criterion_ids") != list(ACTIVE_CRITERION_IDS)
-                or declared_version not in (None, FUNCTIONAL_NARRATION_PROMPT_VERSION)
+                or declared_version not in (None, FUNCTIONAL_NARRATION_PROMPT_VERSION, LEGACY_FUNCTIONAL_NARRATION_PROMPT_VERSION)
                 or any(field in payload for field in ("selection_hash", "facts_hash", "revision", "report_asset_receipt"))):
             raise SafetyError("AI_G_CONTRACT_INVALID")
-        return {"version": FUNCTIONAL_NARRATION_PROMPT_VERSION, "schema": FIT_G_SCHEMA,
+        version = declared_version or FUNCTIONAL_NARRATION_PROMPT_VERSION
+        return {"version": version, "schema": FIT_G_SCHEMA,
                 "instructions": FIT_G_INSTRUCTIONS + (
                     " These are item-owned writing inputs for one accepted narrow functional product type. "
                     "Example listings, seller changes and photographs do not make separate recommendations. "
                     "The source_english for a Roman Hinglish item is its own already accepted English row, "
                     "not permission to add another item's benefit or fill an unverified fact. "
-                    "Copy issue_id and item id exactly. No browsing, collection, tools or new assessment."
-                    + WRITING_LIMITS_TEXT)}
+                    "Copy issue_id and item id exactly. No browsing, collection, tools or new assessment.")
+                + (WRITING_LIMITS_TEXT if version == FUNCTIONAL_NARRATION_PROMPT_VERSION else "")}
     if "fit_policy_id" in payload:
-        if (payload["fit_policy_id"] != FIT_POLICY_ID or declared_version not in (None, FIT_NARRATION_PROMPT_VERSION)
+        if (payload["fit_policy_id"] != FIT_POLICY_ID
+                or declared_version not in (None, FIT_NARRATION_PROMPT_VERSION, LEGACY_FIT_NARRATION_PROMPT_VERSION)
                 or ("criterion_ids" in payload and payload["criterion_ids"] != list(ACTIVE_CRITERION_IDS))):
             raise SafetyError("AI_G_CONTRACT_INVALID")
-        return {"version": FIT_NARRATION_PROMPT_VERSION, "schema": FIT_G_SCHEMA,
-                "instructions": FIT_G_INSTRUCTIONS + WRITING_LIMITS_TEXT}
+        version = declared_version or FIT_NARRATION_PROMPT_VERSION
+        return {"version": version, "schema": FIT_G_SCHEMA,
+                "instructions": FIT_G_INSTRUCTIONS + (WRITING_LIMITS_TEXT if version == FIT_NARRATION_PROMPT_VERSION else "")}
     version = NARRATION_PROMPT_VERSION if declared_version is None else declared_version
     if version not in ("research-g-v1", "research-g-v2") or "criterion_ids" in payload:
         raise SafetyError("AI_G_CONTRACT_INVALID")
