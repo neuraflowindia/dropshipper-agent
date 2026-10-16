@@ -29,19 +29,24 @@ NOT_TRACEABLE = (
     "Raw results the programme read but did not keep (cards it could not recognise, listings outside the search "
     "scope, duplicates) are not saved, so 'seen' counts only what was kept. To fix: save a per-read count of cards "
     "seen / kept / dropped with the drop reason.",
-    "When a product type first became report-ready (or stopped being) is not saved; it is recalculated each "
-    "round. To fix: save the report pool's decision codes per type when they change.",
-    "The opportunity score and label history are not saved per type (only the one-time calibration). To fix: "
+    "Which listing created a product type is not saved as such; the trace takes the match record saved in the "
+    "same event as the new type (this credits every type on the live store; a type without one is shown as "
+    "'not recorded' or credited to its heading-search wave). To fix: save the creating listing id on each new type.",
+    "When a product type first became report-ready (or stopped being) is not saved; the report pool is worked "
+    "out again each round. To fix: save each type's report-ready reasons when they change.",
+    "The opportunity score and label history per type are not saved (only the one-time calibration). To fix: "
     "save each type's score parts when they change.",
     "Why a round chose some questions and not others (the queue order) is not logged; only 'round limit used up' "
     "is. To fix: log the chosen and skipped question ids per round with the rule that ranked them.",
-    "Website time for discovery and supplier reads outside the product-check step is not logged as 'website "
-    "time'; only 'about to send' and 'answer saved' times are saved, which include waiting inside the programme. "
-    "To fix: save the transport time on each read's answer record.",
-    "Heading searches record their latest state only; earlier waits for the same search are overwritten. To fix: "
-    "keep each wait (time and reason) on the discovery action.",
-    "AI steps that could not start are saved as one line per stop with no matching end, so how long each waited "
-    "is not known. To fix: save the time the waiting step finally ran.",
+    "Website time for discovery, supplier and photo reads outside the product-check step is not saved as "
+    "'website time'; only 'about to send' and 'answer saved' times are, which include waiting inside the "
+    "programme. To fix: save the transport seconds on each read's answer record.",
+    "A saved AI stop ('problem') is written once and never closed. The trace checks whether the step's result "
+    "exists now, but not when the wait ended or how many times the item waited. To fix: close the problem "
+    "record with the time the step finally ran.",
+    "The AI runner reports input, cached-input and output tokens only (no reasoning tokens), and the time an AI "
+    "step waited before its request was saved (round limits, allowance) is not kept per job. To fix: save the "
+    "runner's full usage and the time the step first became ready.",
     "Run logs before research restarted (and logs removed by housekeeping) are outside this store; the trace "
     "covers only this store's records. To fix: point --data-root at an archived store to trace it.",
 )

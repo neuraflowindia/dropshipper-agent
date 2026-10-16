@@ -18,7 +18,7 @@ T2 = "2026-10-16T07:00:30+00:00"
 T3 = "2026-10-16T09:00:00+00:00"
 T4 = "2026-10-16T20:00:00+00:00"   # 01:30 India time, 17 Oct
 AS_OF = "2026-10-16T21:00:00+00:00"
-A, B, C = "concept-aaa", "concept-bbb", "concept-ccc"
+A, B, C, D = "concept-aaa", "concept-bbb", "concept-ccc", "concept-ddd"
 
 
 def _json(path, value):
@@ -88,8 +88,6 @@ def events():
               ("concepts", C, concept("Waiting test mat")),
               ("associations", "child-1", {"concept_id": A, "semantic_id": "item-2", "status": "resolved",
                                            "method": "no_known_match", "reason": "no_known_match"}),
-              ("associations", "child-2", {"concept_id": B, "semantic_id": "item-1", "status": "resolved",
-                                           "method": "llm_accepted", "reason": "Same use.", "job_id": "job-b"}),
               ("associations", "child-3", {"concept_id": None, "semantic_id": "item-9", "status": "excluded",
                                            "reason": "out_of_scope"}),
               ("associations", "child-4", {"concept_id": None, "semantic_id": "item-8", "status": "deferred",
@@ -98,10 +96,20 @@ def events():
                                  "binding_keys": {}, "turn_admissions": {}}),
               ("problems", "problem-1", {"stage": "description", "reason": "AI_RUNNER_NOT_ENABLED", "at": T1,
                                          "affected_id": "item-3"}),
+              ("problems", "problem-4", {"stage": "description", "reason": "AI_PLAN_LIMIT_CREDITS_PROTECTED", "at": T1,
+                                         "affected_id": "item-1"}),
               ("problems", "problem-2", {"stage": "fit_review", "reason": "WORK_TURN_MODEL_LIMIT", "at": T1,
+                                         "affected_id": A}),
+              ("problems", "problem-5", {"stage": "fit_review", "reason": "WORK_TURN_MODEL_LIMIT", "at": T1,
                                          "affected_id": B}),
               ("problems", "problem-3", {"stage": "identity", "reason": "AI_PLAN_LIMIT_CREDITS_PROTECTED", "at": T1,
-                                         "affected_id": A}),
+                                         "affected_id": "child-3"}),
+              ("problems", "problem-6", {"stage": "identity", "reason": "AI_RUNNER_NOT_ENABLED", "at": T1,
+                                         "affected_id": "child-4"}),
+              ("problems", "problem-8", {"stage": "identity", "reason": "AI_RUNNER_NOT_ENABLED", "at": T1,
+                                         "affected_id": "item-2"}),
+              ("problems", "problem-7", {"stage": "photos", "reason": "AI_PHOTO_CHECK_WAITING", "at": T1,
+                                         "affected_id": C}),
               ("source_checks", "definition-1", {"kind": "functional-definition-v1", "accepted": True, "concept_id": A}),
               ("source_checks", "lead-1", {"kind": "dropship-platform-lead-v2", "route": "deodap", "concept_id": A}),
               ("assessments", A, {"job_id": "job-c", "result": {"criteria": []}})]),
@@ -134,7 +142,12 @@ def events():
               ("source_checks", "refusal-2", {"kind": "source-access-refusal-v1",
                                               "binding": {"acquisition_id": "missing-acquisition", "observed_at": T2}})]),
         (T2, [("query_tasks", "task-1", {**task("amazon-search", "marketplace", "dispatching",
-                                                "Prepared; no source attempt yet.", [A]), "dispatched_at": T2})]),
+                                                "Prepared; no source attempt yet.", [A]), "dispatched_at": T2}),
+              ("associations", "child-2", {"concept_id": B, "semantic_id": "item-1", "status": "resolved",
+                                           "method": "llm_accepted", "reason": "Same use.", "job_id": "job-b"})]),
+        (T2, [("concepts", D, concept("Invented hook")),
+              ("associations", "child-5", {"concept_id": D, "semantic_id": "item-3", "status": "resolved",
+                                           "method": "llm_accepted", "reason": "A different use, so a new type."})]),
         (T3, [("query_tasks", "task-1", {**task("amazon-search", "marketplace", "acquired", "MARKETPLACE_CARDS_OBSERVED", [A],
                                                 {A: {"state": "interpretation_pending"}}), "dispatched_at": T2}),
               ("batch_runs", "crowding-1", crowding_fact(A, "high")),

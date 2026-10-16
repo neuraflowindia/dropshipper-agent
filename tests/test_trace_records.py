@@ -25,7 +25,7 @@ class TraceRecordsTest(unittest.TestCase):
 
     def test_replay_rebuilds_state_and_time_line(self):
         state, timeline, facts = records.replay_events(self.memory / "events")
-        self.assertEqual(facts, {"events": 7, "first_event_at": fx.T0, "last_event_at": fx.T4})
+        self.assertEqual(facts, {"events": 8, "first_event_at": fx.T0, "last_event_at": fx.T4})
         self.assertEqual(state["query_tasks"]["task-1"]["status"], "acquired")
         self.assertEqual(timeline.first_at("query_tasks", "task-1"), fx.T1)
         self.assertEqual(timeline.last[("query_tasks", "task-1")], fx.T3)

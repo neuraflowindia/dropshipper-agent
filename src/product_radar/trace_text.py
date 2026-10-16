@@ -5,7 +5,7 @@ Plain labels first, the programme's code in brackets; numbers in one column.
 
 from . import trace_labels as words
 from .trace_ai import OUTCOME_WORDS, OUTCOMES
-from .trace_funnel import DAY_FIELDS, DAY_WORDS, PART_WORDS
+from .trace_funnel import DAY_FIELDS, DAY_WORDS, PART_WORDS, PROBLEM_WORDS
 
 WIDTH = 64
 
@@ -221,9 +221,10 @@ def ai_text(report, *, short=False):
     out.append("")
     out.extend(_counts("Rounds where AI work waited for the next round", report["round_waits_for_ai"], words.reason, 3))
     if report["ai_steps_that_could_not_start"]:
-        out.append("AI steps that could not start, by step and reason (one line per stop):")
+        out.append("Items whose AI step could not run, by step and reason (one saved stop per item):")
         for row in report["ai_steps_that_could_not_start"]:
-            out.append(f"   {number(row['count']):>6}  {row['stage']}: {words.reason(row['reason'])}")
+            out.append(f"   {number(row['count']):>6}  {row['stage']}: {words.reason(row['reason'])} — "
+                       f"{PROBLEM_WORDS.get(row['later'], row['later'])}")
     out.append("")
     out.append("Allowance readings (latest saved reading only)")
     for row in report["allowance_readings_latest"]:

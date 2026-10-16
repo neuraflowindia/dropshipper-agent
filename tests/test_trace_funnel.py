@@ -71,31 +71,45 @@ class TraceFunnelTest(unittest.TestCase):
         self.assertEqual(rows(step, "Wider searches on tradeindia (supplier-listings)"), {"read": 1})
         self.assertIn("listings nominated: 3", step["tables"][3]["title"])
         self.assertEqual(rows(step, "Dropshipping-platform listings"), {"deodap": 1})
+        questions = next(table for table in step["tables"] if table["title"].startswith("Research questions"))
+        self.assertEqual([(row["code"], row["value"]) for row in questions["rows"]],
+                         [("None | google-trends | prepared | SOURCE_ACCESS_PROBE_PENDING", 1)])
+        self.assertIn("Google Trends [google-trends]: Not asked yet [prepared] — Waiting: one test read",
+                      questions["rows"][0]["label"])
+        self.assertEqual(funnel_module._question_label("sourcing | indiamart | acquired"),
+                         "find suppliers for a type on IndiaMART [indiamart]: Answered with results [acquired]")
 
     def test_raw_results_and_naming(self):
         self.assertEqual(by_key(self.steps["raw_results"]), {"results": 3, "pages": 2})
         self.assertEqual(rows(self.steps["raw_results"], "Raw results by website"), {"meta": 1, "deodap": 1, "amazon": 1})
         self.assertEqual(by_key(self.steps["naming"]), {"listings": 2, "products": 1})
         self.assertEqual(rows(self.steps["naming"], "AI answer"), {"product": 1, "service": 1})
-        self.assertEqual(rows(self.steps["naming"], "Naming that could not run"), {"AI_RUNNER_NOT_ENABLED": 1})
+        self.assertEqual(rows(self.steps["naming"], "Listings whose naming"),
+                         {"AI_RUNNER_NOT_ENABLED | open": 1, "AI_PLAN_LIMIT_CREDITS_PROTECTED | done_later": 1})
 
     def test_candidates_credit_listing_wave_or_unknown(self):
         step = self.steps["candidates"]
-        self.assertEqual(by_key(step), {"created": 3})
-        self.assertEqual(rows(step, "Created from"), {"deodap": 1, "heading search on google-trends + meta-ads": 1,
-                                                       "not recorded": 1})
-        self.assertEqual(rows(step, "What happened"), {"no_known_match": 1, "llm_accepted": 1, "out_of_scope": 1,
-                                                        "unclear": 1})
-        self.assertEqual(rows(step, "Matching that could not finish"), {"AI_PLAN_LIMIT_CREDITS_PROTECTED": 1})
+        self.assertEqual(by_key(step), {"created": 4})
+        self.assertEqual(rows(step, "Created from"), {"deodap": 1, "amazon": 1,
+                                                       "heading search on google-trends + meta-ads": 1, "not recorded": 1})
+        self.assertEqual(rows(step, "What happened"), {"no_known_match": 1, "llm_same_type": 1, "llm_new_type": 1,
+                                                        "out_of_scope": 1, "unclear": 1})
+        self.assertEqual(rows(step, "Listings whose matching"),
+                         {"AI_PLAN_LIMIT_CREDITS_PROTECTED | done_later": 1, "AI_RUNNER_NOT_ENABLED | open": 1,
+                          "AI_RUNNER_NOT_ENABLED | done_later": 1})
 
     def test_definitions_and_checklist(self):
         definitions = by_key(self.steps["definitions"])
-        self.assertEqual(definitions["active"], 4)
+        self.assertEqual(definitions["active"], 5)
         self.assertEqual(definitions["definition_answers"], "1 / 0")
         self.assertEqual(rows(self.steps["definitions"], "Stopped at identity"), {"out_of_scope": 1})
         checklist = by_key(self.steps["checklist"])
         self.assertEqual((checklist["assessed"], checklist["passing"], checklist["below"]), (1, 1, 0))
         self.assertEqual(rows(self.steps["checklist"], "Number of Meets"), {7: 1})
+        self.assertEqual(rows(self.steps["checklist"], "Types whose checklist"),
+                         {"WORK_TURN_MODEL_LIMIT | done_later": 1, "WORK_TURN_MODEL_LIMIT | open": 1})
+        self.assertEqual(funnel_module.problem_label("WORK_TURN_MODEL_LIMIT | open"),
+                         "Waiting: this round's AI-use limit was used up [WORK_TURN_MODEL_LIMIT] — still waiting")
 
     def test_suppliers_and_photos(self):
         self.assertEqual(by_key(self.steps["suppliers"]), {"needed": 1, "with_leads": 1, "leads_found": 1,
@@ -137,7 +151,7 @@ class TraceFunnelTest(unittest.TestCase):
         days = {row["day"]: row for row in self.report["per_day"]}
         self.assertEqual(sorted(days), ["2026-10-16", "2026-10-17"])
         first, second = days["2026-10-16"], days["2026-10-17"]
-        self.assertEqual((first["raw_results"], first["product_types_created"], first["questions_created"]), (3, 3, 6))
+        self.assertEqual((first["raw_results"], first["product_types_created"], first["questions_created"]), (3, 4, 6))
         self.assertEqual((first["questions_answered"], first["website_reads_sent"], first["headings_first_searched"]),
                          (2, 3, 3))
         self.assertEqual((first["crowding_results"], first["photos_saved"], first["definitions_accepted"]), (1, 1, 1))

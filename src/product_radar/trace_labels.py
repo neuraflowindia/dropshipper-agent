@@ -133,7 +133,9 @@ REASONS = {
     "opportunity_scored": "Scored",
     # Association (matching listings to product types).
     "no_known_match": "New product type created (no existing type matched)",
-    "llm_accepted": "AI matched it to an existing product type",
+    "llm_accepted": "AI compared it with existing product types (answer accepted)",
+    "llm_new_type": "AI compared it with existing types: it is a new product type",
+    "llm_same_type": "AI matched it to an existing product type",
 }
 
 LABELS = {

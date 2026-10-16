@@ -27,6 +27,7 @@ class TraceProductTest(unittest.TestCase):
         self.assertEqual(find_types(self.store, fx.A), [fx.A])
         self.assertEqual(find_types(self.store, "RACK"), [fx.A])
         self.assertEqual(find_types(self.store, "test"), [fx.A, fx.B, fx.C, "concept-old"])
+        self.assertEqual(find_types(self.store, "hook"), [fx.D])
         self.assertEqual(find_types(self.store, "concept-a"), [fx.A])
         self.assertEqual(find_types(self.store, "no such thing"), [])
         self.assertEqual(type_name(self.store.state, fx.B), "Quiet test lamp")
@@ -54,7 +55,7 @@ class TraceProductTest(unittest.TestCase):
         self.assertEqual(report["score"]["parts"]["room"]["points"], 25)
         self.assertTrue(report["report_ready"])
         self.assertEqual(report["allocations"], ["reservation-1"])
-        self.assertEqual([row["stage"] for row in report["problems"]], ["identity"])
+        self.assertEqual([row["stage"] for row in report["problems"]], ["fit_review"])
         kinds = [row["kind"] for row in report["timeline"]]
         self.assertNotIn("research-programme-v1", kinds)
         self.assertEqual([row["at"] for row in report["timeline"]], sorted(row["at"] for row in report["timeline"]))
@@ -82,6 +83,11 @@ class TraceProductTest(unittest.TestCase):
                          ("fam-a", "folding rack", False))
         self.assertEqual(listing["title"], "Invented folding rack advert")
         self.assertEqual(report["score"]["label"], "too_quiet")
+
+    def test_type_the_ai_judged_new_is_credited_to_its_listing(self):
+        origin = journey(self.store, self.judged, fx.D)["origin"]
+        self.assertEqual(origin["created_by_listing"], "item-3")
+        self.assertEqual([(row["source"], row["created_type"]) for row in origin["listings"]], [("amazon", True)])
 
     def test_journey_without_a_pool(self):
         report = journey(self.store, {"pool": None, "meter": None, "errors": {}}, fx.A)

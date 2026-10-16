@@ -66,7 +66,9 @@ def _origin(store, concept_id):
     associations = [(record_id, row) for record_id, row in store.state["associations"].items()
                     if row.get("concept_id") == concept_id]
     semantic_ids = {row.get("semantic_id") for _, row in associations if row.get("status") == "resolved"}
-    creator = next((row.get("semantic_id") for _, row in associations if row.get("method") == "no_known_match"), None)
+    from .trace_funnel import type_creators, wave_creators
+    created = type_creators(store).get(concept_id)
+    creator = created[1].get("semantic_id") if created else None
     waves = {}
     for record_id, wave in store.state["batch_runs"].items():
         if wave.get("kind") != "discovery-wave-v2":
@@ -93,7 +95,6 @@ def _origin(store, concept_id):
                          "lane": request.get("lane"), "heading": heading.get("family_id"),
                          "heading_category": heading.get("category")})
     listings.sort(key=lambda row: (not row["created_type"], row["saved_at"] or ""))
-    from .trace_funnel import wave_creators
     wave = wave_creators(store).get(concept_id) if creator is None else None
     matches = [{"semantic_id": row.get("semantic_id"), "status": row.get("status"), "method": row.get("method"),
                 "reason": row.get("reason"), "job_id": row.get("job_id"),

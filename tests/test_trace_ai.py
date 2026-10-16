@@ -54,7 +54,11 @@ class TraceAiTest(unittest.TestCase):
         self.assertEqual({row["day"]: row["jobs"] for row in self.report["by_day"]}, {"2026-10-16": 4, "2026-10-17": 1})
         self.assertEqual(len(self.report["by_day_and_step"]), 5)
         self.assertEqual(self.report["round_waits_for_ai"], {"WORK_TURN_MODEL_LIMIT": 1})
-        self.assertEqual(len(self.report["ai_steps_that_could_not_start"]), 3)
+        stops = {(row["stage"], row["reason"], row["later"]): row["count"]
+                 for row in self.report["ai_steps_that_could_not_start"]}
+        self.assertEqual(len(stops), 8)
+        self.assertEqual(stops[("photos", "AI_PHOTO_CHECK_WAITING", "unknown")], 1)
+        self.assertEqual(stops[("identity", "AI_PLAN_LIMIT_CREDITS_PROTECTED", "done_later")], 1)
         self.assertEqual(self.report["allowance_readings_latest"][0]["percent"], 100)
         self.assertEqual([row["percent"] for row in self.report["allowance_alerts"]], [75, 100])
         self.assertEqual(self.report["allowance_waits_now"][0]["route"], "ai")

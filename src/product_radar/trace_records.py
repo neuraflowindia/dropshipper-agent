@@ -283,6 +283,30 @@ def load_platform_reads(memory_root):
     return result
 
 
+def problem_outcome(state, row):
+    """Whether the step a saved problem stopped was done later.
+
+    Problem records are written once and never closed, so the trace checks
+    the step's own result: a named listing, a resolved/excluded match, or a
+    saved checklist. "open" means no such result is saved yet.
+    """
+    stage, affected = row.get("stage"), row.get("affected_id")
+    if stage == "description":
+        done = affected in state["descriptions"]
+    elif stage == "fit_review":
+        done = affected in state["assessments"]
+    elif stage == "identity":
+        # The stop names the match record (or, in older records, the listing).
+        settled = ("resolved", "excluded")
+        own = state["associations"].get(affected)
+        done = (own or {}).get("status") in settled or any(
+            match.get("semantic_id") == affected and match.get("status") in settled
+            for match in state["associations"].values())
+    else:
+        return "unknown"
+    return "done_later" if done else "open"
+
+
 @dataclass
 class TraceStore:
     data_root: Path

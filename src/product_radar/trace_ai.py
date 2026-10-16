@@ -13,7 +13,7 @@ from statistics import median
 
 from . import trace_labels as words
 from .spend_watch_ai import GUARD_CODES
-from .trace_records import at_or_after, day_of, seconds_between
+from .trace_records import at_or_after, day_of, problem_outcome, seconds_between
 
 TOKEN_FIELDS = ("input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens")
 OUTCOMES = ("finished", "failed", "refused", "no_answer_saved", "derived_no_ai_call", "not_started", "repair_claim")
@@ -109,7 +109,8 @@ def ai_report(store, since):
                           "role": sample["role"], **_finish(bucket)})
     waits = Counter(row.get("reason") for row in store.run_rows
                     if row["event"] == "preparation_deferred" and at_or_after(row["at"], since))
-    blocked = Counter((row.get("stage"), row.get("reason")) for record_id, row in store.state["problems"].items()
+    blocked = Counter((row.get("stage"), row.get("reason"), problem_outcome(store.state, row))
+                      for record_id, row in store.state["problems"].items()
                       if str(row.get("reason", "")).startswith(("AI_", "WORK_TURN_"))
                       and at_or_after(store.first_at("problems", record_id) or "", since))
     spend = store.spend
@@ -123,8 +124,8 @@ def ai_report(store, since):
             "by_day": [{"day": day, **_finish(bucket)} for day, bucket in sorted(days.items())],
             "by_day_and_step": [{"day": day, "step": key, **_finish(bucket)} for (day, key), bucket in sorted(day_steps.items())],
             "round_waits_for_ai": dict(waits),
-            "ai_steps_that_could_not_start": [{"stage": stage, "reason": reason, "count": count}
-                                              for (stage, reason), count in blocked.most_common()],
+            "ai_steps_that_could_not_start": [{"stage": stage, "reason": reason, "later": later, "count": count}
+                                              for (stage, reason, later), count in blocked.most_common()],
             "allowance_readings_latest": readings,
             "allowance_alerts": [{"at": row["at"], "message": row.get("message"), "percent": row.get("percent"),
                                   "item": row.get("item")} for row in spend.get("alerts", [])],

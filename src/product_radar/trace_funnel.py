@@ -19,7 +19,7 @@ from types import SimpleNamespace
 
 from . import trace_labels as words
 from .models import SafetyError
-from .trace_records import at_or_after, day_of, day_span
+from .trace_records import at_or_after, day_of, day_span, problem_outcome
 
 ANSWERED = ("acquired", "completed_no_results", "insufficient")
 PLAIN_PREPARED = "Prepared; no source attempt yet."
@@ -75,6 +75,21 @@ def judge(store, as_of, *, pool_builder=None, counter=None):
     return {"pool": pool, "meter": meter, "errors": errors}
 
 
+PROBLEM_WORDS = {"open": "still waiting", "done_later": "done later", "unknown": "later outcome not known"}
+
+
+def problems(store, stage, since):
+    """Saved stops at one step, by reason and whether the step was done later."""
+    return Counter(f"{row.get('reason')} | {problem_outcome(store.state, row)}"
+                   for record_id, row in store.state["problems"].items()
+                   if row.get("stage") == stage and _new(store, "problems", record_id, since))
+
+
+def problem_label(code):
+    reason, _, outcome = str(code).rpartition(" | ")
+    return f"{words.reason(reason)} — {PROBLEM_WORDS.get(outcome, outcome)}"
+
+
 def _new(store, table_name, record_id, since):
     return at_or_after(store.first_at(table_name, record_id) or "", since)
 
@@ -128,6 +143,13 @@ def discovery_step(store, since):
             wider_found[name] += row.get("candidates") or 0
     leads = Counter(row.get("route") for record_id, row in _kinds(store, "source_checks", "dropship-platform-lead-v2")
                     if _new(store, "source_checks", record_id, since))
+    questions = Counter()
+    for record_id, row in _kinds(store, "query_tasks", "research-question-v2"):
+        if _new(store, "query_tasks", record_id, since):
+            progress = row.get("progress") if isinstance(row.get("progress"), dict) else {}
+            reason = progress.get("reason")
+            questions[f"{row.get('purpose')} | {row.get('route')} | {progress.get('acquisition')}"
+                      + (f" | {reason}" if isinstance(reason, str) else "")] += 1
     tables = [table("Heading searches planned, by website", planned, words.route)]
     for route, counter in sorted(actions.items()):
         tables.append(table("Heading searches on " + words.route(route) + ", by result", counter, _outcome_label))
@@ -135,6 +157,8 @@ def discovery_step(store, since):
         tables.append(table(f"Wider searches on {name}, by state (listings nominated: {wider_found[name]})",
                             counter, words.state))
     tables.append(table("Dropshipping-platform listings linked to a product type (leads), by platform", leads, words.route))
+    tables.append(table("Research questions (heading checks and per-type supplier searches): purpose, website, "
+                        "state, latest reason", questions, _question_label))
     platform_rows = []
     for route, value in sorted(store.platforms.items()):
         refresh = value["refresh"]
@@ -145,6 +169,16 @@ def discovery_step(store, since):
         entry("heading_searches", "Heading searches planned (Meta ads, Google Trends)", sum(planned.values())),
         entry("wider_searches", "Wider searches (supplier listings, rising ads)", sum(sum(c.values()) for c in wider.values())),
         *platform_rows], tables=tables)
+
+
+QUESTION_PURPOSES = {"discovery": "find product ideas", "validation": "check demand for a heading",
+                     "sourcing": "find suppliers for a type"}
+
+
+def _question_label(code):
+    purpose, route, acquisition, *reason = str(code).split(" | ")
+    text = f"{QUESTION_PURPOSES.get(purpose, purpose)} on {words.route(route)}: {words.state(acquisition)}"
+    return text + (f" — {words.reason(reason[0])}" if reason else "")
 
 
 def _wave_outcome(result):
@@ -200,14 +234,13 @@ def naming_step(store, since):
             result = row.get("result") or {}
             kinds[result.get("kind")] += 1
             products += len(result.get("products") or [])
-    blocked = Counter(row.get("reason") for record_id, row in store.state["problems"].items()
-                      if row.get("stage") == "description" and _new(store, "problems", record_id, since))
+    blocked = problems(store, "description", since)
     return step("naming", "4. AI names the products in the listings", counts=[
         entry("listings", "Listings the AI looked at", sum(kinds.values())),
         entry("products", "Products the AI named in them", products)],
         tables=[table("AI answer per listing", kinds, words.description_kind),
-                table("Naming that could not run, by reason (one line per stop; the same listing can stop again later)",
-                      blocked)])
+                table("Listings whose naming could not run, by reason (one saved stop per listing)", blocked,
+                      problem_label, note="'still waiting': no AI name is saved for that listing yet.")])
 
 
 def _semantic_sources(store):
@@ -217,36 +250,66 @@ def _semantic_sources(store):
     return sources
 
 
+def first_event(store, table_name, record_id):
+    """The saved event number in which a record first appeared (None if never)."""
+    history = store.timeline.history.get((table_name, record_id))
+    return history[0][1] if history else None
+
+
+def type_creators(store):
+    """For each product type, the match record of the listing that created it.
+
+    A type is created in the same saved event as its first match record: "no
+    known match" (no AI needed) or an AI comparison that judged it new.
+    """
+    created = {}
+    for record_id, row in store.state["associations"].items():
+        cid = row.get("concept_id")
+        if row.get("status") != "resolved" or cid not in store.state["concepts"]:
+            continue
+        if first_event(store, "associations", record_id) == first_event(store, "concepts", cid):
+            created.setdefault(cid, (record_id, row))
+    return created
+
+
+def match_outcome(store, record_id, row, creators):
+    """What one match record decided, in the owner's words (a code)."""
+    status = row.get("status")
+    if status == "resolved":
+        if row.get("method") == "llm_accepted":
+            created = creators.get(row.get("concept_id"), (None,))[0] == record_id
+            return "llm_new_type" if created else "llm_same_type"
+        return row.get("method")
+    if status == "excluded":
+        return row.get("reason")
+    return "unclear" if status == "deferred" else status
+
+
 def candidates_step(store, since):
     sources = _semantic_sources(store)
-    created_from, matching = Counter(), Counter()
-    creators = {}
-    for record_id, row in store.state["associations"].items():
-        if row.get("status") == "resolved" and row.get("method") == "no_known_match" and row.get("concept_id"):
-            creators.setdefault(row["concept_id"], sources.get(row.get("semantic_id"), "unknown"))
-        if _new(store, "associations", record_id, since):
-            status = row.get("status")
-            matching[row.get("method") if status == "resolved" else row.get("reason") if status == "excluded"
-                     else "unclear" if status == "deferred" else status] += 1
+    creators = type_creators(store)
+    matching = Counter(match_outcome(store, record_id, row, creators)
+                       for record_id, row in store.state["associations"].items()
+                       if _new(store, "associations", record_id, since))
     waves = wave_creators(store)
+    created_from = Counter()
     new_ids = [cid for cid in store.state["concepts"] if _new(store, "concepts", cid, since)]
     for cid in new_ids:
         if cid in creators:
-            created_from[creators[cid]] += 1
+            created_from[sources.get(creators[cid][1].get("semantic_id"), "unknown")] += 1
         elif cid in waves:
             created_from["heading search on " + " + ".join(waves[cid]["routes"])] += 1
         else:
             created_from["not recorded"] += 1
     statuses = Counter(store.state["concepts"][cid].get("status") for cid in new_ids)
-    identity = Counter(row.get("reason") for record_id, row in store.state["problems"].items()
-                       if row.get("stage") == "identity" and _new(store, "problems", record_id, since))
+    identity = problems(store, "identity", since)
     return step("candidates", "5. New product types (candidates) created", counts=[
         entry("created", "Product types created", len(new_ids))],
         tables=[table("Created from", created_from, _source,
                       note="'heading search on ...': the search wave saves only which types it created, not which listing."),
                 table("What happened to each named product (match step)", matching, _matching),
                 table("Product type status", statuses, str),
-                table("Matching that could not finish, by reason", identity)])
+                table("Listings whose matching could not finish, by reason", identity, problem_label)])
 
 
 def _matching(code):
@@ -274,7 +337,7 @@ def definitions_step(store, judged):
         tables=[table("Stopped at identity, by reason", codes)])
 
 
-def checklist_step(store, judged):
+def checklist_step(store, judged, since=None):
     meter, pool = judged["meter"] or {}, judged["pool"]
     meets, codes = Counter(), Counter()
     if pool:
@@ -285,7 +348,7 @@ def checklist_step(store, judged):
         for decision in pool["decisions"]:
             codes.update(code for code in decision["codes"]
                          if code in ("below_checklist_threshold", "fit_information_pending", "checklist_review_required"))
-    blocked = Counter(row.get("reason") for row in store.state["problems"].values() if row.get("stage") == "fit_review")
+    blocked = problems(store, "fit_review", since)
     return step("checklist", "7. AI fills the 10-point checklist (5 or more Meets passes)", counts=[
         entry("assessed", "Types with a current checklist", meter.get("assessed_types")),
         entry("passing", "Types that pass (5+ Meets)", meter.get("assessment_passing_types")),
@@ -293,7 +356,7 @@ def checklist_step(store, judged):
         entry("pending", "Information still pending", codes["fit_information_pending"]),
         entry("not_filled", "Checklist not filled yet", codes["checklist_review_required"])],
         tables=[table("Number of Meets per type (out of 10)", meets, lambda code: f"{code} Meets", by_key=True),
-                table("Checklist work that could not run, by reason (one line per stop)", blocked)])
+                table("Types whose checklist could not run, by reason", blocked, problem_label)])
 
 
 def supplier_step(store, judged, since):
@@ -519,7 +582,7 @@ def funnel(store, judged, *, since, as_of, until=None, catalogue_loader=None, ma
     """Every step in pipeline order, plus the per-day breakdown."""
     steps = [headings_step(store, since, as_of, catalogue_loader=catalogue_loader, map_config=map_config),
              discovery_step(store, since), raw_results_step(store, since), naming_step(store, since),
-             candidates_step(store, since), definitions_step(store, judged), checklist_step(store, judged),
+             candidates_step(store, since), definitions_step(store, judged), checklist_step(store, judged, since),
              supplier_step(store, judged, since), photo_step(store, judged), market_step(store, since),
              crowding_step(store), score_step(judged), label_step(judged), codes_step(judged),
              eligible_step(store, judged), allocation_step(store, judged)]
