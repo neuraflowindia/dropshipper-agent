@@ -1,14 +1,26 @@
 """Focused public Trends/supplier command boundaries; no real browser or model."""
 
 from contextlib import redirect_stdout
+import importlib
 import io
 from pathlib import Path
+import pkgutil
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from test_benchmark_foundation import cli
+import product_radar
 from product_radar.storage import atomic_bytes, atomic_json, load_json
+
+
+def setUpModule():
+    # These tests patch ``product_radar.storage.load_json`` while the command
+    # imports modules lazily. A module first imported under that patch keeps the
+    # mock forever through ``from .storage import load_json``, which broke later
+    # test modules in the same process. Import every module before any patch.
+    for module in pkgutil.walk_packages(product_radar.__path__, "product_radar."):
+        importlib.import_module(module.name)
 
 
 class PublicResearchCliTests(unittest.TestCase):
