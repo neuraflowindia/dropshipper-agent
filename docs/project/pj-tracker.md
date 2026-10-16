@@ -1,36 +1,39 @@
 # Project tracker
 
-Latest state: **16 October 2026, about 20:00 UTC — the owner paused new building to regroup.** Research keeps running on the live R15 code (`main` `7294369`), started from scratch at **06:58:54 UTC on 16 October**. Work built during the day (R14 report redesign, R16 speed, R17 market checks first) sits on separate branches and is **not loaded**. The owner judged the research process too strict and over-engineered for a service that offers *prospects worth testing*; the step-by-step explanation, the measured reasons it is slow, and a proposed lighter "quick pick" process are in the [research process review](research-process-review-2026-10-16.md). Nothing new is built until the owner answers its questions (they are also in the handoff). This is the sole current progress summary. Requirements belong to the [product contract](../product/india_dropshipping_product_opportunity_radar_product_brief.md); technical changes and receipts belong to the [implementation record](../operations/implementation_2026-10-11.md) (R13 same-day fixes and R15 signed-in sites on `main`; R14, R16 and R17 sections live on their branches until loaded).
+Latest state: **17 October 2026, about 22:45 UTC on 16 October (4:15 am India time on 17 October) — regroup.** The owner **stopped research at 20:50:41 UTC on 16 October** and asked for a full, granular explanation of how the program works and for a new direction. The explanation, with every step, website, AI use and gate and the day's numbers, is [How the research program really works](research-wiring-explained-2026-10-16.md). The proposed direction is [Plan R18](plan-2026-10-17-ranking-and-big-universe.md): rank by likelihood instead of pass/fail gates, a product universe for 10+ months, and full tracing. Plan R18 **waits for the owner's answers** (15 questions, also in the handoff). Built for the owner's tracing request: the read-only tracing tool (live on `main`) and per-AI-use accounting (R18a; see the table below). This is the sole current progress summary. Requirements belong to the [product contract](../product/india_dropshipping_product_opportunity_radar_product_brief.md); technical changes belong to the [implementation record](../operations/implementation_2026-10-11.md).
 
-## Current position — 16 October 2026, 19:52 UTC
+## Current position — research day of 16 October (06:58:54–20:50:41 UTC)
 
-| Measure (owner meter) | Count |
+| Measure | Count |
 |---|---:|
-| Candidates / accepted narrow types / assessed / passing | 34 / 30 / 30 / 27 (in 13 hours since 06:58:54 UTC) |
-| **Report-eligible types** (need 20 across the two sets) | **1** |
-| Why the others are not ready (34 types; one type can wait on several things) | 23 waiting for the Amazon/Flipkart crowding check; 11 still need a supplier search; 6 rejected as "Too quiet" (no demand signal); 4 need more checklist facts or fall below 5 Meets. Only 4 types have any relevant Meta ad and 1 has usable Trends data |
+| Product-map headings used / total | 32 / 1,706 |
+| Raw items collected for ideas / read by the AI | 347 / 128 |
+| Candidates / defined product types / passing the checklist | 34 / 30 / 30 of 34 |
+| **Report-ready types** (need 20 across the two first sets) | **1** |
+| Why the others are held (one type can be held by several) | crowding not decided 23; no supplier search yet 9; "too quiet" 6; checklist under 5 Meets 4 |
 | Report sets produced | 0 / 2 |
-| Product map | 1,706 headings, 1,674 never searched (about 7 weeks at today's pace; tops itself up) |
-| Money since the fresh start | ₹0 cash; Apify US$0 (US$3.07 earmarked free allowance left this month); 42 free quick-commerce credits (expire 2 November) |
+| AI | 244 uses, 5.25 M input + 0.33 M output tokens (hidden reasoning not recorded), 81 AI minutes |
+| Rounds | 30; median about 17 minutes, growing from about 8 to about 47 |
+| Money since the fresh start | ₹0 cash; Apify US$0; quick-commerce pack 66 of 100 credits used (34 left, expire 2 November) |
 
-**Blockers right now:**
-- **AI weekly allowance at 100%** since 18:10 UTC (owner's ChatGPT Plus/Codex, shared with the owner's other Codex projects; research used under 2% of it). Every AI step waits until **22 October, 06:13 UTC**. Paid extra credits are never used without the owner.
-- **Dropdash signed out** at 18:37 UTC (its page showed the sign-in form). Owner action: **Sign in to research sites** → Dropdash tab → close the Chrome window.
-- **The demand gate** (opportunity "want" at least 5 points) and the requirement that every product pass every market check before it counts. This is a design choice, not a bug; the review proposes relaxing it.
+**State of things now:**
+- **Research is stopped** (owner's switch off). Plan R18 recommends keeping it stopped until its phase 2 loads.
+- **AI allowance:** the program's last reading (18:10 UTC) shows the weekly allowance at 100%. The owner reset it that night; the program will see the reset at its next AI use.
+- **Dropdash is signed out** (since between 08:18 and 17:26 UTC on 16 October; most likely the session expired). It has given 0 products so far. Owner action: sign in once.
+- **Google Trends** (check passed at 17:56 UTC) and **IndiaMART** (from 17:45 UTC) are signed in.
 
-**Signed-in sites:** Google Trends passed its three-read check at 17:56 UTC (owner signed in). IndiaMART signed in and read since 17:45 UTC. Dropdash signed out (above).
+**Built, and where it is:**
 
-**Built on 16 October, not loaded** (all branches in `/home/anan/`, none pushed except `main`):
-
-| Work | Branch / folder | State |
+| Work | Where | State |
 |---|---|---|
-| R14 report redesign (owner approved all plan section 14 options) + review fixes | `redesign` in `dropshipper-redesign` (`f37f8a2`); merged into `r10` | Done. Whole suite 6,107: 6,104 passed, 2 skipped, 1 known clock test; Chrome print 5/5; portal 303/303. EN and Hinglish fixture issues 25 pages each |
-| R15 signed-in sites (Dropdash plain Profitable list, weekly 21 categories, units-sold hint, first name removed, lost-read sweep, probe fixes) | `main` | **Live** since 16 October |
-| R16 rounds stay fast (stop copying the whole history on every read) | `speed` in `dropshipper-speed` (`76049fa`, on top of `r10` `ba7b849`) | Rounds 7–9× faster on copies of real data. Whole suite not yet run on the final commit |
-| R17 market checks first for passing types (+ review fixes M1–M5, m1–m9) | `evidence` in `dropshipper-evidence` (`69cb68c`, on top of `r10` `204c2b9`) | Fixes done, focused tests 386 OK. Whole suite not yet run. **Recommended to park** under the quick-pick direction |
-| Build copy | `r10` in `dropshipper-r10` (`204c2b9`) = R15 + R14 + R17 before its fixes | Integration copy only; do not fast-forward `main` to it as it is |
+| Wiring audit + Plan R18 | `docs/project/` on `main` | Done; reviewed once by a separate checker and corrected |
+| Read-only tracing tool (`scripts/research_trace.py`: funnel, routes, ai, product, summary) | `main` (`84012ec`), pushed | **Live**. 60/60 focused tests, 98% branch coverage; whole suite on its branch 6,102 OK (2 skipped). It runs in 5–40 s on the live records |
+| R18a per-AI-use accounting + honest run records (accounting file per AI use with allowance before/after, allowance history, AI and platform run-log rows, Dropdash detection fixes, honest failure/block counters, product id on rows) | branch `obs` in `/home/anan/dropshipper-obs` | See the handoff for whether it was loaded |
+| R14 report redesign + review fixes | `redesign` / `r10` | Done, not loaded; Plan R18 keeps its engine and simplifies its product page |
+| R16 rounds 7–9× faster | `speed` (on `r10`) | Done, whole suite not run on the final commit; Plan R18 phase 0 loads it |
+| R17 market checks first | `evidence` (on `r10`) | Plan R18 drops it |
 
-Next actions, in order, once the owner answers: (1) decide the quick-pick direction (review questions 1–5); (2) integrate what is kept (R14 and R16 on `main`; one known one-line conflict in `source_coverage.py` if R17 is also kept), run the whole suite, load, restart; (3) build quick pick if approved; (4) first two bilingual report sets, portal deploy and private-delivery checks.
+Next actions, in order, once the owner answers: Plan R18 section 8 (phase 0: load the speed fix, accounting and Dropdash fixes; owner signs in to Dropdash; then phases 2–6). Until then, nothing new is built.
 
 ## Earlier fresh start — 13 October 2026 (history)
 
