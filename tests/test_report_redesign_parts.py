@@ -301,7 +301,7 @@ class VisualFactTests(unittest.TestCase):
                 self.assertEqual(visuals.compliance_classes(product), expected)
         english = visuals.compliance_text(["baby", "electrical"], "en")
         self.assertTrue(english.startswith("Baby or child product"))
-        self.assertTrue(english.endswith("NeuraFlow gives no legal approval."))
+        self.assertTrue(english.endswith("No legal approval is given."))
         self.assertIn("legal manzoori", visuals.compliance_text(["medical"], "hi-Latn"))
 
     def checks(self, **changes):
@@ -347,3 +347,144 @@ class VisualFactTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PageHelperTests(unittest.TestCase):
+    """Page parts fed with small synthetic views (each state the market page can meet)."""
+    words = copy_text.TEXT["en"]
+
+    def test_money_hosts_and_fixed_supplier_caveats(self):
+        from product_radar import report_pages as pages
+        self.assertEqual(pages.rupees("1299"), "₹1,299")
+        self.assertEqual(pages.rupees("1299.50"), "₹1,299.5")
+        self.assertEqual(pages.rupees("149.05"), "₹149.05")
+        self.assertEqual(pages.host("https://www.example.org/x"), "example.org")
+        self.assertIsNone(pages.host(None))
+        self.assertIsNone(pages.host("not a url"))
+        self.assertEqual(pages.source_name("meta"), "Facebook Ads Library")
+        self.assertEqual(pages.source_name("Fixture source"), "Fixture source")
+        reason = "This dated supplier lead still needs matching to this product type."
+        self.assertEqual(pages.fixed_reason(reason, "en"), reason)
+        self.assertTrue(pages.fixed_reason(reason, "hi-Latn").startswith("Is purane supplier lead"))
+        self.assertEqual(pages.fixed_reason("Other words.", "hi-Latn"), "Other words.")
+        self.assertEqual(pages.weekday_line("hi-Latn", "2026-10-20"), "Mangalvaar, 20 October 2026")
+
+    def meta(self, **changes):
+        view = {"advertisers": 3, "relevant": 4, "active": 2, "recent": 1, "starts": None, "end": None, "undated": 0,
+                "observed": date(2026, 10, 15), "unlinked": False}
+        view.update(changes)
+        return {"meta": view}
+
+    def test_meta_tile_states(self):
+        from product_radar import report_pages as pages
+        tile = pages._meta_tile(self.meta(), self.words, {})
+        self.assertIn("4 relevant ads · 2 still active", tile)
+        self.assertIn("1 started in the last 30 days", tile)
+        self.assertIn("Facebook Ads Library · 15 Oct", tile)
+        none = pages._meta_tile(self.meta(advertisers=None, relevant=0, active=None, recent=None, observed=None), self.words, {})
+        self.assertIn(">0</span> <span>advertisers", none)
+        self.assertIn(self.words["m_none"], none)
+        self.assertIn("0 relevant ads", none)
+        starts = [(date(2026, 3, 1), False), (date(2026, 10, 1), True)]
+        dated = pages._meta_tile(self.meta(starts=starts, end=date(2026, 10, 15), undated=2), self.words, {})
+        self.assertIn('class="timeline"', dated)
+        self.assertIn("2 relevant ads had no start date", dated)
+        unlinked = pages._meta_tile(self.meta(starts=starts[:1], end=date(2026, 10, 15), unlinked=True), self.words, {})
+        self.assertIn(self.words["m_unlinked"], unlinked)
+        one = pages._meta_tile(self.meta(advertisers=1), self.words, {})
+        self.assertIn(">1</span> <span>advertiser<", one)
+
+    def test_trends_tile_states(self):
+        from product_radar import report_pages as pages
+        points = [{"start": f"2026-0{n}-01", "state": "observed", "value": 10 * n} for n in range(1, 10)]
+        drawn = pages._trends_tile({"trends": {"state": "rising_strongly", "points": points, "windows": None,
+                                               "previous": "20–22", "recent": "70", "collected": date(2026, 10, 14)}}, self.words)
+        self.assertIn("trend-state--up", drawn)
+        self.assertIn("Last 4 weeks 70, the 4 before 20–22", drawn)
+        self.assertIn("Jan 2026", drawn)
+        self.assertIn("Google Trends India · 14 Oct", drawn)
+        short = pages._trends_tile({"trends": {"state": "steady", "points": points, "windows": None, "previous": None,
+                                               "recent": None, "collected": None}}, self.words)
+        self.assertIn(self.words["tr_cap_short"], short)
+        self.assertIn("trend-state--flat", short)
+        unsaved = pages._trends_tile({"trends": {"state": "rising", "points": None, "windows": None, "previous": None,
+                                                 "recent": None, "collected": None}}, self.words)
+        self.assertIn(self.words["tr_no_chart"], unsaved)
+        none = pages._trends_tile({"trends": {"state": "none", "points": None, "windows": None, "previous": None,
+                                              "recent": None, "collected": None}}, self.words)
+        self.assertIn(self.words["tr_state"]["none"], none)
+        self.assertNotIn(self.words["tr_no_chart"], none)
+
+    def test_platform_and_quick_commerce_tiles(self):
+        from product_radar import report_pages as pages
+        rows = [{"route": "deodap", "state": "listed", "roles": ["bestseller", "new_arrival"], "price": "149"},
+                {"route": "baapstore", "state": "delisted", "roles": [], "price": None},
+                {"route": "dropdash", "state": "pending", "roles": [], "price": None}]
+        tile = pages._platform_tile({"platform": {"rows": rows, "checked": date(2026, 10, 13), "stale": True}}, self.words)
+        for text in ("₹149", "Bestseller", "New arrival", "No longer listed", "Being checked", "13 Oct", self.words["p_stale"]):
+            self.assertIn(text, tile)
+        basis = pages._platform_tile({"platform": {"rows": [dict(rows[0], state="unknown")], "checked": None, "stale": False}},
+                                     self.words)
+        self.assertIn("Not checked", basis)
+        matrix = {"places": ["Mumbai", "Delhi NCR"], "rows": {"blinkit": ["in_stock", "not_checked"],
+                  "zepto": ["not_in_stock", "not_checked"], "instamart": ["not_checked", "not_checked"]},
+                  "in_stock": ["Mumbai"], "checked": ["Mumbai"], "observed": date(2026, 10, 12)}
+        qc = pages._qc_tile({"qc": matrix}, self.words)
+        self.assertIn("In stock in 1 of 1 city checked", qc)
+        two = pages._qc_tile({"qc": dict(matrix, checked=["Mumbai", "Delhi NCR"])}, self.words)
+        self.assertIn("In stock in 1 of 2 cities checked", two)
+        self.assertEqual(qc.count('<span class="sr">Not checked</span>'), 4)
+        self.assertIn("12 Oct", qc)
+        unchecked = pages._qc_tile({"qc": dict(matrix, checked=[], in_stock=[], observed=None)}, self.words)
+        self.assertIn(self.words["qc_none"], unchecked)
+        self.assertIn("In stock in: Mumbai", pages._qc_tile({"qc": {"rows": None, "in_stock": ["Mumbai"]}}, self.words))
+        self.assertIn(self.words["qc_basis_none"], pages._qc_tile({"qc": {"rows": None, "in_stock": []}}, self.words))
+
+    def test_examples_and_suppliers_sections(self):
+        from product_radar import report_pages as pages
+        empty = {"bulk": "Bulk note.", "prices": None,
+                 "examples": {"rows": [], "shops": [], "leads": [], "more": 0, "omitted_for_size": True, "retained": 0}}
+        self.assertIn(self.words["ex_omitted"], pages._prices_section(empty, self.words))
+        self.assertIn("Bulk note.", pages._prices_section(empty, self.words))
+        empty["examples"]["omitted_for_size"] = False
+        self.assertIn(self.words["ex_none"], pages._prices_section(empty, self.words))
+        nothing = pages._prices_section({"bulk": None, "prices": None, "examples": None}, self.words)
+        self.assertIn(self.words["price_none"], nothing)
+        rows = [("₹110", "Listing", "Shop · seen 8 Oct", None)]
+        listed = {"bulk": None, "prices": None, "examples": {"rows": rows, "shops": rows, "leads": rows, "more": 3,
+                  "omitted_for_size": False, "retained": 0, "notes": ["Retained note."]}}
+        html = pages._prices_section(listed, self.words)
+        self.assertIn("3 more example listings are in the workbook.", html)
+        self.assertIn("Retained note.", html)
+        self.assertIn(self.words["supplier_examples"], html)
+        long_figure = pages._price_rows([("displayed quote ₹149–₹189 per pack", "x", "y", None)], self.words)
+        self.assertIn('class="price price--text"', long_figure)
+        scoped = {"rows": [{"name": "Lead", "url": None, "details": [None], "scoped": ["Offer 1: Pack; Source date 2026-10-01"],
+                            "links": [("Offer source: Pack", "https://example.org/offer")]}],
+                  "notes": [], "empty": "", "columns": pages.TERM_COLUMNS}
+        html = pages._suppliers_section({"suppliers": scoped, "rank": 7, "title": "Fixture <type>"}, self.words)
+        self.assertIn('<div class="sup-block s-scoped">', html)
+        self.assertNotIn('<table class="sup">', html)
+        # The repeating head names the product on every page a long lead reaches.
+        self.assertIn('<thead><tr><th scope="col">07 · Fixture &lt;type&gt; · Supplier leads</th></tr></thead>', html)
+        groups = pages.scoped_groups(["Intro.", "Company information: A", "Subscription: Yes", "Offer 1: B", "Minimum purchase: 10"])
+        self.assertEqual(groups, [["Intro."], ["Company information: A", "Subscription: Yes"], ["Offer 1: B", "Minimum purchase: 10"]])
+        grouped = pages._sources_section({"sources": [("Meta", "https://example.org/1", "5 Oct"), ("Meta", "https://example.org/2", "5 Oct"),
+                                                      ("Amazon India", "https://example.org/3", "6 Oct")]}, self.words)
+        self.assertIn('Meta <span>5 Oct:</span> <a href="https://example.org/1">1</a> <a href="https://example.org/2">2</a>', grouped)
+        self.assertIn('<a href="https://example.org/3">Amazon India</a> <span>6 Oct</span>', grouped)
+        self.assertIn('href="https://example.org/offer"', html)
+        legacy = {"rows": [{"name": "Lead", "url": "https://example.org/s", "details": ["reviewed 1 Oct"], "scoped": None,
+                            "moq": "100", "terms": {"dispatch": "no", "fees": "optional"}, "terms_text": ""}],
+                  "notes": ["Note."], "empty": "", "columns": pages.LEGACY_TERM_COLUMNS}
+        html = pages._suppliers_section({"suppliers": legacy}, self.words)
+        self.assertNotIn("Cash on delivery", html)
+        self.assertIn("Optional", html)
+        self.assertNotIn("sup-terms", html)
+        self.assertIn(self.words["sources_none"], pages._sources_section({"sources": []}, self.words))
+
+    def test_key_page_demo_score_stays_within_any_part_maxima(self):
+        from product_radar import report_pages as pages
+        ctx = {"words": self.words, "maxima": {"want": 10, "early": 10, "room": 10, "product": 70}, "footer": "x", "marker": None}
+        html = pages.key_page(ctx)
+        self.assertIn(">50</text>", html)  # half of every maximum, never more than a part allows

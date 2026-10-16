@@ -83,7 +83,7 @@ class RedesignedEditionTests(unittest.TestCase):
             self.assertIn(words["not_scored"], html)
             self.assertNotIn('class="dial"', html.split('id="key"')[0])
             self.assertIn("Synthetic ad evidence for a fixture only.", html)  # the saved market check stays visible
-            self.assertIn(words["count_dek_unscored"].split("{n}")[1].split(".")[0].strip(), html)
+            self.assertTrue(words["count_dek_unscored"].format(n=10, new=10, upd=0) in html)
 
     def test_compliance_flag_is_code_owned_and_counted(self):
         issue, dataset = fixture()
@@ -167,3 +167,76 @@ class RedesignedEditionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RichFixtureEditionTests(unittest.TestCase):
+    """The rich synthetic issue (real writers; see tests/report_redesign_fixture.py) in both editions."""
+
+    @classmethod
+    def setUpClass(cls):
+        import tempfile
+        from pathlib import Path
+        from report_redesign_fixture import rich_issue
+        cls.folder = tempfile.TemporaryDirectory(prefix="report-rich-")
+        cls.addClassCleanup(cls.folder.cleanup)
+        cls.root = Path(cls.folder.name) / "fixture"
+        _, cls.issue, cls.dataset = rich_issue(cls.root)
+        cls.html = {language: live.render_html(cls.issue, cls.dataset, language=language, root=cls.root)
+                    for language in LANGUAGES}
+        cls.views = {p["concept_id"]: report_view.product_view(p, prose, cls.dataset, "en", None)
+                     for p, prose in zip(cls.dataset["products"], cls.dataset["narratives"]["en"]["products"])}
+
+    def by_title(self, words):
+        return next(view for view in self.views.values() if words in view["title"])
+
+    def test_charts_draw_the_frozen_originals_the_score_read(self):
+        from product_radar.report_visuals import score_view
+        for product in self.dataset["products"]:
+            view = self.views[product["concept_id"]]
+            score = score_view(product)
+            facts = score["facts"]
+            with self.subTest(title=product["title"]):
+                # Meta: the timeline has one dot per counted advertiser and the same recent rule.
+                if view["meta"]["starts"] is not None:
+                    starts = view["meta"]["starts"]
+                    self.assertEqual(sum(recent for _, recent in starts) if starts else None,
+                                     facts["new_advertisers"]["recent_start_advertisers"])
+                # Trends: a usable chart is drawn with the score's compared windows.
+                if facts["google_searches"]["usable"]:
+                    self.assertGreaterEqual(len(view["trends"]["points"]), 50)
+                    self.assertEqual(len(view["trends"]["windows"]), 8)
+                else:
+                    self.assertEqual(view["trends"]["state"], "none")
+                # Platforms: listed exactly where the score counted a listing.
+                listed = {row["route"] for row in view["platform"]["rows"] if row["state"] == "listed"}
+                self.assertEqual(listed, set(facts["platform_lists"]["listed"]))
+                # Quick commerce: in-stock places are the score's stock cities.
+                self.assertEqual(view["qc"]["in_stock"], sorted(facts["quick_commerce"]["stock_cities"]))
+
+    def test_states_cover_the_plan(self):
+        labels = {view["score"]["label"] for view in self.views.values()}
+        self.assertEqual(labels, {"sweet_spot", "early_bet", "proven_but_crowded"})
+        self.assertTrue(any(view["image"] is None for view in self.views.values()))
+        self.assertTrue(any(view["compliance"] for view in self.views.values()))
+        self.assertTrue(any(view["status"] == "Updated" and view["prose"]["update"] for view in self.views.values()))
+        trimmer = self.by_title("nail trimmer")
+        self.assertEqual(trimmer["compliance"], ["baby", "electrical"])
+        self.assertTrue(any(recent for _, recent in trimmer["meta"]["starts"]))
+        self.assertTrue(any(row["roles"] for row in trimmer["platform"]["rows"]))
+        feeding = self.by_title("feeding set")
+        self.assertEqual(feeding["qc"]["rows"]["blinkit"][feeding["qc"]["places"].index("Mumbai")], "in_stock")
+        self.assertEqual(feeding["qc"]["rows"]["instamart"][feeding["qc"]["places"].index("Mumbai")], "not_in_stock")
+        self.assertIn("not_checked", feeding["qc"]["rows"]["blinkit"])
+
+    def test_both_editions_show_the_same_figures(self):
+        for pattern in (r'<span class="scorecell">.*?<b>(\d+)</b>', r'class="part-val"><b>(\d+)</b>/(\d+)',
+                        r'<span class="p-price">(₹[0-9,.]+)</span>', r'aria-label="(\d+) [a-z]+"'):
+            with self.subTest(pattern=pattern):
+                english = re.findall(pattern, self.html["en"])
+                self.assertTrue(english)
+                self.assertEqual(english, re.findall(pattern, self.html["hi-Latn"]))
+        for language, html in self.html.items():
+            self.assertEqual(len(sheets(html, "product-a")), 10)
+            self.assertEqual(html.count('class="timeline"'), sum(view["meta"]["starts"] is not None and view["meta"]["end"] is not None
+                                                                  for view in self.views.values()))
+            self.assertTrue(TEXT[language]["changed"] in html)

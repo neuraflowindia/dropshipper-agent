@@ -672,7 +672,7 @@ class LiveOutputTests(unittest.TestCase):
         self.assertTrue('<p class="sub">Supplier aur dropship quote</p>' in hinglish)
         self.assertTrue("minimum order: 100" in hinglish)
         self.assertTrue("Achha sanket mila hai" in hinglish)
-        self.assertTrue("Indian dropshipping ke liye 10 product types. Is issue mein 10 naye hain aur 0 update hain." in hinglish)
+        self.assertTrue("Indian dropshipping ke liye 10 product types: is issue mein 10 naye, 0 update." in hinglish)
         self.assertTrue("13 October 2026" in hinglish)
         for product in dataset["products"]:
             self.assertIn(product["concept_id"], english)
