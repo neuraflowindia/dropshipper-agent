@@ -50,7 +50,8 @@ def _examples(product, language):
     shops, leads = [], []
     for row in shown:
         figure = row["price"]["displayed"] if row["price"] else words["no_quote"]
-        source = " · ".join(part for part in (example_source_label(row), row["seller"], row["pack"] and words["ex_pack"].format(p=row["pack"]),
+        label = example_source_label(row) if row["source"] in SUPPLIER_LISTING_LABELS else pages.source_name(row["source"])
+        source = " · ".join(part for part in (label, row["seller"], row["pack"] and words["ex_pack"].format(p=row["pack"]),
                                                words["seen"].format(d=short_date(row["observed_at"]))) if part)
         (leads if row["source"] in SUPPLIER_LISTING_LABELS else shops).append((figure, row["title"], source, row["url"]))
     return {"rows": shown, "shops": shops, "leads": leads, "more": len(rows) - len(shown),
@@ -95,7 +96,7 @@ def _suppliers(product, language):
         seen = supplier.get("source_capture_at") or supplier.get("reviewed_at")
         reason = supplier.get("reason") or ""
         details = [words["lead_seen"].format(d=short_date(seen)) if isinstance(seen, str) else None]
-        if reason and reason != supplier.get("type_scope_limitation"):
+        if reason and reason not in (supplier.get("type_scope_limitation"), shared):
             details.append(pages.fixed_reason(reason, language))
         row = {"name": supplier["name"], "url": supplier.get("url"), "details": details, "scoped": None}
         if is_scoped_supplier(supplier):

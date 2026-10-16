@@ -8,6 +8,7 @@ Ported from the approved mock-up (report redesign, 16 October 2026).
 
 from decimal import Decimal
 from html import escape
+import re
 from urllib.parse import urlsplit
 
 from . import report_charts as charts
@@ -408,7 +409,8 @@ def _qc_tile(view, words):
     for app, cells in qc["rows"].items():
         rows += (f'<tr><th scope="row">{esc(QC_NAMES[app])}</th>' + "".join(
             f'<td>{charts.glyph_state(cell, 3.2)}<span class="sr">{esc(labels[cell])}</span></td>' for cell in cells) + '</tr>')
-    summary = (words["qc_sum"].format(k=len(qc["in_stock"]), n=len(qc["checked"])) if qc["checked"] else words["qc_none"])
+    summary = (words["qc_sum" if len(qc["checked"]) != 1 else "qc_sum_one"].format(k=len(qc["in_stock"]), n=len(qc["checked"]))
+               if qc["checked"] else words["qc_none"])
     body = (f'<table class="qc"><thead><tr><th></th>{head}</tr></thead><tbody>{rows}</tbody></table>'
             f'<p class="tile-note"><b>{esc(summary)}</b></p><p class="legend legend--qc">'
             + "".join(f'<span>{charts.glyph_state(state, 2.6)}{esc(labels[state])}</span>' for state in ("in_stock", "not_in_stock", "not_checked"))
@@ -430,7 +432,8 @@ def _price_rows(rows, words):
         return f'<p class="price-empty">{esc(words["price_none"])}</p>'
     items = ""
     for figure, what, source, url in rows:
-        figure_cls = "price" if figure.startswith("₹") and len(figure) <= 12 else "price price--text"
+        figure_cls = ("price" if figure.startswith("₹") and len(figure) <= 12 else
+                      "price price--text price--none" if figure == words["no_quote"] else "price price--text")
         what = f'<a href="{esc(url)}">{esc(what)}</a>' if url else esc(what)
         items += (f'<li><b class="{figure_cls}">{esc(figure)}</b><span class="p-what">{what}</span>'
                   f'<span class="soft">{esc(source)}</span></li>')
@@ -466,6 +469,19 @@ def _term_cell(value, words, column):
             f'{esc(words["tv"][value])}</span></td>')
 
 
+def _scoped_block(row, words):
+    """A lead whose terms differ by offer: full-width paragraphs (one per company or offer), so a long
+    lead may continue on the next page between paragraphs, never inside one."""
+    name = f'<a href="{esc(row["url"])}">{esc(row["name"])}</a>' if row["url"] else esc(row["name"])
+    details = " · ".join(esc(part) for part in row["details"] if part)
+    lines = "".join(f'<li>{" · ".join(esc(line) for line in group)}</li>' for group in scoped_groups(row["scoped"]))
+    links = " · ".join(f'<a href="{esc(url)}">{esc(label)}</a>' for label, url in row["links"])
+    links = f'<p class="s-links">{links}</p>' if links else ""
+    head = (f'<p class="s-head"><b>{name}</b>{f" <span class=\"soft\">· {details}</span>" if details else ""}'
+            f' · <b>{esc(words["scoped"])}</b></p>')
+    return f'<div class="sup-block s-scoped">{head}<ul>{lines}</ul>{links}</div>'
+
+
 def _suppliers_section(view, words):
     suppliers = view["suppliers"]
     if not suppliers["rows"]:
@@ -473,32 +489,65 @@ def _suppliers_section(view, words):
                 f'<p class="sup-empty">{esc(suppliers["empty"])}</p></section>')
     columns = suppliers["columns"]
     span = len(columns) + 2
-    head = (f'<th scope="col" class="s-name">{esc(words["suppliers"])}</th><th scope="col" class="s-moq">{esc(words["moq"])}</th>'
-            + "".join(f'<th scope="col">{esc(words["terms"][column])}</th>' for column in columns))
-    body = ""
-    for row in suppliers["rows"]:
-        name = f'<a href="{esc(row["url"])}">{esc(row["name"])}</a>' if row["url"] else esc(row["name"])
-        details = " · ".join(esc(part) for part in row["details"] if part)
-        name_cell = f'<th scope="row" class="s-name"><b>{name}</b>{f"<span>{details}</span>" if details else ""}</th>'
-        if row["scoped"] is not None:
-            lines = "".join(f'<li>{esc(line)}</li>' for line in row["scoped"])
-            links = " · ".join(f'<a href="{esc(url)}">{esc(label)}</a>' for label, url in row["links"])
-            links = f'<p class="s-links">{links}</p>' if links else ""
-            body += (f'<tbody class="sup-row"><tr>{name_cell}<td class="s-scoped" colspan="{span - 1}">'
-                     f'<b>{esc(words["scoped"])}</b><ul>{lines}</ul>{links}</td></tr></tbody>')
-            continue
-        cells = "".join(_term_cell(row["terms"][column], words, column) for column in columns)
-        terms = (f'<tr class="sup-terms"><td colspan="{span}">{esc(words["stated_terms"])}: {esc(row["terms_text"])}</td></tr>'
-                 if row["terms_text"] else "")
-        body += (f'<tbody class="sup-row{" sup-row--terms" if terms else ""}"><tr>{name_cell}<td class="s-moq" data-term="{esc(words["moq"])}">'
-                 f'<b>{esc(row["moq"])}</b></td>{cells}</tr>{terms}</tbody>')
+    table_rows = [row for row in suppliers["rows"] if row["scoped"] is None]
+    blocks = "".join(f'<tr><td>{_scoped_block(row, words)}</td></tr>' for row in suppliers["rows"] if row["scoped"] is not None)
+    if blocks:
+        # A one-column table: Chrome repeats its head on every page it reaches, so a long lead
+        # continued on the next page still names its product.
+        context = f'{view["rank"]:02d} · {view["title"]} · {words["suppliers"]}'
+        blocks = f'<table class="sup-cont"><thead><tr><th scope="col">{esc(context)}</th></tr></thead><tbody>{blocks}</tbody></table>'
+
+    table = ""
+    if table_rows:
+        head = (f'<th scope="col" class="s-name">{esc(words["suppliers"])}</th><th scope="col" class="s-moq">{esc(words["moq"])}</th>'
+                + "".join(f'<th scope="col">{esc(words["terms"][column])}</th>' for column in columns))
+        body = ""
+        for row in table_rows:
+            name = f'<a href="{esc(row["url"])}">{esc(row["name"])}</a>' if row["url"] else esc(row["name"])
+            details = " · ".join(esc(part) for part in row["details"] if part)
+            name_cell = f'<th scope="row" class="s-name"><b>{name}</b>{f"<span>{details}</span>" if details else ""}</th>'
+            cells = "".join(_term_cell(row["terms"][column], words, column) for column in columns)
+            terms = (f'<tr class="sup-terms"><td colspan="{span}">{esc(words["stated_terms"])}: {esc(row["terms_text"])}</td></tr>'
+                     if row["terms_text"] else "")
+            body += (f'<tbody class="sup-row{" sup-row--terms" if terms else ""}"><tr>{name_cell}<td class="s-moq" data-term="{esc(words["moq"])}">'
+                     f'<b>{esc(row["moq"])}</b></td>{cells}</tr>{terms}</tbody>')
+        table = f'<table class="sup"><thead><tr>{head}</tr></thead>{body}</table>'
     notes = "".join(f'<p class="sup-note">{esc(note)}</p>' for note in suppliers["notes"])
-    return (f'<section class="sup-sec"><table class="sup"><thead><tr>{head}</tr></thead>{body}</table>'
+    return (f'<section class="sup-sec">{table}{blocks}'
             f'{notes}<p class="sup-note">{esc(words["sup_note"])}</p></section>')
 
 
+_GROUP_HEAD = re.compile(r"(?:Company information|Company ki jankari|Offer \d+): ")
+
+
+def scoped_groups(lines):
+    """The fixed scoped-supplier lines as one paragraph per company or offer (same words, same order)."""
+    groups = []
+    for line in lines:
+        if not groups or _GROUP_HEAD.match(line):
+            groups.append([line])
+        else:
+            groups[-1].append(line)
+    return groups
+
+
+def source_groups(sources):
+    """Links seen on the same site on the same day share one label: 'Facebook Ads Library 5 Oct: 1 · 2 · 3'."""
+    groups = {}
+    for name, url, day in sources:
+        groups.setdefault((name, day), []).append(url)
+    return [(name, day, urls) for (name, day), urls in groups.items()]
+
+
 def _sources_section(view, words):
-    links = "".join(f'<li><a href="{esc(url)}">{esc(name)}</a> <span>{esc(day)}</span></li>' for name, url, day in view["sources"])
+    items = []
+    for name, day, urls in source_groups(view["sources"]):
+        if len(urls) == 1:
+            items.append(f'<li><a href="{esc(urls[0])}">{esc(name)}</a> <span>{esc(day)}</span></li>')
+        else:
+            numbered = " ".join(f'<a href="{esc(url)}">{number}</a>' for number, url in enumerate(urls, 1))
+            items.append(f'<li>{esc(name)} <span>{esc(day)}:</span> {numbered}</li>')
+    links = "".join(items)
     body = f'<ul class="sources">{links}</ul>' if links else f'<p class="sup-note">{esc(words["sources_none"])}</p>'
     return f'<section class="src-sec"><h2 class="h-module">{esc(words["sources"])}</h2>{body}</section>'
 
