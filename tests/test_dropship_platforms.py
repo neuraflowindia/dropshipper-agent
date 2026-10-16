@@ -269,6 +269,26 @@ class FetchTests(unittest.TestCase):
         self.assertEqual(requests[0][:2], ("GET", "/products.json?limit=250&page=1"))
         self.assertNotIn("Cookie", requests[0][2])
 
+    def test_the_body_is_read_after_http_client_hands_the_socket_to_the_response(self):
+        # Real http.client sets connection.sock to None in getresponse() after
+        # "Connection: close"; the reader must keep the socket it sent on.
+        timeouts = []
+        base = self.connection(self.Response(200, b'{"products": [1]}'), [])
+
+        class ClosingConnection(base):
+            def __init__(self, *args):
+                super().__init__(*args)
+                self.sock = type("Sock", (), {"settimeout": lambda _, value: timeouts.append(value)})()
+
+            def getresponse(self):
+                found = super().getresponse()
+                self.sock = None
+                return found
+        receipt, body = feeds.fetch_feed("https://deodap.in/products.json", resolver=self.resolver,
+                                         connection_factory=ClosingConnection)
+        self.assertEqual((receipt["state"], json.loads(body)), ("read", {"products": [1]}))
+        self.assertTrue(timeouts)
+
     def test_refusals_html_and_bad_json_are_failures_without_a_body(self):
         cases = [(self.Response(429, b""), "DROPSHIP_FEED_REFUSED"),
                  (self.Response(200, b"<html></html>", "text/html"), "DROPSHIP_FEED_UNAVAILABLE"),

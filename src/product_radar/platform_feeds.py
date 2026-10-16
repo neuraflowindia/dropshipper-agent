@@ -73,6 +73,9 @@ def fetch_feed(url, *, timeout=TIMEOUT_SECONDS, resolver=None, connection_factor
             connection.request("GET", parsed.path + ("?" + parsed.query if parsed.query else ""), headers={
                 "User-Agent": "NeuraFlow-Research/1.0", "Accept": "application/json",
                 "Accept-Encoding": "identity,gzip", "Connection": "close"})
+            # http.client hands the socket to the response after "Connection:
+            # close" (connection.sock becomes None), so keep it for the timeouts.
+            active_socket = connection.sock
             response = connection.getresponse()
             receipt.update(control.response_received(), http_status=response.status, final_url=clean)
             content = (response.getheader("Content-Type") or "").split(";", 1)[0].casefold().strip()
@@ -81,7 +84,7 @@ def fetch_feed(url, *, timeout=TIMEOUT_SECONDS, resolver=None, connection_factor
             elif response.status != 200 or content != "application/json":
                 receipt["reason"] = "DROPSHIP_FEED_UNAVAILABLE"
             else:
-                raw = _read_body(response, connection.sock, control)
+                raw = _read_body(response, active_socket, control)
                 body = raw.decode("utf-8")
                 json.loads(body)
                 receipt.update(state="read", reason=None, body_sha256=sha256(raw).hexdigest())
