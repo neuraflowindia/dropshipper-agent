@@ -259,6 +259,64 @@ class SourceAccessWaitTests(unittest.TestCase):
         self.assertEqual(self.execute(self.prepare("next-probe", "amazon-search", term="other"))["handler_calls"], 1)
         self.assertEqual(len(self.calls), 3)
 
+    def test_due_probe_whose_browser_never_started_releases_the_probe_but_keeps_the_wait(self):
+        # R15 (16 October): a due probe whose own browser failed before it opened any page
+        # held the site's wait for good, so every later question waited behind it.
+        run = self.prepare("first", "amazon-search"); self.execute(run)
+        refusal = self.wait()["failure_id"]
+        self.now = DUE
+        def unstarted(request, acquisition_id, **options):
+            self.calls.append((request["route"], acquisition_id, deepcopy(request)))
+            with patch("product_radar.marketplace_browser.utc_now", return_value=self.now):
+                return capture_marketplace(request, acquisition_id, **options, snapshot_reader=lambda req: transport(
+                    None, state="failed", stage="browser_launch", reason="Native browser capture failed",
+                    navigation_started=False, navigation_started_at=None, navigation_status=None))
+        handlers = self.handlers
+        self.handlers = create_marketplace_handlers(self.memory, data_root=self.source_root,
+                                                   capture=unstarted, shared_acquisitions=True)
+        self.assertEqual(self.execute(run)["handler_calls"], 1)
+        wait = self.wait()
+        self.assertEqual((wait["failure_id"], wait["phase"], wait["probe"]), (refusal, "due", None))
+        self.handlers, self.status = handlers, 200
+        self.assertEqual(self.execute(self.prepare("next-probe", "amazon-search", term="other"))["handler_calls"], 1)
+        self.assertEqual(len(self.calls), 3)
+        self.assertIsNone(self.wait())
+
+    def test_only_a_probe_proven_to_have_sent_nothing_is_released(self):
+        from product_radar.source_coverage import probe_sent_nothing
+        probe = {"acquisition_id": "owner", "caller_id": "caller", "admitted_at": NOW, "id": "probe"}
+        state = {"query_tasks": {"caller": {"kind": "all_source_task_v1", "status": "dispatching", "source_access_probe": "probe"}}}
+        for owner, expected in (({"state": "dispatching", "active_response_id": None, "stage_ids": ["intent"]}, False),
+                                ({"state": "failed_access", "active_response_id": None, "stage_ids": []}, False),
+                                ({"state": "set_aside", "active_response_id": None, "stage_ids": ["set-aside"]}, False),
+                                ({"state": "reserved", "active_response_id": None, "stage_ids": []}, False)):
+            with self.subTest(owner=owner["state"]), patch("product_radar.source_acquisitions._record", return_value=owner):
+                self.assertIs(probe_sent_nothing(state, probe), expected)
+        waiting = {"query_tasks": {"caller": {"kind": "all_source_task_v1", "status": "prepared"}}}
+        reopened_before = {"state": "reserved", "active_response_id": None, "stage_ids": ["intent", "zero"]}
+        stages = {"intent": {"stage_type": "dispatch_intent"}, "zero": {"stage_type": "prelaunch_zero",
+                                                                         "observed_at": "2026-10-09T09:50:00+00:00"}}
+        for owner in ({"state": "reserved", "active_response_id": None, "stage_ids": []}, reopened_before):
+            with self.subTest(stages=owner["stage_ids"]), \
+                    patch("product_radar.source_acquisitions._record", return_value=owner), \
+                    patch("product_radar.source_acquisitions._stage", side_effect=lambda _s, _o, stage_id: stages[stage_id]):
+                # Its question went back to waiting (a calm wait before anything was sent): released,
+                # also when the owner was reopened once before this probe (review finding, R15).
+                self.assertTrue(probe_sent_nothing(waiting, probe))
+                self.assertFalse(probe_sent_nothing(state, probe))  # still about to be sent by its question
+                # A caller that is no question of this programme (a photo, a wider read) keeps it.
+                self.assertFalse(probe_sent_nothing({"query_tasks": {}}, probe))
+                self.assertFalse(probe_sent_nothing({}, probe))
+        stages["zero"]["observed_at"] = "2026-10-09T10:05:00+00:00"  # reopened after this probe: released
+        with patch("product_radar.source_acquisitions._record", return_value=reopened_before), \
+                patch("product_radar.source_acquisitions._stage", side_effect=lambda _s, _o, stage_id: stages[stage_id]):
+            self.assertTrue(probe_sent_nothing(state, probe))
+        odd = dict(reopened_before, stage_ids=["intent", "legacy"])
+        stages["legacy"] = {"stage_type": "legacy_origin"}
+        with patch("product_radar.source_acquisitions._record", return_value=odd), \
+                patch("product_radar.source_acquisitions._stage", side_effect=lambda _s, _o, stage_id: stages[stage_id]):
+            self.assertFalse(probe_sent_nothing(waiting, probe))  # an adopted original is never released
+
     def test_successful_due_probe_clears_host_wait(self):
         run = self.prepare("first", "amazon-search"); self.execute(run)
         self.now = DUE; self.status = 200

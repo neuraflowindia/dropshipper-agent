@@ -110,8 +110,10 @@ class SignedInBrowserTests(unittest.TestCase):
 
     # Sign-in window ----------------------------------------------------------------------------------------------
     def test_open_starts_plain_chrome_without_remote_control_and_with_every_site(self):
+        signed.note_browser_start(self.root, False, at="2026-10-14T11:00:00+00:00")  # an earlier failed start
         with self.installed():
             self.assertEqual(signed.open_sign_in_window(self.root, runner=self.runner()), "opened")
+        self.assertIsNone(signed._browser_start(self.root))  # Chrome started on the profile: no longer counted
         script, request = decoded(self.commands[-1])
         flags = script[script.index("$flags="):script.index("$quoted=")]
         self.assertNotIn("--remote-debugging-port", flags)
@@ -392,6 +394,73 @@ class SignedInBrowserTests(unittest.TestCase):
                                        marker=lambda snapshot: self.fail("No marker without a captured page"))
         self.assertEqual(failed["reason"], "OWNER_DESKTOP_UNAVAILABLE")
 
+    def test_a_chrome_that_never_started_is_a_calm_wait_and_signed_in_reads_rest(self):
+        # 16 October (R15): Chrome failed while launching (the owner's window held the profile).
+        signed.note_sign_in_window(self.root, True, opened=True, at="2026-10-14T10:00:00+00:00")
+        signed.note_sign_in_window(self.root, False, at="2026-10-14T10:05:00+00:00")
+        signed.record_site_observation(self.root, "indiamart", True, observed_at="2026-10-14T10:06:00+00:00")
+        failed = {"state": "failed", "reason": "Native browser capture failed", "stage": "browser_launch",
+                  "navigation_started": False, "owned_process_exited": True, "snapshot": None}
+        for change in ({"stage": "navigation"}, {"navigation_started": None}, {"owned_process_exited": False},
+                       {"state": "unavailable"}):
+            self.assertFalse(signed.start_failed(dict(failed, **change)), change)  # not proven: stays a failure
+        self.assertFalse(signed.start_failed(None))
+        read = lambda browser, at: signed.signed_in_read("indiamart", "https://www.indiamart.com/", "x", self.root,
+                                                         root=self.root, browser=browser, marker=lambda snapshot: True)
+        with patch("product_radar.signed_in_browser.utc_now", return_value="2026-10-14T11:00:00+00:00"):
+            result = read(lambda *a, **k: dict(failed), None)
+        self.assertEqual((result["state"], result["reason"], result["navigation_started"], result["start_failure"]),
+                         ("waiting", "SIGNED_IN_BROWSER_DID_NOT_START", False, "Native browser capture failed"))
+        self.assertIn("SIGNED_IN_BROWSER_DID_NOT_START", signed.WAIT_CODES)
+        # Every signed-in read rests ten minutes (nothing is launched), with that recheck time.
+        at = "2026-10-14T11:05:00+00:00"
+        self.assertEqual(signed.signed_in_wait(self.root, "dropdash", as_of=at), "SIGNED_IN_BROWSER_DID_NOT_START")
+        self.assertEqual(signed.signed_in_recheck_at(self.root, "SIGNED_IN_BROWSER_DID_NOT_START", as_of=at),
+                         "2026-10-14T11:10:00+00:00")
+        self.assertIsNone(signed.browser_start_line(self.root))  # one failure: no owner line yet
+        self.assertIsNone(signed.signed_in_wait(self.root, "indiamart", as_of="2026-10-14T11:10:00+00:00"))
+        # A second failure in a row rests 30 minutes and shows a plain line.
+        signed.note_browser_start(self.root, False, at="2026-10-14T11:10:00+00:00", reason="Native browser capture failed")
+        self.assertEqual(signed.browser_start_rest(self.root, as_of="2026-10-14T11:20:00+00:00"), "2026-10-14T11:40:00+00:00")
+        with patch("product_radar.signed_in_browser.utc_now", return_value="2026-10-14T11:20:00+00:00"):
+            line = signed.sign_in_line(self.root)
+            self.assertTrue(line.startswith("The research Chrome window could not start (2 tries in a row, "
+                                            "the latest at 14 Oct, 11:10 UTC)"))
+            # A sign-in need always comes first (review finding, R15).
+            signed.record_site_observation(self.root, "dropdash", False, observed_at="2026-10-14T11:15:00+00:00")
+            line = signed.sign_in_line(self.root)
+            self.assertTrue(line.startswith("Sign-in needed: Dropdash. Click Sign in to research sites. The research Chrome"))
+            signed.record_site_observation(self.root, "dropdash", True, observed_at="2026-10-14T11:16:00+00:00")
+        # Once the rest is over, the line waits for the next failed start.
+        with patch("product_radar.signed_in_browser.utc_now", return_value="2026-10-14T11:39:00+00:00"):
+            self.assertIn("could not start", signed.sign_in_line(self.root))
+        with patch("product_radar.signed_in_browser.utc_now", return_value="2026-10-14T11:40:00+00:00"):
+            self.assertNotIn("could not start", signed.sign_in_line(self.root))
+        signed.note_browser_start(self.root, False, at="2026-10-14T11:40:00+00:00", reason=None)
+        self.assertEqual(signed.browser_start_rest(self.root, as_of="2026-10-14T11:41:00+00:00"), "2026-10-14T12:40:00+00:00")
+        # A busy record never fails the read: the rest it keeps ends by itself.
+        with patch("product_radar.signed_in_browser.note_browser_start", side_effect=SafetyError("SIGNED_IN_RECORD_BUSY")):
+            self.assertEqual(read(lambda *a, **k: dict(failed), None)["reason"], "SIGNED_IN_BROWSER_DID_NOT_START")
+            self.assertTrue(read(lambda *a, **k: {"state": "captured", "navigation_started": True, "snapshot": {}},
+                                 None)["signed_in"])
+        with patch("product_radar.signed_in_browser.note_browser_start", side_effect=SafetyError("SIGNED_IN_RECORD_INVALID")):
+            with self.assertRaisesRegex(SafetyError, "SIGNED_IN_RECORD_INVALID"):
+                read(lambda *a, **k: dict(failed), None)
+            with self.assertRaisesRegex(SafetyError, "SIGNED_IN_RECORD_INVALID"):
+                read(lambda *a, **k: {"state": "captured", "navigation_started": True, "snapshot": {}}, None)
+        # A read that opens its page ends the rest and the line.
+        self.assertTrue(read(lambda *a, **k: {"state": "captured", "navigation_started": True, "snapshot": {}}, None)["signed_in"])
+        self.assertIsNone(signed.browser_start_rest(self.root, as_of="2026-10-14T11:41:00+00:00"))
+        self.assertNotIn("could not start", signed.sign_in_line(self.root))
+        self.assertIsNone(signed.note_browser_start(self.root, True))  # nothing saved: nothing written
+        for broken in ({"schema_version": 1, "failed_at": "2026-10-14T11:00:00+00:00", "failures": 0, "reason": None},
+                       {"schema_version": 1, "failed_at": "2026-10-14T11:00:00+00:00", "failures": 1, "reason": 7},
+                       {"schema_version": 1, "failed_at": 7, "failures": 1, "reason": None},
+                       {"schema_version": 1, "failed_at": "2026-10-14T11:00:00+00:00", "failures": 1}):
+            (self.root / "data/operations/signed-in-browser/browser-start.json").write_text(json.dumps(broken))
+            with self.assertRaisesRegex(SafetyError, "SIGNED_IN_RECORD_INVALID"):
+                signed.browser_start_rest(self.root)
+
     def test_signed_in_read_defaults_to_the_native_signed_in_browser(self):
         with patch("product_radar.native_public_browser.native_snapshot", return_value={"state": "waiting"}) as native:
             signed.signed_in_read("deodap", "https://deodap.in/", "x", self.root, root=self.root, marker=bool)
@@ -405,7 +474,8 @@ class SignedInBrowserTests(unittest.TestCase):
         self.assertEqual(own["host"], public["host"])
         self.assertNotEqual(own, public)
         self.assertEqual(set(signed.WAIT_CODES), {"OWNER_SIGN_IN_REQUIRED", "OWNER_SIGN_IN_WINDOW_OPEN",
-                                                  "OWNER_DESKTOP_UNAVAILABLE", "SIGNED_IN_BROWSER_BUSY"})
+                                                  "OWNER_DESKTOP_UNAVAILABLE", "SIGNED_IN_BROWSER_BUSY",
+                                                  "SIGNED_IN_BROWSER_DID_NOT_START"})
 
     # Command-line entry ----------------------------------------------------------------------------------------
     def test_sign_in_command_open_status_and_busy(self):

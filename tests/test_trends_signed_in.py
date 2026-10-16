@@ -85,6 +85,14 @@ class SignedInTrendsTests(unittest.TestCase):
         """An offline double of ``native_snapshot(profile="signed-in")``."""
         self.calls.append(dict(options, url=url, expression=expression))
         folder.mkdir(parents=True, exist_ok=True)
+        if self.state == "launch_failed":
+            # 16 October: Chrome could not start on a profile the owner's sign-in window held.
+            atomic_json(folder / "owned_process.json", {"pid": 4242})
+            output = {"state": "failed", "reason": "Native browser capture failed", "navigation_started": False,
+                      "stage": "browser_launch", "owned_process_exited": True, "sign_in_window_open": False,
+                      "completed_at": self.tick(), "snapshot": None, "requests": []}
+            atomic_json(folder / "native_result.json", output)
+            return output
         if self.state != "captured":
             output = {"state": "waiting", "reason": self.state, "navigation_started": False,
                       "stage": "browser_launch", "snapshot": None}
@@ -107,7 +115,7 @@ class SignedInTrendsTests(unittest.TestCase):
         atomic_json(folder / "native_result.json", output)
         return output
 
-    def round(self, shared=True):
+    def round(self, shared=True, run="checks"):
         """One controller round, each later than the question's calm recheck time."""
         self.shift = getattr(self, "shift", -150) + 150
         at = (datetime.now(timezone.utc) + timedelta(seconds=self.shift)).isoformat()
@@ -118,7 +126,7 @@ class SignedInTrendsTests(unittest.TestCase):
         with patch("product_radar.signed_in_pacing.utc_now", return_value=at), \
                 patch("product_radar.trends_controller._wrapper_utc_now", side_effect=self.tick), \
                 patch("product_radar.trends_shared.utc_now", side_effect=lambda **_: self.tick()):
-            return execute_source_run(self.memory, "checks", handlers=handlers, as_of=at,
+            return execute_source_run(self.memory, run, handlers=handlers, as_of=at,
                 bounded_call=lambda callback, context, timeout: callback(context), shared_marketplace=shared)
 
     def tick(self):
@@ -379,6 +387,48 @@ class SignedInTrendsTests(unittest.TestCase):
         with self.assertRaisesRegex(SafetyError, "TRENDS_PROOF_GATE_RECORD_INVALID"):
             gate.proof_gate(self.signed)
 
+    def test_a_failed_check_clears_once_a_later_read_saves_a_verified_chart(self):
+        # R15: "Google Trends check failed" used to stay until the owner's next sign-in.
+        self.sign_in(); self.status = 429
+        self.snap = page(text="Too many requests", rows=[], download_found=False, account={"avatar": False, "sign_in_link": False})
+        self.capture("refused")
+        self.assertEqual(gate.proof_gate(self.signed)["state"], "failed")
+        self.assertIn("refused the signed-in read", gate.proof_gate_line(self.signed))
+        self.status = 200
+        self.snap = page("chair cover", rows=[], download_found=False, time_widget_present=True)
+        no_chart = self.capture("no-chart", term="chair cover")
+        self.assertEqual(no_chart["state"], "insufficient")  # no verified chart export: the check stays failed
+        self.assertEqual(gate.proof_gate(self.signed)["state"], "failed")
+        for index in range(1, 4):
+            self.snap = page("table mat %d" % index)
+            self.capture("chart-%d" % index, term="table mat %d" % index)
+            if index == 1:
+                record = gate.proof_gate(self.signed)
+                self.assertEqual((record["state"], len(record["reads"])), ("in_progress", 1))
+                self.assertEqual(gate.proof_gate_line(self.signed),
+                                 "Google Trends check: 1 of 3 signed-in reads saved complete results.")
+        self.assertEqual(gate.proof_gate(self.signed)["state"], "passed")
+        self.assertTrue(gate.proof_gate_line(self.signed).startswith("Google Trends check passed"))
+
+    def test_a_restarted_check_counts_only_reads_after_the_failure_in_order(self):
+        # Review finding (R15): bookkeeping settled late re-applies older reads.
+        self.sign_in(at="2026-10-16T10:00:00+00:00")
+        def read(name, at, state, reason=None):
+            receipt = {"acquisition_id": name, "observed_at": at, "state": state, "reason": reason,
+                       "dispatch_started": True, "artifacts": {}, "navigation_status": 200}
+            return gate.record_proof_read(self.signed, self.root, receipt)
+        self.assertEqual(read("refused", "2026-10-16T11:00:00+00:00", "blocked", "DIRECT_TRENDS_ACCESS_CHALLENGE")["state"], "failed")
+        self.assertEqual(read("older-chart", "2026-10-16T10:30:00+00:00", "usable")["state"], "failed")  # before the failure
+        restarted = read("chart", "2026-10-16T12:00:00+00:00", "usable")
+        self.assertEqual((restarted["state"], [row["acquisition_id"] for row in restarted["reads"]]), ("in_progress", ["chart"]))
+        self.assertEqual(restarted["decided_at"], "2026-10-16T11:00:00+00:00")
+        late = read("older-refusal", "2026-10-16T10:45:00+00:00", "blocked", "DIRECT_TRENDS_ACCESS_CHALLENGE")
+        self.assertEqual((late["state"], len(late["reads"])), ("in_progress", 1))  # settled late: not this check's
+        read("chart-2", "2026-10-16T12:05:00+00:00", "usable")
+        passed = read("chart-3", "2026-10-16T12:10:00+00:00", "no_data")
+        self.assertEqual((passed["state"], passed["decided_at"]), ("passed", "2026-10-16T12:10:00+00:00"))
+        self.assertTrue(gate.proof_gate_line(self.signed).startswith("Google Trends check passed"))
+
     def test_refusal_checks_need_the_saved_refusal_itself(self):
         self.sign_in()
         self.snap = page(text="Unusual traffic from your computer network", rows=[], download_found=False)
@@ -515,6 +565,123 @@ class SignedInTrendsTests(unittest.TestCase):
                 signed_in_snapshot(explore_url("chair cover"), EXPORT_JS, folder, root=self.signed, timeout=45,
                                    ready_expression=None, download_folder=folder)
             self.assertNotIsInstance(raised.exception, SignedInWait)
+
+    # 16 October (R15): a due probe whose Chrome never opened Trends held the route for good.
+
+    def two_questions_one_refusal(self):
+        """Two Trends questions; the first read is refused (429), so Trends waits five minutes."""
+        self.sign_in()
+        self.memory.put("concepts", "mat", {"status": "active", "description": {"label": "table mat"}})
+        prepare_source_tasks(self.memory, [{"route": "google-trends", "request": {"query": term, "country": "IN"},
+                                            "concept_ids": [concept]} for term, concept in (("chair cover", "chair"), ("table mat", "mat"))],
+                             run_id="checks", as_of=now())
+        self.status = 429
+        self.snap = page(text="Too many requests", rows=[], download_found=False, account={"avatar": False, "sign_in_link": False})
+        self.clocked_round()
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.wait()["phase"], "waiting")
+        self.shift = 300  # the next round is past the refusal's five minutes
+
+    def clocked_round(self, run="checks"):
+        """``round``, with the read's own start and the browser records on the round's
+        clock too (a read reopened unsent proves its times against its intent's)."""
+        with patch("product_radar.trends_signed_in.utc_now", side_effect=lambda **_: self.tick()), \
+                patch("product_radar.signed_in_browser.utc_now", side_effect=lambda **_: self.tick()):
+            return self.round(run=run)
+
+    def wait(self, at=None):
+        return source_access_wait(self.memory.snapshot(), signed_in_access_scope(explore_url("chair cover")),
+                                  as_of=at or (datetime.now(timezone.utc) + timedelta(seconds=getattr(self, "shift", 0))).isoformat())
+
+    def statuses(self):
+        return sorted(row["status"] for row in self.memory.snapshot()["query_tasks"].values()
+                      if row.get("route") == "google-trends")
+
+    def test_a_chrome_that_did_not_start_is_a_calm_wait_that_never_holds_the_route(self):
+        from product_radar.signed_in_browser import browser_start_line, browser_start_rest
+        self.two_questions_one_refusal()
+        self.state = "launch_failed"
+        result = self.clocked_round()
+        self.assertEqual(len(self.calls), 2)  # the due probe started Chrome once; it never opened Trends
+        self.assertIn("SIGNED_IN_BROWSER_DID_NOT_START", [row.get("reason") for row in result["results"]])
+        self.assertNotIn("failed", self.statuses())  # no question was used up
+        wait = self.wait()
+        self.assertEqual((wait["phase"], wait["probe"]), ("due", None))  # nothing was asked of Google
+        self.assertEqual(len(pacing._records(self.signed)["reads"]["google-trends"]), 1)  # only the refused read counts
+        self.assertIsNotNone(browser_start_rest(self.signed, as_of=self.clock.isoformat()))
+        self.assertIsNone(browser_start_line(self.signed))  # one failed start is no owner line yet
+        self.clocked_round()  # inside the ten-minute rest: Chrome is not started again
+        self.assertEqual(len(self.calls), 2)
+        self.state, self.status, self.snap = "captured", 200, page()
+        self.shift += 600
+        self.clocked_round()
+        self.assertEqual(len(self.calls), 3)  # one question probes Trends again
+        self.assertIsNone(self.wait())  # Google answered: the route is open again
+        self.assertIsNone(browser_start_rest(self.signed))  # a start that opened its page ends the rest
+        self.assertEqual(len(self.memory.snapshot()["trends_evidence"]), 1)
+
+    def test_a_probe_saved_by_the_old_code_after_a_failed_start_no_longer_holds_trends(self):
+        # The live record of 16 October 11:47: the failed start was saved as the probe's
+        # closed reply with no request started (the question failed). That reply proves
+        # the probe reached nothing, so the route is due again and another question probes.
+        self.two_questions_one_refusal()
+        self.state = "launch_failed"
+        with patch("product_radar.signed_in_browser.start_failed", return_value=False):
+            self.clocked_round()
+        self.assertEqual(len(self.calls), 2)
+        (owner,) = (row for row in self.memory.snapshot()["batch_runs"].values() if row.get("kind") == ACQUISITION_KIND
+                    and row.get("active_response_id")
+                    and self.memory.snapshot()["source_checks"][row["active_response_id"]]["dispatch_started"] is False)
+        response = self.memory.snapshot()["source_checks"][owner["active_response_id"]]
+        self.assertEqual((owner["state"], response["parse_reason"]), ("execution_unknown", "Native browser capture failed"))
+        from product_radar.source_coverage import ACCESS_SCOPE_KIND
+        (scope_row,) = (row for row in self.memory.snapshot()["batch_runs"].values() if row.get("kind") == ACCESS_SCOPE_KIND)
+        self.assertEqual(scope_row["probe"]["acquisition_id"], owner["binding"]["acquisition_id"])  # still saved...
+        wait = self.wait()
+        self.assertEqual((wait["phase"], wait["probe"]), ("due", None))  # ...but it no longer holds the route
+        self.state, self.status, self.snap = "captured", 200, page("table mat")
+        self.clocked_round()
+        self.assertEqual(len(self.calls), 3)
+        self.assertIsNone(self.wait())
+
+    def test_a_probe_reopened_after_the_sign_in_window_was_found_open_can_probe_again(self):
+        # The window check runs again when Chrome is about to start; a probe reopened then
+        # (nothing was sent) used to be refused its own probe for good.
+        self.two_questions_one_refusal()
+        self.state = "OWNER_SIGN_IN_WINDOW_OPEN"
+        self.clocked_round()
+        unsent = len(self.calls)
+        self.assertGreater(unsent, 1)  # each start met the open window; nothing was sent
+        self.assertNotIn("failed", self.statuses())
+        self.assertEqual(self.wait()["phase"], "due")
+        note_sign_in_window(self.signed, False, at=now())  # the owner closed the window
+        self.state, self.status, self.snap = "captured", 200, page()
+        self.shift += 300
+        for _ in range(2):
+            self.clocked_round()
+        self.assertGreater(len(self.calls), unsent)
+        self.assertIsNone(self.wait())
+        self.assertGreaterEqual(len(self.memory.snapshot()["trends_evidence"]), 1)
+
+    def test_a_run_paused_by_a_superseded_refusal_lets_its_other_questions_probe(self):
+        # 16 October: three review groups each kept a Trends pause from their own refused
+        # question. Once a later refusal (another group's) became the site's wait, a paused
+        # group's own due probe could only replay its old refusal, so the group's other
+        # questions were "blocked" for good, even after the site's wait was due.
+        self.two_questions_one_refusal()  # group "checks": chair cover refused; table mat waits behind it
+        self.memory.put("concepts", "sofa", {"status": "active", "description": {"label": "sofa cover"}})
+        prepare_source_tasks(self.memory, [{"route": "google-trends", "request": {"query": "sofa cover", "country": "IN"},
+                                            "concept_ids": ["sofa"]}], run_id="later-group", as_of=now())
+        self.clocked_round(run="later-group")  # the due site refuses the other group's question too
+        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(self.wait()["phase"], "waiting")  # the site's wait is now the other group's refusal
+        self.shift += 3600  # past the second refusal's wait
+        self.status, self.snap = 200, page("table mat")
+        results = self.clocked_round()["results"]
+        self.assertEqual(len(self.calls), 3)  # table mat probed the site for its group
+        self.assertNotIn("This route is waiting after an actual shared route failure.",
+                         [row.get("reason") for row in results])
+        self.assertIsNone(self.wait())
 
     # Review probes (W2 review, 14 October): limits, rendering, the gate, sign-in pages.
 

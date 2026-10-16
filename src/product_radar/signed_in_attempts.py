@@ -34,12 +34,13 @@ class SignedInWait(SafetyError):
 
 
 # The only refusals a signed-in read turns into a calm wait: the signed-in
-# browser's own waits, this round's share of it spent, and a busy local
-# record. Anything else (invalid settings or records, a leftover artefact) is
-# a failure that must be seen.
+# browser's own waits (a research Chrome that proved it never started among
+# them: ``signed_in_browser.start_failed``), this round's share of it spent,
+# and a busy local record. Anything else (invalid settings or records, a
+# leftover artefact) is a failure that must be seen.
 CALM_CODES = ("OWNER_SIGN_IN_REQUIRED", "OWNER_SIGN_IN_WINDOW_OPEN", "OWNER_DESKTOP_UNAVAILABLE",
               "SIGNED_IN_BROWSER_BUSY", "SIGNED_IN_RECORD_BUSY", "SIGNED_IN_ROUND_TIME_USED",
-              "SIGNED_IN_ROUND_READS_USED")
+              "SIGNED_IN_ROUND_READS_USED", "SIGNED_IN_BROWSER_DID_NOT_START")
 
 
 def signed_in_hold(root, site, *, as_of=None):

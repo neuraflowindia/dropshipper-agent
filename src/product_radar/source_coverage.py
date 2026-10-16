@@ -494,24 +494,70 @@ def _access_head(state, scope):
     return found
 
 
+def probe_sent_nothing(state, probe):
+    """Whether a host's due probe is proven to have reached nothing.
+
+    Its own read either saved a closed reply (its browser or worker has
+    exited) saying no request ever started, or was reopened after a start
+    that never navigated (a signed-in read that found the owner's sign-in
+    window open or its Chrome unable to start: ``prelaunch_zero``), in both
+    cases after the probe was admitted; or its question gave the read up
+    before anything started (a calm wait such as pacing: the question no
+    longer carries this probe and its read was never marked as sending).
+    Such a probe tested nothing about the host, so it must not hold the
+    host's wait for ever: the wait is due again and the next due caller (this
+    one included) may probe. A probe still being sent (or about to be), one
+    whose outcome is unknown, or one that reached the host keeps it.
+    """
+    from .source_acquisitions import _record, _stage
+    owner, admitted = _record(state, probe["acquisition_id"]), timestamp(probe["admitted_at"])
+    if owner["state"] == "dispatching":
+        return False
+    if owner["active_response_id"]:
+        response = _stage(state, owner, owner["active_response_id"])
+        return (response.get("stage_type") == "response" and response.get("dispatch_started") is False
+                and source_response_closed(response) and timestamp(response["observed_at"]) >= admitted)
+    if owner["state"] != "reserved":
+        return False
+    if owner["stage_ids"]:
+        stages = [_stage(state, owner, stage_id) for stage_id in owner["stage_ids"]]
+        last = stages[-1]
+        if last.get("stage_type") == "prelaunch_zero" and timestamp(last["observed_at"]) >= admitted:
+            return True
+        if any(stage.get("stage_type") not in ("dispatch_intent", "prelaunch_zero") for stage in stages):
+            return False
+        # Reopened before this probe was admitted: like a never-started owner below.
+    # Admitted with its question's intent in one save; until the read is marked
+    # as sending (which needs that question "dispatching" with this probe), only
+    # that question may use it. A question that went back to waiting gave it up.
+    caller = state.get("query_tasks", {}).get(probe["caller_id"])
+    return (isinstance(caller, dict) and caller.get("kind") == TASK_KIND
+            and (caller.get("status") != "dispatching"
+                 or probe["id"] not in (caller.get("source_access_probe"), caller.get("marketplace_access_probe"))))
+
+
 def source_access_wait(state, scope, *, as_of):
-    """Pure current wait/probe view; saved bytes do not need this launch gate."""
+    """Pure current wait/probe view; saved bytes do not need this launch gate.
+
+    A probe that sent nothing (``probe_sent_nothing``) is shown as no probe:
+    the wait is "waiting" or "due" by the refusal's own retry time again."""
     timestamp(as_of)
     head = _access_head(state, scope)
     if not head or head[1]["active_failure_id"] is None: return None
     row = head[1]; failure = _access_failure(state, row["active_failure_id"])
     binding = failure["binding"]
     response = state["source_checks"][binding["response_id"]]
-    phase = ("probe_pending" if row["probe"] else "execution_unknown"
+    probe = row["probe"] if row["probe"] and not probe_sent_nothing(state, row["probe"]) else None
+    phase = ("probe_pending" if probe else "execution_unknown"
              if not source_response_closed(response) else
              "waiting" if timestamp(as_of) < timestamp(binding["next_retry_at"]) else "due")
     return {"scope": deepcopy(scope), "scope_id": head[0], "scope_hash": row["scope_hash"],
             "failure_id": row["active_failure_id"], "failure_hash": digest(failure),
             "phase": phase, "next_retry_at": binding["next_retry_at"],
             "acquisition_id": binding["acquisition_id"], "response_id": binding["response_id"],
-            "response_hash": binding["response_hash"], "probe": deepcopy(row["probe"]),
+            "response_hash": binding["response_hash"], "probe": deepcopy(probe),
             "reason": "SOURCE_ACCESS_ORIGINAL_RECOVERY_REQUIRED" if phase == "execution_unknown" else
-                      "SOURCE_ACCESS_PROBE_PENDING" if row["probe"] else "SOURCE_ACCESS_WAIT"}
+                      "SOURCE_ACCESS_PROBE_PENDING" if probe else "SOURCE_ACCESS_WAIT"}
 
 
 def _access_row(row):
@@ -3307,7 +3353,14 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
                         continue
                     callback = registry[route]["handler"]
                     reconciling = False
-                if resolution["action"] == "collect" and route in paused_routes and task_id not in due_probes and not public_bypass:
+                if (resolution["action"] == "collect" and route in paused_routes and task_id not in due_probes
+                        and not public_bypass and not (resolution.get("request") is not None and _route_pause_covered_by_access(
+                            state, route, task_id, at, resolution["request"], paused_routes[route],
+                            state["source_checks"].get(paused_routes[route]["receipt_id"], {})))):
+                    # A pause whose own refusal the site's shared wait shows due or
+                    # recovered no longer blocks this run (as at the launch guard,
+                    # ``_marketplace_shared_wait``): its question may become the
+                    # site's probe, under the shared wait's own admission.
                     results.append({"task_id": task_id, "state": "blocked", "actual_attempt": False,
                         "reason": "This route is waiting after an actual shared route failure.",
                         "next_retry_at": paused_routes[route].get("next_retry_at")})

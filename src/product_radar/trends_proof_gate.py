@@ -6,7 +6,9 @@ whose CSV export matches it, or Google's own "not enough data" widget. The
 gate passes once three reads are complete and at least one of them is a
 verified chart export (no-data reads count, but never alone; up to ten
 complete reads wait for that export). It fails at the first read that is not
-complete. Each counted read is kept with its date and outcome. A refusal
+complete; a later read that saves a verified chart export starts a new check
+(so a failed line clears once Trends works again, without a new sign-in).
+Each counted read is kept with its date and outcome. A refusal
 (HTTP 429/403, consent, "unusual traffic", "Something went wrong") is kept
 with its exact reason, and a minimised page that never drew its chart as
 ``TRENDS_MINIMISED_NOT_RENDERED``, so refusals and rendering problems stay
@@ -94,7 +96,18 @@ def record_proof_read(root, folder, receipt):
         return proof_gate(root)
     with records_lock(root, "trends-proof-gate"):
         gate = proof_gate(root)
-        if gate["state"] in ("passed", "failed") or any(row["acquisition_id"] == receipt["acquisition_id"] for row in gate["reads"]):
+        if gate["state"] == "passed" or any(row["acquisition_id"] == receipt["acquisition_id"] for row in gate["reads"]):
+            return gate
+        observed = timestamp(receipt["observed_at"])
+        if gate["state"] == "failed":
+            if receipt["state"] != "usable" or observed <= timestamp(gate["decided_at"]):
+                return gate
+            # A later read saved a verified chart export: the failed check no longer
+            # describes Trends, so a new check starts with this read (same sign-in). It
+            # keeps the time the failed check ended, and a read observed before then
+            # (its bookkeeping settled late) never counts in the new check.
+            gate = dict(_fresh(sign_in_at), decided_at=gate["decided_at"])
+        elif gate["decided_at"] is not None and observed <= timestamp(gate["decided_at"]):
             return gate
         complete = receipt["state"] in ("usable", "no_data")
         gate["reads"].append({"acquisition_id": receipt["acquisition_id"], "read_at": receipt["observed_at"],

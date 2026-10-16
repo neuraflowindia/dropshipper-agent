@@ -38,10 +38,16 @@ SITES = {
     "dropdash": {"label": "Dropdash", "url": "https://app.dropdash.co/", "required": True},
 }
 STATES = ("signed_in", "sign_in_needed", "expired", "not_checked", "not_signed_in")
+BROWSER_DID_NOT_START = "SIGNED_IN_BROWSER_DID_NOT_START"
 WAIT_CODES = ("OWNER_SIGN_IN_REQUIRED", "OWNER_SIGN_IN_WINDOW_OPEN", "OWNER_DESKTOP_UNAVAILABLE",
-              "SIGNED_IN_BROWSER_BUSY")
+              "SIGNED_IN_BROWSER_BUSY", BROWSER_DID_NOT_START)
 WINDOW_RECHECK_SECONDS = 120
 DESKTOP_RECHECK_SECONDS = 120
+# After the research Chrome failed to start (proven: it never opened a page),
+# every signed-in read rests 10 minutes, then 30, then an hour per further
+# failure in a row; a start that opens a page ends the rest.
+START_RECHECK_SECONDS = (600, 1800, 3600)
+START_LINE_AFTER = 2  # failed starts in a row before the owner sees a line
 # Any other calm wait (sign-in needed, a busy or unstartable browser) is
 # looked at again after this long; looking is a local record check only.
 WAIT_RECHECK_SECONDS = 120
@@ -260,6 +266,8 @@ def signed_in_wait(root, site, *, as_of=None):
     as_of = as_of or utc_now()
     if desktop_unavailable(root, as_of=as_of):
         return "OWNER_DESKTOP_UNAVAILABLE"
+    if browser_start_rest(root, as_of=as_of):
+        return BROWSER_DID_NOT_START
     if window["open"] and (timestamp(as_of) - timestamp(window["checked_at"])).total_seconds() < WINDOW_RECHECK_SECONDS:
         return "OWNER_SIGN_IN_WINDOW_OPEN"
     if site_states(root)[site]["state"] in ("sign_in_needed", "expired"):
@@ -278,7 +286,73 @@ def signed_in_recheck_at(root, reason, *, as_of=None):
         anchor, seconds = timestamp(_load(root, "desktop.json", None)["unavailable_at"]), DESKTOP_RECHECK_SECONDS
     elif reason == "OWNER_SIGN_IN_WINDOW_OPEN" and sign_in_window(root)["open"]:
         anchor, seconds = timestamp(sign_in_window(root)["checked_at"]), WINDOW_RECHECK_SECONDS
+    elif reason == BROWSER_DID_NOT_START and browser_start_rest(root, as_of=now.isoformat()):
+        anchor, seconds = timestamp(browser_start_rest(root, as_of=now.isoformat())), 0
     return max(anchor + timedelta(seconds=seconds), now).isoformat()
+
+
+def _browser_start(root):
+    value = _load(root, "browser-start.json", None)
+    if value is None:
+        return None
+    if (set(value) != {"schema_version", "failed_at", "failures", "reason"} or not isinstance(value["failed_at"], str)
+            or type(value["failures"]) is not int or not 1 <= value["failures"] <= 1000000
+            or value["reason"] is not None and (not isinstance(value["reason"], str) or len(value["reason"]) > 120)):
+        raise SafetyError("SIGNED_IN_RECORD_INVALID")
+    timestamp(value["failed_at"])
+    return value
+
+
+def note_browser_start(root, started, *, at=None, reason=None):
+    """Keep whether the research Chrome's latest start opened a page.
+
+    ``started=False`` is a proven failed start (the read's own browser never
+    opened its page and has exited): it counts one more failure in a row.
+    ``started=True`` (a read that opened its page) ends the count; with no
+    count saved nothing is written."""
+    at = at or utc_now()
+    timestamp(at)
+    path = _folder(root) / "browser-start.json"
+    if started and not path.exists() and not path.is_symlink():
+        return None  # the usual case: nothing saved, nothing to end
+    with file_lock(_folder(root) / "records.lock", 5, "SIGNED_IN_RECORD_BUSY"):
+        value = _browser_start(root)
+        if started:
+            if value is not None:
+                path.unlink()
+            return None
+        value = {"schema_version": 1, "failed_at": at, "failures": (value["failures"] if value else 0) + 1,
+                 "reason": reason[:120] if isinstance(reason, str) and reason else None}
+        atomic_json(path, value)
+    return value
+
+
+def browser_start_rest(root=PROJECT_ROOT, *, as_of=None):
+    """While signed-in reads rest after the research Chrome failed to start:
+    when the rest ends (ISO time), else None."""
+    value = _browser_start(root)
+    if value is None:
+        return None
+    until = timestamp(value["failed_at"]) + timedelta(
+        seconds=START_RECHECK_SECONDS[min(value["failures"], len(START_RECHECK_SECONDS)) - 1])
+    return until.isoformat() if timestamp(as_of or utc_now()) < until else None
+
+
+def browser_start_line(root=PROJECT_ROOT):
+    """A plain line once the research Chrome failed to start several times in a row, else None."""
+    value = _browser_start(root)
+    if value is None or value["failures"] < START_LINE_AFTER:
+        return None
+    return ("The research Chrome window could not start (%d tries in a row, the latest at %s UTC). The program keeps "
+            "trying by itself; if this keeps showing, restart the computer."
+            % (value["failures"], timestamp(value["failed_at"]).strftime("%d %b, %H:%M")))
+
+
+def start_failed(result):
+    """Whether a signed-in read's result proves its own Chrome failed to start:
+    it failed while launching, never opened its page and has exited."""
+    return (isinstance(result, dict) and result.get("state") == "failed" and result.get("stage") == "browser_launch"
+            and result.get("navigation_started") is False and result.get("owned_process_exited") is True)
 
 
 def note_desktop_unavailable(root, *, at=None):
@@ -346,8 +420,12 @@ def sign_in_line(root=PROJECT_ROOT):
     expired = [row["label"] for row in needs if row["state"] == "expired"]
     parts = (["Sign-in needed: " + ", ".join(needed) + "."] if needed else []) + (
         ["Sign-in expired: " + ", ".join(expired) + "."] if expired else [])
+    # The research Chrome failing to start is shown while its reads rest, after any sign-in need.
+    start = browser_start_line(root) if browser_start_rest(root) else None
     if parts:
-        return " ".join(parts) + " Click Sign in to research sites."
+        return " ".join(parts) + " Click Sign in to research sites." + (" " + start if start else "")
+    if start:
+        return start
     if any(row["state"] == "not_checked" and row["required"] for row in site_states(root).values()):
         return "Sign-ins will be confirmed on the next research reads."
     return "Research sites are signed in."
@@ -391,8 +469,10 @@ def open_sign_in_window(root=PROJECT_ROOT, *, runner=subprocess.run, wait=5):
             raise SafetyError("SIGNED_IN_BROWSER_COMMAND_FAILED") from None
         if state not in ("opened", "already_open"):
             raise SafetyError("SIGNED_IN_BROWSER_COMMAND_FAILED")
-        # The owner's own click: a new sign-in either way, so walled sites are re-checked.
+        # The owner's own click: a new sign-in either way, so walled sites are re-checked,
+        # and Chrome has just started on the profile, so an earlier failed start no longer counts.
         note_sign_in_window(root, True, opened=True)
+        note_browser_start(root, True)
     return state
 
 
@@ -422,6 +502,24 @@ def signed_in_read(site, url, expression, folder, *, marker, root=PROJECT_ROOT, 
     finally:
         if result is None or result.get("navigation_started") is not False:
             note_round_read(site, time.monotonic() - started)  # a read that never started uses no share
+    if start_failed(result):
+        # Its Chrome never opened the page (on 16 October the owner's sign-in
+        # window held the profile): nothing was asked of the site, so this is a
+        # calm wait (the question is not used up), and every signed-in read
+        # rests a while before Chrome is started again.
+        try:
+            note_browser_start(root, False, reason=result.get("reason"))
+        except SafetyError as error:
+            if str(error) != "SIGNED_IN_RECORD_BUSY":
+                raise
+        return {"state": "waiting", "reason": BROWSER_DID_NOT_START, "navigation_started": False, "stage": "browser_launch",
+                "snapshot": None, "start_failure": result.get("reason")}
+    if result.get("navigation_started") is True:
+        try:
+            note_browser_start(root, True)
+        except SafetyError as error:
+            if str(error) != "SIGNED_IN_RECORD_BUSY":
+                raise  # a busy record only keeps an old rest, which ends by itself
     if result.get("state") == "captured":
         seen = marker(result.get("snapshot"))
         if seen is not None:
