@@ -1,10 +1,18 @@
 # Benchmark results and current evidence boundaries
 
-Historical measured checkpoints through8 October2026: research, costs, outputs and their evidence limits. “Current” inside a checkpoint means current at its stated date, not today's running totals. [Progress](../../../project/pj-tracker.md) owns current status; the [implementation record](../../implementation_2026-10-11.md) owns later repair/loading evidence. The [specification](execution_specification.md) owns mechanisms, and the [cost plan](../../build_activation_and_costs_2026-10-03.md) owns forecast arithmetic.
+**Historical record (reviewed 16 October 2026).** Measured checkpoints through8 October2026: research, costs, outputs and their evidence limits. Every “current” inside this document means current at its stated date, not today. The results stay valid for their own dates, but the rules they were measured under have since changed:
+
+- Research restarted from a fresh store on 13 October 2026; the counts, packets and receipts below belong to the earlier store, now in `archive/2026-10-13-before-fresh-start/` (git-ignored, so the archive links work only where that folder exists).
+- Plan R10 has been live since 15 October 2026: Amazon India and Flipkart are now only a crowding check (Low / Medium / High), not discovery or a market vote; Amazon Movers & Shakers and Google web search for suppliers are retired; quick commerce runs only through the paid provider API for admitted types (Mumbai first); the dropshipping platforms DeoDap, BaapStore and Dropdash were added (Dropship India dropped 15 October); Trends is read in a signed-in research browser.
+- Ranking is now the opportunity score out of 100 (want 20 / early 30 / room 25 / product 25). The seven-site, four-priority-tier policy, the AI "reasonably positive" site opinions and the "fourteen source routes" counts below are retired.
+
+Current owners: [Progress](../../../project/pj-tracker.md) for status and counts; the [implementation record](../../implementation_2026-10-11.md) (section R10) for what is built and its live checks; the [product brief](../../../product/india_dropshipping_product_opportunity_radar_product_brief.md) for source roles and ranking; the [specification](execution_specification.md) for older mechanisms; the [cost plan](../../build_activation_and_costs_2026-10-03.md) for forecast arithmetic. New measurements are not added here.
 
 ## 1. Current checkpoint
 
-The current programme is `scope156-nonvisual-20261008`. Read-only status at **8 October2026,19:32:12UTC** reports the following. Work continues; these are dated measured counts, not a guarantee of final yield. An assessment becomes noncurrent when its relevant input changes; later current-review counts can therefore decrease without deleting the original answer. This read did not refresh financial/account information: figures below retain the separately verified18:12:52UTC checkpoint and are shared saved charges, not a newly obtained provider balance. Exact Meta catalogue consumption retains its separate18:42:51UTC measurement in section4.
+*Historical: the 8 October checkpoint of the store archived at the 13 October fresh start. Today's counts are in [Progress](../../../project/pj-tracker.md).*
+
+The programme at that checkpoint was `scope156-nonvisual-20261008`. Read-only status at **8 October2026,19:32:12UTC** reports the following. Work continues; these are dated measured counts, not a guarantee of final yield. An assessment becomes noncurrent when its relevant input changes; later current-review counts can therefore decrease without deleting the original answer. This read did not refresh financial/account information: figures below retain the separately verified18:12:52UTC checkpoint and are shared saved charges, not a newly obtained provider balance. Exact Meta catalogue consumption retains its separate18:42:51UTC measurement in section4.
 
 | Current programme measure | Measured value | Meaning / limit |
 |---|---:|---|
@@ -21,7 +29,7 @@ The current programme is `scope156-nonvisual-20261008`. Read-only status at **8 
 | Real scheduling |1 installed enabled matching Windows task;1 observed programme writer| The same task's new writer started19:29:09.1397559UTC, with its guard observed19:29:47UTC and unchanged definition comparison. This start is separate from offline proof and is not actual backup/cache acceptance. Every15 minutes while the owner's computer is on/signed in; whole-pool unattended completion/recovery remains under acceptance. |
 | Client publication |0| Owner-private staging is authorised; client identity/package approval remain separate. |
 
-Current production policy is schema3 / `fit-10-v1`, with explicit description-v3 estimates for new, changed and unfinished inputs. Current unchanged v2/v3 judgments can be reused. Source dates, original answers and raw captures remain intact. A new interpretation is not new market evidence. Source-specific attempts and completeness must come from the current coverage view, not from the earlier67/33/47/6 or100/71/18/11 groups below.
+Production policy at that checkpoint was schema3 / `fit-10-v1`, with explicit description-v3 estimates for new, changed and unfinished inputs (the checklist contract has since moved to `research-e-fit10-functional-v5`). Current unchanged v2/v3 judgments can be reused. Source dates, original answers and raw captures remain intact. A new interpretation is not new market evidence. Source-specific attempts and completeness must come from the current coverage view, not from the earlier67/33/47/6 or100/71/18/11 groups below.
 
 ### Preserved P2 policy checkpoint
 
@@ -67,9 +75,11 @@ Saved baseline: 7 October 2026, 02:43:51 UTC; execution-note checkpoint:02:43:56
 
 These legacy status groups sum to156. “Not selected” includes unfinished, not only rejected. Under either policy, candidate-summary status `candidate_for_supplier_review` must be joined with current supplier/selection records; its name alone is not final report readiness.
 
-Source-of-truth locations: `data/research/captured/events/`, `data/research/captured/candidate_summary.json`, `config/research/catalogue.json`, `data/benchmarks/state/apify/events.jsonl`, `data/research/captured/ai_jobs/` and the frozen issue artifacts. Interpretations and source dates remain separate.
+Source-of-truth locations for these checkpoints: `data/research/captured/events/`, `data/research/captured/candidate_summary.json`, `data/research/captured/ai_jobs/`, the catalogue revision named in section 4 and the frozen issue artifacts, all in the archived pre-13-October store; the Apify money journal `data/benchmarks/state/apify/events.jsonl` continues in today's working-data folder (`/home/anan/neuraflow-dropshipper-data/`). Interpretations and source dates remain separate.
 
 ## 2. Source implementation and actual coverage
+
+*Historical (8 October 2026). Several rows describe routes or roles that have since changed: Amazon Movers & Shakers and Google Search suppliers are retired; Amazon Bestsellers, Amazon search and Flipkart search now serve only the crowding check; Blinkit, Zepto and Instamart run only through the paid API (the direct-first browser adapters were deleted); the dropshipping platforms are new. The current route set and its pending live checks are in the [implementation record, R10](../../implementation_2026-10-11.md#r10-plan-r10-sources-crowding-check-product-map-and-spend-watch-1415-october).*
 
 | Source/work | Implemented / bounded proof | Remaining actual acceptance |
 |---|---|---|
@@ -90,7 +100,7 @@ Source-of-truth locations: `data/research/captured/events/`, `data/research/capt
 | Product photos | Automatic real-source candidate/download/provenance/report attachment connected;92 usable pool records at the dated8 October19:32:12UTC checkpoint. The first/second ten-product programme packets have3/7 genuine product photos respectively. | Improve actual remaining candidates/downloads; never fabricate product photos or copy a related but different product image. |
 | Visible prices | Captured quotations and conditions from research; deterministic price-display-v2 and MOQ presentation. | Comparable unit basis where unknown, final supplier buying cost, margin/profit prediction. |
 
-All14 source routes are connected, but implementation is not completed product coverage. Distinct-site support now includes Meta, Amazon, Flipkart, Trends and the three quick-commerce sites under the four priority rules. Amazon list/search routes count only once. Reviewed relevant quick commerce supplies neutral context, not automatic positive demand; supplier routes do not supply market votes. Source acquisition, matching and checklist review remain separate states.
+At that date all14 source routes were connected, but implementation was not completed product coverage. Distinct-site support then included Meta, Amazon, Flipkart, Trends and the three quick-commerce sites under the four priority rules (both retired on 15 October; see the banner at the top). Supplier routes never supplied market votes, and source acquisition, matching and checklist review remain separate states.
 
 ## 3. Frozen legacy checklist and missing-evidence audit
 
@@ -119,7 +129,9 @@ The full missing-question dispatcher is now connected. A global route failure st
 
 ## 4. Exact research catalogue and consumption
 
-Current accepted effective catalogue at **8 October19:32:12UTC**: revision `2026-10-06-c0-3`,240 usable families,482 distinct family/phrase pairs and722 source/purpose choices. The earlier18:42:51UTC effective view had233/470/710. The fixed seed remains224 families; accepted additions expand the effective view without rewriting the seed. Four categories × seven original subareas =28 subareas. Count real per-family phrases and their source/purpose, not an arbitrary category×phrase multiplication. The final three columns below retain exact Meta consumption last verified at18:42:51UTC; the19:32 read supplied catalogue totals, not fresh consumption proof.
+*Historical: the product map has since been rebuilt (revision `2026-10-15-r10-w10`: 48 sub-areas, 224 headings, new headings from platform, Trends, advertiser and supplier materials; the Amazon-page seed lane is retired). Current figures: [implementation record, R10](../../implementation_2026-10-11.md#r10-plan-r10-sources-crowding-check-product-map-and-spend-watch-1415-october).*
+
+Accepted effective catalogue at **8 October19:32:12UTC**: revision `2026-10-06-c0-3`,240 usable families,482 distinct family/phrase pairs and722 source/purpose choices. The earlier18:42:51UTC effective view had233/470/710. The fixed seed remains224 families; accepted additions expand the effective view without rewriting the seed. Four categories × seven original subareas =28 subareas. Count real per-family phrases and their source/purpose, not an arbitrary category×phrase multiplication. The final three columns below retain exact Meta consumption last verified at18:42:51UTC; the19:32 read supplied catalogue totals, not fresh consumption proof.
 
 | Category | Families at19:32 | Effective family/phrase pairs at19:32 | All source/purpose choices at19:32 | Meta discovery choices at18:42 | Meta choices tried at18:42 | Meta choices not dispatched at18:42 |
 |---|---:|---:|---:|---:|---:|---:|
@@ -170,6 +182,8 @@ Original sample IDs and source review files remain under `data/benchmarks/state/
 Original ten-sample read allowance US$0.20 is a subset of current US$0.88. Row targets/card counts did not cap billing. A no-price row is unknown, not zero. Source category placement included irrelevant/established-brand items; source success did not make them suitable recommendations.
 
 ## 6. Actual report packets and quality boundaries
+
+*Historical: these packets come from the archived pre-13-October store and predate the opportunity score, the crowding line and the five-sheet workbook. None is a current report; current report status is in [Progress](../../../project/pj-tracker.md).*
 
 ### Current programme private packet
 
@@ -253,6 +267,8 @@ Current functional files include structured source-number panels, all active che
 
 ## 7. Access, portal and cost warning
 
+*Historical (to 8 October 2026). Since then: Apify is used only on its free monthly allowance for the deeper Meta read, and its monthly usage can be read (the owner lifted the key's limit on 15 October); quick-commerce credits are checked before each batch by the spend watch (44 of the 100 free credits were left on 14 October); AI usage is read without a model call. See the [quick-commerce guide](../../providers/quickcommerce_connection.md) and the [implementation record, R10](../../implementation_2026-10-11.md#r10-plan-r10-sources-crowding-check-product-map-and-spend-watch-1415-october).*
+
 | Item | Confirmed evidence | Remaining boundary |
 |---|---|---|
 | Apify accounts | Existing privately bound original account; private three-account registry/router and same-origin recovery implemented locally. Permitted run/output routes work; earlier profile/monthly usage reads returned403. | Two additional genuine funded profiles are not yet activated. A saved allowance is not current provider balance. The original single-account route must not be confused with enabled pooled funding. |
@@ -274,7 +290,9 @@ The deployed [private machine connection receipt](../../../../archive/2026-10-13
 
 ## 8. Preserved P2 test proof and current remaining work
 
-Current full offline suite: **2,941/2,941 Python tests passed in320.767 seconds** on8 October2026. The hash of all reviewed Python runtime modules, the programme entrypoint and website modules remained `3556be7b83f792eda8858626088c07ce22e3687de2184f65346b4808ee81655d` before/after. All6/6 website test files passed separately in3,176.762824ms; this is a test-file count, not an assertion count. Independent narrower verification passed82 distinct cases across request accounting, real account summaries, owned deadlines/recovery and Facebook replay. These overlap the complete suite and are not added again. This is frozen-code offline proof, not a new native reload or actual automatic backup. Actual native continuation, source results, file downloads, client publication and visual quality remain separate acceptance boundaries.
+*Historical: test totals and remaining work as of 8 October 2026, for the code of that date. Current remaining work is in [Progress](../../../project/pj-tracker.md).*
+
+Full offline suite at that date: **2,941/2,941 Python tests passed in320.767 seconds** on8 October2026. The hash of all reviewed Python runtime modules, the programme entrypoint and website modules remained `3556be7b83f792eda8858626088c07ce22e3687de2184f65346b4808ee81655d` before/after. All6/6 website test files passed separately in3,176.762824ms; this is a test-file count, not an assertion count. Independent narrower verification passed82 distinct cases across request accounting, real account summaries, owned deadlines/recovery and Facebook replay. These overlap the complete suite and are not added again. This is frozen-code offline proof, not a new native reload or actual automatic backup. Actual native continuation, source results, file downloads, client publication and visual quality remain separate acceptance boundaries.
 
 Combined final local P2 suite: **1,671 Python tests passed in395.915 seconds**. **64 website-code checks passed:**30 release-admin,23 Worker and11 owner-status checks. Run these Node files directly; the test-wrapper file count is not the assertion count. Focused checks overlap the combined suite and are not added again. Documentation/native-sample/live acceptance have separate evidence boundaries.
 
@@ -324,14 +342,16 @@ All six corrected pages had actual ranks1–30, matching department/country, usa
 
 ## 10. Current source support and record recovery proof
 
-The current [contracts](execution_specification.md#24-n03-current-source-support-and-n25-record-recovery-contracts) and [operator commands](offline_runner_guide.md#saved-source-interpretation-and-record-recovery) own implementation and execution. The earlier isolated-trial results above remain historical trial evidence, not current programme-wide source acceptance.
+*Historical (8 October 2026). The source-support part of this proof (source-E v3 and the seven-site, four-priority policy) was retired on 15 October 2026: relevance review now only says whether a record is the type, and ranking is the opportunity score. The backup/restore results keep their own dated scope.*
+
+The [contracts](execution_specification.md#24-n03-current-source-support-and-n25-record-recovery-contracts) of that date and the [operator commands](offline_runner_guide.md#saved-source-interpretation-and-record-recovery) own implementation and execution. The earlier isolated-trial results above remain historical trial evidence, not current programme-wide source acceptance.
 
 | Checked scope | Measured result | Exact boundary |
 | --- | --- | --- |
 | Source-E v3, seven-site four-priority policy and affected selection/allocation/narration/report/service consumers. | 465 focused cases passed in 75.201 seconds. | Fictional fixtures check reference binding, stale/changed data, all-zero chart non-promotion, old contracts, source counting, supplier closure, stable fit inputs and report revision. The additional current-F-version check is in the separate final supplier row below. These are not real product demand, supplier confirmation, hosted publication or recurring yield. |
 | Latest exact-backup, saved-cost/time audit, event cache and long-history acceptance. | 67 focused cases passed in 44.592 seconds. | Includes 80 fictional issues, 800 published products, a queued ten-product hold, bounded ten-candidate identity retrieval, no repeat allocation, cold replay, warm read reuse and isolated exact restoration. It does not prove real unattended recurring execution. |
 | Actual captured-record checkpoint. | Verified ready manifest contains 2,743 research events, 442 financial events and 14 explicitly selected original source/model/report/image files: 2,758 files, 20,586,636 bytes. | Original checkpoint: 8 October 2026 at 08:48:54 UTC. The manifest retains original dates, counts and hashes. It is not restamped by later programme work. |
-| Actual isolated restore and saved effort audit. | `captured-record-rehearsal-20261008` restored all 2,743 research events, 442 financial events, 2,758 selected files and 20,586,636 bytes with matching chain/state hashes. Original old-reader elapsed time was 2,257.899 seconds (37.6 minutes), including copy, multiple checks, restore and audit; this is not hidden or claimed lightweight. | Proof: `data/operations/backups/captured-record-rehearsal-20261008/restore-rehearsal.json`. Working records were not replaced. The owned temporary test restore was removed after verification. The later optimized-reader timing is separate from this original result. |
+| Actual isolated restore and saved effort audit. | `captured-record-rehearsal-20261008` restored all 2,743 research events, 442 financial events, 2,758 selected files and 20,586,636 bytes with matching chain/state hashes. Original old-reader elapsed time was 2,257.899 seconds (37.6 minutes), including copy, multiple checks, restore and audit; this is not hidden or claimed lightweight. | Proof: [restore rehearsal](../../../../archive/2026-10-13-before-fresh-start/data/operations/backups/captured-record-rehearsal-20261008/restore-rehearsal.json). Working records were not replaced. The owned temporary test restore was removed after verification. The later optimized-reader timing is separate from this original result. |
 | Optimized read-only verification of that same original checkpoint. | Verified the unchanged 2,743-event prefix, 442 financial events, 2,758 files and 20,586,636 bytes in 174.521 seconds. | This measured saved-manifest verification only: no new copy, restore, audit, provider/model call or backup mutation. It is not a like-for-like timing comparison or claimed percentage improvement over the earlier full 2,257.899-second operation. |
 | Final supplier closure, current F-version reuse and stable fit-input regressions. | 144 focused supplier/fit/source/capture cases passed in 13.250 seconds. | Synthetic cases cover bounded all-unrelated, failed sibling, all failed, redirect, other-run/unattempted dependency and corrupt-capture distinctions. Saved F-v2 remains unchanged, receives one current F-v3 interpretation of the same pages, then replays without another call. A real local memory fixture proves market-only updates create zero new fit jobs while changed descriptive inputs still require review. This is not new live supplier extraction. |
 | Checked internal report stages and bounded general G output correction. | 166 focused stage/render/delivery/narration/correction cases passed in77.862 seconds. A final added empty-title correction plus4 documentation checks passed separately in6.029 seconds. | New checks cover27 internal-stage cases and15 general-repair cases: exact payload-before-intent saves, independent healthy workbook/edition continuation, durable no-render/model replay, same-revision promotion, pinned/type-safe versions, symlink/byte bounds, unchanged legacy origin, same frozen facts and original rejected G responses. Current shape/slot/reference/placeholder/checklist errors receive one saved exact-item correction; failed correction/transport/unknown execution is not repeatedly relaunched. These are local synthetic fixtures, with zero live model/provider calls, not hosted release, owner design approval, or semantic infallibility. |

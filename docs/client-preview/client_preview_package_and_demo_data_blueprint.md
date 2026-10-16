@@ -4,10 +4,16 @@
 **Version:** 1.2  
 **Date:** 15 August 2026  
 **Status:** Canonical working specification; sample Excel and PDF owner-approved, revised P6 ready for owner inspection  
-**Implementation state:** Complete manufactured client-preview package produced internally; no application has been built  
+**Implementation state:** Complete manufactured client-preview package produced internally (August 2026). The research application has since been built and runs; see the note below  
 **Companion authority:** [Product brief](../product/india_dropshipping_product_opportunity_radar_product_brief.md)  
 
-**Current-state note, 3 October 2026:** This document preserves the approved preview specification and historical production status. Client commitment, branding, first-delivery target and local-operation decisions are recorded in the [activation record](../operations/build_activation_and_costs_2026-10-03.md). See the [documentation index](../README.md) for current file locations. Inline paths are repository-root-relative.
+**Current-state note, 16 October 2026:** This document is the frozen specification of the **pre-sales preview** (manufactured data, owner-approved Excel, PDF, brochure and offer summary). Its sample data, scoring language and outputs stay exactly as approved; do not edit them to match the live service. The live service has moved on, and the [product brief](../product/india_dropshipping_product_opportunity_radar_product_brief.md) owns how it works today:
+
+- **Ranking:** the opportunity score out of 100 (want 20 / early 30 / room 25 / product 25) with the labels Too quiet, Proven but crowded, Early bet and Sweet spot, plus a ten-point product checklist (Good / Decent fit). The preview's Strong / Promising / Worth Watching labels and its three-signal rules (section 6.4) are preview-only.
+- **Sources:** Amazon India and Flipkart are only a crowding check (Low / Medium / High), not a market signal; Amazon Movers & Shakers is retired. Facebook ads, Google Trends and the dropshipping platforms DeoDap, BaapStore and Dropdash supply demand and early signals; Blinkit, Zepto and Instamart are checked through a paid API for admitted products and add at most a small demand bonus.
+- **Delivery:** issues of 10–20 products released Tuesday, Thursday and Saturday at 09:00 India time; English and Roman-Hinglish PDFs for the first two issues (then one language the client chooses) plus one five-sheet Excel workbook per issue; owner and client downloads through the private NeuraFlow portal. The ₹1,500 monthly price, free setup and two-month price hold in section 5 still match the product brief.
+
+Client commitment, branding, first-delivery target and local-operation decisions are recorded in the [cost and activation record](../operations/build_activation_and_costs_2026-10-03.md); current status is in [Progress](../project/pj-tracker.md). See the [documentation index](../README.md) for current file locations. Inline paths are repository-root-relative.
 **Selected visual direction:** Signal Ledger, refined
 
 ---
@@ -263,7 +269,9 @@ The distribution is designed to demonstrate the full reporting language without 
 
 ### 6.4 Signal rules used in the preview
 
-The sample must apply the product brief rules exactly:
+*Preview-only rules, frozen with the approved sample (they were the product brief's rules in August 2026). The live service no longer uses them: Amazon and Flipkart are now only a crowding check and Amazon Movers & Shakers is retired; ranking is the opportunity score in the [product brief](../product/india_dropshipping_product_opportunity_radar_product_brief.md), section 6.*
+
+The sample applies these August 2026 rules exactly:
 
 - **Meta positive:** at least 3 relevant advertisers, or at least 5 active relevant ads, and the oldest active relevant ad is at least 14 days old.
 - **Marketplace positive:** Amazon Bestseller evidence, Amazon Movers & Shakers evidence, or relevant results on both Amazon and Flipkart with at least one top-10 result.
@@ -344,7 +352,7 @@ The preview uses nine illustrative checks: Blinkit, Zepto, and Swiggy Instamart 
 
 ### 7.1 Ranking interpretation
 
-Rank follows the evidence label first: Strong before Promising before Worth Watching. Within one label, the sample uses evidence persistence, evidence clarity, useful category spread, and operator judgement. It does not invent a composite score or imply a precise sales probability.
+Rank follows the evidence label first: Strong before Promising before Worth Watching. Within one label, the sample uses evidence persistence, evidence clarity, useful category spread, and operator judgement. It does not invent a composite score or imply a precise sales probability. (The live service now ranks by a code-computed opportunity score out of 100 built from saved evidence; that score is a ranking aid, not a sales probability. The preview keeps its approved label-based ranking.)
 
 Category balance affects which eligible products reach the shortlist and how ties are resolved. It must not place a weaker label above a stronger one merely to create a neat category pattern.
 
@@ -1196,7 +1204,9 @@ The preview will therefore use NeuraFlow filenames and identity. White-labelling
 
 ## 19. Completion State
 
-Current state after the internal P6 production cycle:
+*Historical: the state of the preview package after its internal P6 production cycle (August 2026). "No application code exists" and "no paid provider activity" were true then; the research application has since been built and runs (see the note at the top and [Progress](../project/pj-tracker.md)).*
+
+State after the internal P6 production cycle:
 
 - Sessions P1 through P5 are complete and owner-approved;
 - revised P6 is complete internally and ready for owner inspection;
