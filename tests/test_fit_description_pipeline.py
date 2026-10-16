@@ -215,7 +215,10 @@ class DescriptionPipelineTests(unittest.TestCase):
             self.assertEqual(again["dataset"], facts)
             for language in ("en", "hi-Latn"):
                 html = render_html(issue, facts, language=language)
-                self.assertIn("(estimated)" if language == "en" else "(andaaza)", html)
+                tag = '<span class="est">' + ("estimated" if language == "en" else "andaaza") + '</span>'
+                estimated = sum(row["basis"] == "inferred" for product in facts["products"] for row in product["criteria"])
+                self.assertGreater(estimated, 0)
+                self.assertEqual(html.count(tag), estimated + 1)  # plus the "how to read" page's legend
             workbook = load_workbook(BytesIO(_workbook_bytes(issue, facts)), data_only=False)
             rows = list(workbook["Checklist"].values)
             self.assertTrue(any(any(isinstance(value, str) and value.startswith("Estimated:") for value in row) for row in rows[1:]))

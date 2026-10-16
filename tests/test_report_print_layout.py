@@ -4,11 +4,14 @@ from copy import deepcopy
 from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from product_radar import live_outputs as live
+from product_radar import report_view
+from product_radar.report_copy import TEXT
 from product_radar.models import SafetyError
 from product_radar.storage import atomic_bytes, atomic_json, load_json
 from test_live_outputs import fixture
@@ -54,35 +57,43 @@ def current_fit_fixture():
     return issue, dataset
 
 
+def product_sheets(html, kind):
+    """{concept_id: html} for each product's first (product-a) or second (product-b) sheet."""
+    parts = re.split(r'(?=<section class="sheet )', html)
+    return {re.search(r'data-concept-id="([^"]+)"', part).group(1): part
+            for part in parts if part.startswith(f'<section class="sheet {kind}"')}
+
+
 @older_format_scores
 class ReportPrintLayoutTests(unittest.TestCase):
-    def test_full_bleed_background_keeps_physical_page_content_margins(self):
+    def test_full_bleed_cover_and_physical_page_content_margins(self):
         issue, dataset = fixture()
         html = live.render_html(issue, dataset)
-        self.assertIn('@page{size:A4 portrait;margin:14mm 16mm 15mm 17mm;background:#F9F3EC;}', html)
-        self.assertIn('.page{width:auto;height:auto;min-height:0;padding:0;overflow:visible;}', html)
-        self.assertNotIn('@media print{\n      @page{size:A4 portrait;margin:0;', html)
-        self.assertIn('.live-cover{min-height:268mm;}', html)
+        self.assertTrue('@page{size:A4 portrait;margin:15mm 16mm 17mm 16mm;background:#F9F3EC;' in html)
+        self.assertTrue('@page cover{margin:0;@top-right{content:none}@bottom-left{content:none}@bottom-right{content:none}}' in html)
+        self.assertTrue('.cover{page:cover;height:297mm;overflow:hidden}' in html)
+        self.assertTrue('html{background:var(--paper)}' in html)
+        self.assertTrue('print-color-adjust:exact' in html)
 
-    def test_checklist_has_product_identity_repeating_headings_and_all_ten_answers(self):
+    def test_checklist_keeps_product_identity_all_ten_answers_and_fixed_order(self):
+        from product_radar.research_ai import CRITERIA_BY_ID
         issue, dataset = current_fit_fixture()
         before = deepcopy(dataset)
-        for language, headings in (("en", ("Checklist point", "Result", "Reason")),
-                                   ("hi-Latn", ("Checklist point", "Nateeja", "Wajah"))):
+        for language, phrase in (("en", "Fixture judgment"), ("hi-Latn", "Test ki rai")):
             with self.subTest(language=language):
-                html = live.render_html(issue, dataset, language=language)
-                tables = Tables(html).of_class("live-fit-table")
-                self.assertEqual(len(tables), 10)
-                for product, table in zip(dataset["products"], tables):
-                    self.assertIn(f'{product["rank"]:02d} · {product["title"]}', table["text"])
-                    self.assertEqual(sum(tag == "thead" for tag, _ in table["tags"]), 1)
-                    self.assertEqual(sum(tag == "tr" for tag, _ in table["tags"]), 12)
-                    self.assertEqual(["".join(table["text"]).count(heading) for heading in headings], [1, 1, 1])
-                    self.assertEqual(sum(text in ("Fixture judgment", "Test ki rai") for text in table["text"]), 10)
-                self.assertIn('.live-evidence-table thead,.live-market-table thead{display:table-header-group;}', html)
+                pages = product_sheets(live.render_html(issue, dataset, language=language), "product-a")
+                self.assertEqual(list(pages), [p["concept_id"] for p in dataset["products"]])
+                for product in dataset["products"]:
+                    page = pages[product["concept_id"]]
+                    self.assertTrue(f'<span class="rank-badge">{product["rank"]:02d}</span>' in page)
+                    self.assertTrue(f'<h1 class="h-title">{escape(product["title"])}</h1>' in page)
+                    items = re.findall(r'<li><svg class="glyph".*?<p class="crit"><b>(.*?)</b>.*?<p class="crit-why">(.*?)</p>', page)
+                    self.assertEqual([name for name, _ in items], [CRITERIA_BY_ID[row["id"]] for row in product["criteria"]])
+                    self.assertEqual([why for _, why in items], [phrase] * 10)
+                self.assertTrue('.fit-list li{break-inside:avoid;page-break-inside:avoid;' in live.render_html(issue, dataset, language=language))
         self.assertEqual(dataset, before)
 
-    def test_market_checks_keep_order_and_three_columns_without_whole_section_avoid(self):
+    def test_unscored_market_checks_keep_their_order_and_exact_detail(self):
         issue, dataset = fixture()
         product = dataset["products"][0]
         first = product["market_checks"][0]
@@ -90,22 +101,14 @@ class ReportPrintLayoutTests(unittest.TestCase):
                                     for number in range(7)]
         before = deepcopy(dataset)
         for language in ("en", "hi-Latn"):
-            html = live.render_html(issue, dataset, language=language)
-            table = Tables(html).of_class("live-market-table")[0]
-            self.assertIn("01 · Synthetic product 1", table["text"])
-            self.assertEqual(sum(tag == "tr" for tag, _ in table["tags"]), 4)
-            self.assertEqual(sum(tag == "td" for tag, _ in table["tags"]), 9)
-            for number in range(7):
-                self.assertIn(f"Exact saved detail {number}.", table["text"])
-                if number:
-                    self.assertLess(table["text"].index(f"Fixture source {number-1}"), table["text"].index(f"Fixture source {number}"))
-            self.assertIn('.live-checks{display:block;break-inside:auto;page-break-inside:auto;}', html)
-            self.assertNotIn('.live-hero,.live-checks,.live-overview li{break-inside:avoid;', html)
-            self.assertIn('.live-market-table td{vertical-align:top;width:33.333%;', html)
-            self.assertIn('.live-market-table td{width:100%;padding:0 0 5mm;}', html)
+            page = product_sheets(live.render_html(issue, dataset, language=language), "product-b")[product["concept_id"]]
+            self.assertTrue(f'<span class="pb-rank">01</span><h2 class="pb-title">{product["title"]}' in page)
+            positions = [page.index(f"Exact saved detail {number}.") for number in range(7)]
+            self.assertEqual(positions, sorted(positions))
+            self.assertEqual(page.count("<dt>Fixture source"), 7)
         self.assertEqual(dataset, before)
 
-    def test_numbered_price_rows_keep_every_full_quote_condition_and_link(self):
+    def test_every_price_row_keeps_its_full_condition_and_the_sources_stay_linked(self):
         issue, dataset = fixture()
         product = dataset["products"][0]
         original = product["prices"][0]
@@ -114,40 +117,40 @@ class ReportPrintLayoutTests(unittest.TestCase):
         before = deepcopy(dataset)
         for language in ("en", "hi-Latn"):
             html = live.render_html(issue, dataset, language=language)
-            table = Tables(html).of_class("live-price-table")[0]
-            self.assertEqual(sum(tag == "tr" for tag, _ in table["tags"]), 63)
-            self.assertIn("61", table["text"])
-            self.assertIn("01 · Synthetic product 1", table["text"])
+            page = product_sheets(html, "product-b")[product["concept_id"]]
+            self.assertEqual(page.count('<li><b class="price'), 61)
+            positions = [page.index(escape(price["conditions"])) for price in product["prices"]]
+            self.assertEqual(positions, sorted(positions))
             for price in product["prices"]:
-                self.assertIn(live.price_display(price, language), table["text"])
-                self.assertIn(escape(price["conditions"]), html)
-            self.assertIn('href="https://example.org/ad"', html)
-            self.assertIn('.live-price-table,.live-price-table tr:last-child,.live-details>div:first-child{break-after:avoid;', html)
+                self.assertTrue(live.price_display(price, language).partition("; ")[2] in html)
+                self.assertTrue(f'₹{price["amount"]}' in page)
+            self.assertTrue('href="https://example.org/ad"' in page)
+            self.assertTrue('.price-list li{display:grid;grid-template-columns:auto 1fr;column-gap:2.4mm;padding:1.1mm 0;border-top:.25mm solid var(--line-soft);font-size:var(--fs-label);line-height:1.35;break-inside:avoid;' in html)
         self.assertEqual(dataset, before)
 
     def test_missing_price_is_not_turned_into_an_empty_offer(self):
         issue, dataset = fixture()
         dataset["products"][0]["prices"] = []
         for language in ("en", "hi-Latn"):
-            html = live.render_html(issue, dataset, language=language)
-            self.assertEqual(len(Tables(html).of_class("live-price-table")), 9)
-            self.assertIn(live.COPY[language]["missing_price"], html)
+            pages = product_sheets(live.render_html(issue, dataset, language=language), "product-b")
+            missing = pages[dataset["products"][0]["concept_id"]]
+            self.assertTrue(TEXT[language]["price_none"] in missing)
+            self.assertFalse('<li><b class="price' in missing)
+            self.assertEqual(sum('<ul class="price-list">' in page for page in pages.values()), 9)
 
-    def test_example_table_retains_its_full_cells_link_and_product_context(self):
+    def test_example_listings_keep_their_cells_link_and_escape_titles(self):
         product = {"rank": 7, "title": "Fixture type <not markup>", "example_products": [{
-            "title": "Original listing", "source": "Fixture source", "seller": "Fixture seller", "pack": "Pack of two",
+            "title": "Original listing <b>", "source": "Fixture source", "seller": "Fixture seller", "pack": "Pack of two",
             "price": {"displayed": "₹110"}, "observed_at": "2026-10-08T09:00:00+00:00",
             "url": "https://example.org/original?x=1&y=2"}], "example_coverage": {"omitted_offers": 0}}
         before = deepcopy(product)
         for language in ("en", "hi-Latn"):
-            html = live._example_html(product, language)
-            table = Tables(html).of_class("live-examples-table")[0]
-            self.assertIn("07 · Fixture type <not markup>", table["text"])
-            for text in ("Original listing", "Fixture source", "Fixture seller", "Pack of two", "2026-10-08"):
-                self.assertIn(text, table["text"])
-            self.assertIn("₹110; unit and price basis not verified", table["text"])
-            self.assertIn('href="https://example.org/original?x=1&amp;y=2"', html)
-            self.assertNotIn("<not markup>", html)
+            html = report_view.examples_html(product, language)
+            for text in ("Original listing &lt;b&gt;", "Fixture source", "Fixture seller", "Pack of two", "8 Oct", "₹110",
+                         TEXT[language]["ex_note"]):
+                self.assertTrue(text in html, text)
+            self.assertTrue('href="https://example.org/original?x=1&amp;y=2"' in html)
+            self.assertFalse("<b>" in html.replace("<b class=", ""))
         self.assertEqual(product, before)
 
 
@@ -177,13 +180,13 @@ class ReportPrintVersionTests(unittest.TestCase):
                                   (types, live.LEGACY_TYPE_HTML_RENDER_VERSION, live.TYPE_HTML_RENDER_VERSION)):
             self.assertEqual(live._supported_render_versions(dataset), (new, old))
             self.assertNotEqual(old, new)
-            self.assertIn("print-v2", new)
+            self.assertIn("print-v3", new)
 
     def test_new_stage_uses_new_print_version_without_changing_facts_or_workbook_version(self):
         before = deepcopy(self.dataset)
         edition = live.write_issue_edition(self.issue, self.dataset, self.root)
         self.assertEqual(edition["render_version"], live.HTML_RENDER_VERSION)
-        self.assertEqual(live._generation_version(self.dataset), "deterministic-workbook-v1")
+        self.assertEqual(live._generation_version(self.dataset), "deterministic-workbook-v1-style-v2")
         self.assertEqual(self.dataset, before)
 
     def test_completed_old_edition_reuses_original_bytes_without_rerendering(self):

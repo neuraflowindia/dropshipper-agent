@@ -291,6 +291,7 @@ class SupplierTermProjectionTests(unittest.TestCase):
         old_issue, old_dataset = without_marker(new_issue, new_dataset)
         old_html = render_html(old_issue, old_dataset)
         self.assertNotIn("Cash on delivery", old_html)
+        self.assertIn("Cash on delivery: Yes", render_html(new_issue, new_dataset))
         self.assertNotIn("Cash on delivery", supplier_workbook_rows(old_dataset["products"][0])[0][7])
         with tempfile.TemporaryDirectory() as directory:
             workbook = write_issue_workbook(old_issue, old_dataset, directory)

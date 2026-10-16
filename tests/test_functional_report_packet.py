@@ -113,8 +113,9 @@ class FunctionalPacketTests(unittest.TestCase):
         self.assertEqual(result["failures"], {}, result)
         self.assertEqual(result["complete_languages"], ["en", "hi-Latn"])
         written = result["dataset"]
-        self.assertIn("Example products", render_html(self.issue, written, root=self.root))
-        self.assertNotIn('src="None"', render_html(self.issue, written, root=self.root))
+        html = render_html(self.issue, written, root=self.root)
+        self.assertEqual(html.count('<h2 class="h-module">Prices seen on example listings</h2>'), len(written["products"]))
+        self.assertFalse('src="None"' in html)
         draft = write_issue_package(self.issue, written, self.root, language="en")
         self.assertEqual(draft["schema_version"], 2)
         self.assertEqual(draft["workbook_contract"], "fit-checklist-examples-v2")

@@ -494,19 +494,19 @@ class SavedSourceReportTests(unittest.TestCase):
         self.assertEqual(len(product["suppliers"]), 4)
         for language in ("en", "hi-Latn"):
             html = render_html(issue, written, language=language)
-            section = html.split('data-concept-id="c000"', 1)[1].split('</section>', 1)[0]
+            # The market page lists every saved supplier lead; each route's status
+            # and numbers are the workbook's Evidence rows (checked below).
+            section = html.split('<section class="sheet product-b" data-concept-id="c000"', 1)[1].split('<section class="sheet ', 1)[0]
             for supplier in product["suppliers"]:
-                self.assertIn(supplier["name"], section)
-            for route in product["source_route_checks"]:
-                self.assertIn(route["source"].replace("&", "&amp;"), section)
-                self.assertIn(route["state"], section)
-                self.assertIn(route["detail"].replace("&", "&amp;"), section)
+                self.assertTrue(supplier["name"] in section, supplier["name"])
         raw = _workbook_bytes(issue, written)
         _workbook(raw, written)
         book = load_workbook(BytesIO(raw), read_only=True)
         try:
             rows = [row for row in book["Evidence"].iter_rows(min_row=7, values_only=True) if row[-1] == "c000"]
             self.assertTrue({row["source"] for row in product["source_route_checks"]} <= {row[2] for row in rows})
+            for route in product["source_route_checks"]:
+                self.assertIn((route["source"], route["state"], route["detail"]), {row[2:5] for row in rows})
             self.assertEqual(sum(row[-1] == "c000" for row in book["Supplier leads"].iter_rows(min_row=7, values_only=True)), 4)
         finally:
             book.close()
