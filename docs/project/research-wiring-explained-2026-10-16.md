@@ -638,14 +638,14 @@ In 13.7 hours the program made about **410 real website visits, roughly 30 an ho
 7. The AI allowance wait, and the allowance over time.
 8. Per-AI-use allowance share.
 
-**New tracing tool (built 16 October, read-only; see the handoff for whether it has been added to the live program yet):** `scripts/research_trace.py` gives:
+**New tracing tool (built 16 October, read-only, part of the live program since that night):** `scripts/research_trace.py` gives:
 - **funnel** — every step with counts and reasons;
 - **routes** — every website's visits, answers, failures, waits and times;
 - **ai** — every AI step's uses, tokens and minutes, per day;
 - **product** — one product type's full journey;
 - **summary** — all of these, short.
 
-It reads the saved records without changing anything. The deeper fixes (logging what is missing above) are in the plan.
+It reads the saved records without changing anything. Since the same night the program also records, for every AI use, its step, items, tokens, time and the allowance before and after; one line per AI use and AI wait in the run records; one line per dropshipping-platform page visit (including Dropdash); and honest counters (one failure counted once, "blocked" only for a real refusal). Items 1, 2, 4, 5 and 7 above are therefore covered from the next research run; items 3, 6 and 8 are in the plan.
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Project stage:** Development and testing (confirmed 13 October 2026). No client has received a report, so this plan changes things directly. No staged rollouts, and no keeping old and new side by side.
 
-**Status:** proposal, written 16–17 October 2026 after the owner's regroup message, and reviewed once by a separate checker. **Not approved yet.** Only the parts the owner asked for directly are built, on separate copies (section 5.1): the read-only tracing tool and the AI accounting. The questions are in section 11 and in the handoff.
+**Status:** proposal, written 16–17 October 2026 after the owner's regroup message, and reviewed once by a separate checker. **Not approved yet.** Only the parts the owner asked for directly are built and live (section 5.1): the read-only tracing tool and the AI accounting. The questions are in section 11 and in the handoff.
 
 **Read first:** [How the research program really works](research-wiring-explained-2026-10-16.md). It is the step-by-step audit this plan is built on; every number below comes from it unless marked "estimate".
 
@@ -194,7 +194,7 @@ The owner's three levels map like this:
 
 ## 5. Seeing every step (tracing, logging and AI accounting)
 
-### 5.1 Built on 16–17 October, on separate copies (they go live in phase 0)
+### 5.1 Built on 16 October and already part of the live program (they take effect when research restarts)
 
 1. **Tracing tool** (`scripts/research_trace.py`), read-only, with five views:
    - funnel: every step, with counts and reasons;
@@ -212,7 +212,7 @@ The owner's three levels map like this:
    - a line per dropshipping-platform page visit (including Dropdash);
    - honest counters (one failure counted once; "blocked" only when a website really refused).
 
-   Exact contents are in the handoff once the build finishes.
+   Details: section R18a of the [implementation record](../operations/implementation_2026-10-11.md).
 
 ### 5.2 Still to build
 
@@ -257,7 +257,7 @@ These come from the audit, section 22. Several disappear with the new design rat
 
 | Phase | What | Effort | Time |
 |---|---|---|---|
-| 0 | Load the speed fix, the tracing tool and the AI accounting; switch history checkpoints on; Dropdash fault fixes and keep-alive; owner signs in to Dropdash. **Research stays stopped** (question 12) | Small–medium | ½–1 day |
+| 0 | Load the speed fix (the tracing tool and AI accounting are already live); switch history checkpoints on; Dropdash fault fixes and keep-alive; owner signs in to Dropdash. **Research stays stopped** (question 12) | Small–medium | ½–1 day |
 | 2 | Universe build: free signals, 10-item AI naming + checklist, presence by title matching, presence rules tested on the 34 types, the rank; remove the gates; fresh start of research records that keeps the downloaded catalogues (question 15); restart research | Large | 3–4 days |
 | 3 | Level 2 light checks; supplier = platform listing + IndiaMART results; photos from listings; remove the heavy steps | Medium | 1–2 days |
 | 4 | Report wording; simplified product page (mock-ups first); Approve button; language choice; evening-before issue assembly; private website simplified to approval + files | Large | 3–4 days + owner's mock-up choice |
