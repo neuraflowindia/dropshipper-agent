@@ -17,7 +17,7 @@ from product_radar import dropship_platforms as platforms, operations, platform_
 from product_radar.run_log_summary import summarise_lines
 from product_radar.runtime_storage import runtime_path
 from product_radar.signed_in_browser import note_sign_in_window, record_site_observation, site_states
-from product_radar.source_coverage import _outcome_log, _single_concept
+from product_radar.source_coverage import _fresh_read, _outcome_log, _single_concept
 import test_dropship_platforms as base  # its fixtures only: its own tests are not run again here
 
 CONCEPT = "concept-" + "c" * 40
@@ -42,13 +42,26 @@ class PlatformReadRowTests(base.PlatformCase):
         self.assertNotIn("url", json.dumps(rows))
         self.assertNotIn("signed_in", rows[0])  # a public feed has no sign-in
 
-    def test_a_refused_feed_and_a_paced_wait_are_rows_too(self):
+    def test_a_refused_feed_is_an_access_block_not_a_failure(self):
         with operations.operation_run(self.pacing_root) as recorder:
             self.advance(self.feed(fetcher=base.FeedDouble(base.deodap_pages(), status=429)))
         rows = [row for row in run_rows(self.pacing_root, recorder) if row["event"] == "platform_read"]
         self.assertEqual([(row["state"], row["reason"], row["http_status"]) for row in rows],
                          [("failed", "DROPSHIP_FEED_REFUSED", 429)])
-        self.assertEqual(recorder.counts["failures"], 1)
+        self.assertEqual((recorder.counts["failures"], recorder.counts["access_blocks"]), (0, 1))
+
+    def test_platform_visits_count_as_blocks_waits_failures_or_nothing(self):
+        def count(**row):
+            counted = operations.classify_row("platform_read", row)
+            return [name for name in ("failure", "block", "wait") if counted[name]]
+        self.assertEqual(count(state="failed", reason="DROPSHIP_FEED_UNAVAILABLE", http_status=403), ["block"])
+        self.assertEqual(count(state="failed", reason="OWNER_SIGN_IN_REQUIRED", signed_in=False), ["wait"])
+        self.assertEqual(count(state="failed", reason="DROPSHIP_PLAN_REQUIRED"), ["wait"])
+        self.assertEqual(count(state="waiting", reason="SIGNED_IN_READ_SPACING"), ["wait"])
+        # A category page skipped for the week is no failure of the platform.
+        self.assertEqual(count(state="page_skipped", reason="DROPSHIP_PAGE_LAYOUT_UNRECOGNISED"), [])
+        self.assertEqual(count(state="read"), [])
+        self.assertEqual(count(state="failed", reason="DROPSHIP_PAGE_READ_FAILED"), ["failure"])
 
 
 class DropdashSignInTests(base.PlatformCase):
@@ -111,6 +124,13 @@ class DropdashSignInTests(base.PlatformCase):
                          if path.is_file())
         self.assertNotIn(b"Asha", saved)
         self.assertNotIn(b"Asha", json.dumps(run_rows(self.pacing_root, recorder)).encode())
+
+    def test_a_signed_out_page_that_says_welcome_is_not_signed_in(self):
+        for header in ("Welcome, Guest\nBrowse products", "Welcome, sellers\nLogin\nSign up", "Welcome,\nRegister now"):
+            with self.subTest(header=header):
+                self.assertIsNone(signed.signed_in_marker({"text": header + "\nNothing else here.", "cards": []}))
+        self.assertIs(signed.signed_in_marker({"text": "B2B Marketplace\nDD Id\nWelcome, [name removed]\nHome",
+                                               "cards": []}), True)
 
     def test_markers_for_the_sign_in_page_address_and_unclear_reads(self):
         self.assertIs(signed.signed_in_marker({"text": "Welcome, [name removed]\nFind products", "cards": []}), True)
@@ -217,6 +237,25 @@ class SourceOutcomeLogTests(unittest.TestCase):
         self.assertIsNone(_outcome_log(worded, "source-acquisition-1", {"reason": "usable"}, fresh=False)["reason"])
         self.assertEqual(_outcome_log({"batch_runs": {}, "source_checks": {}}, None, {}, fresh=False),
                          {"fresh_read": False})
+
+    def test_meta_worded_http_refusal_and_a_broken_lookup_never_raise(self):
+        worded = self.state({})
+        self.assertEqual(_outcome_log(worded, "source-acquisition-1", {"reason": "Meta returned HTTP 429."}, fresh=True)
+                         ["http_status"], 429)
+        self.assertEqual(_outcome_log({"batch_runs": None}, "source-acquisition-1", {}, fresh=True), {"fresh_read": True})
+
+    def test_replayed_answers_are_never_fresh_reads(self):
+        def fresh(**facts):
+            values = dict({"local_saved": False, "staged": False, "reconciling": False, "continued": False,
+                           "result": {}}, **facts)
+            return _fresh_read(**values)
+        self.assertTrue(fresh())
+        self.assertFalse(fresh(local_saved=True))
+        self.assertFalse(fresh(staged=True))  # a staged reply replayed after a restart
+        self.assertFalse(fresh(reconciling=True))  # an earlier dispatch's saved receipt
+        self.assertTrue(fresh(reconciling=True, continued=True))  # a company page resumed by a real read
+        self.assertFalse(fresh(staged=True, reconciling=True, continued=True))
+        self.assertFalse(fresh(result={"reused": True}))
 
     def test_a_question_about_one_product_carries_its_concept_id(self):
         self.assertEqual(_single_concept({"targets": {CONCEPT: "hash"}}), CONCEPT)

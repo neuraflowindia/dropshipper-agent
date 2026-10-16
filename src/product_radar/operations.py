@@ -145,6 +145,28 @@ def _access_outcome(event, values):
     return "held"
 
 
+# A platform page that showed a sign-in or paid-plan wall waits for the owner
+# (or a day); it is neither a website failure nor a refusal of the request.
+PLATFORM_WAIT_REASONS = frozenset({"OWNER_SIGN_IN_REQUIRED", "DROPSHIP_PLAN_REQUIRED"})
+
+
+def _platform_outcome(values):
+    """A ``platform_read`` row: "block" for a real refusal (401/403/429 or a
+    refusing feed), "wait" for a sign-in or plan wall or a read that could not
+    start, None for a category page skipped for the week (no failure of the
+    platform) or a good read, else "failure"."""
+    state, reason = values.get("state"), values.get("reason")
+    if state in _WAIT_STATES:
+        return "wait"
+    if state != "failed":
+        return None
+    if reason in PLATFORM_WAIT_REASONS:
+        return "wait"
+    if values.get("http_status") in REFUSAL_STATUSES or reason in CHALLENGE_REASONS:
+        return "block"
+    return "failure"
+
+
 def classify_row(event, values):
     """How one run-log row counts: one failure per incident, honest blocks.
 
@@ -154,7 +176,14 @@ def classify_row(event, values):
     an AI call that failed writes ``phase_finished`` (runner_call_failed) and
     ``ai_use_finished`` (the counted incident). Echoes and details count
     nothing. Harmless diagnostics (``HARMLESS_REASONS``) are not waits.
+    Platform page visits follow ``_platform_outcome``; an AI use that was
+    held (its wait is the ``ai_use_held`` row) or stopped by the owner counts
+    nothing (states "held" and "stopped").
     """
+    if event == "platform_read":
+        outcome = _platform_outcome(values)
+        return {"failure": outcome == "failure", "reused_failure": False, "block": outcome == "block",
+                "wait": outcome == "wait"}
     echo = (event == "programme_progress" and values.get("phase_state") == "source_result"
             or event == "source_action_failed"
             or event == "phase_finished" and values.get("phase_state") == "runner_call_failed")

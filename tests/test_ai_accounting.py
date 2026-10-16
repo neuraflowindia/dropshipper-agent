@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -225,7 +225,8 @@ class AllowanceAccountingTests(Case):
             with self.assertRaisesRegex(SafetyError, "AI_PLAN_LIMIT_CREDITS_PROTECTED"):
                 refused("A", PAYLOAD, self.root)
         self.assertEqual(captured, {"allowance_before_missing": "AI_PLAN_LIMIT_CREDITS_PROTECTED",
-                                    "allowance_after_missing": "call_not_admitted"})
+                                    "allowance_after_missing": "call_not_admitted",
+                                    "held_reason": "AI_PLAN_LIMIT_CREDITS_PROTECTED", "held_logged": True})
 
     def test_an_owner_stop_is_not_delayed_by_an_after_call_reading(self):
         def stopped(role, payload, folder):
@@ -233,8 +234,10 @@ class AllowanceAccountingTests(Case):
         with self.assertRaises(KeyboardInterrupt):
             Jobs(self.memory, self.watched(Reader(reply(10)), stopped)).run("A", PAYLOAD)
         saved = self.accounting()
-        self.assertEqual((saved["outcome"], saved["allowance"]["after_missing_reason"]),
-                         ("AI_INTERRUPTED_REVIEW_SAVED_JOB", "owner_stop_not_read"))
+        self.assertEqual((saved["outcome"], saved["allowance"]["after_missing_reason"], saved["outcome_kind"]),
+                         ("AI_INTERRUPTED_REVIEW_SAVED_JOB", "owner_stop_not_read", "stopped"))
+        self.assertEqual(operations.classify_row("ai_use_finished", ai_accounting.log_values(saved)),
+                         {"failure": False, "reused_failure": False, "block": False, "wait": False})
 
     def test_held_ai_steps_are_logged_once_per_round_per_reason(self):
         watched = self.watched(Reader(reply(100)), lambda *args: (RESPONSE, USAGE))
@@ -251,6 +254,36 @@ class AllowanceAccountingTests(Case):
         self.assertEqual(recorder.counts["deferred"], 2)
         self.assertEqual(recorder.last_reason, "AI_PLAN_LIMIT_CREDITS_PROTECTED")
         self.assertIn("paid Codex credits", operations.plain_reason("AI_PLAN_LIMIT_CREDITS_PROTECTED"))
+
+    def test_held_paused_and_stopped_calls_are_not_failed_ai_uses(self):
+        from product_radar.programme import _ProgrammeRunner
+
+        def answer(role, payload, folder):
+            return RESPONSE, USAGE
+        with operations.operation_run(self.root) as recorder:
+            # The guard refuses inside the call (after the pre-intent check passed).
+            watched = self.watched(Reader(reply(10), reply(100)), answer)
+            watched._admit_checked = Mock(side_effect=[{}, SafetyError("AI_PAID_CREDITS_USED")])
+            with self.assertRaisesRegex(SafetyError, "AI_PAID_CREDITS_USED"):
+                Jobs(self.memory, watched).run("A", PAYLOAD)
+            held = self.accounting()
+            # The owner pauses research: refused before the model by the programme.
+            memory = ResearchMemory(self.root / "paused", Journal(self.root / "paused-finance"), evidence_type="synthetic")
+            record = {"model_pause": None}
+            runner = _ProgrammeRunner(answer, record, {"memory": memory, "retry_seconds": 300, "at": NOW.isoformat()})
+            with patch("product_radar.programme.programme_service_state", side_effect=[{"enabled": True},
+                                                                                       {"enabled": False}]):
+                with self.assertRaisesRegex(SafetyError, "PROGRAMME_OWNER_PAUSED"):
+                    Jobs(memory, runner).run("A", PAYLOAD)
+            paused = load_json(next((memory.root / "ai_jobs").iterdir()) / ai_accounting.ACCOUNTING_FILE)
+        self.assertEqual((held["outcome"], held["outcome_kind"]), ("AI_PAID_CREDITS_USED", "held"))
+        self.assertEqual((paused["outcome"], paused["outcome_kind"]), ("PROGRAMME_OWNER_PAUSED", "waiting"))
+        rows = run_rows(self.root, recorder)
+        finished = [row["state"] for row in rows if row["event"] == "ai_use_finished"]
+        self.assertEqual(finished, ["held", "waiting"])
+        self.assertEqual([row["reason"] for row in rows if row["event"] == "ai_use_held"], ["AI_PAID_CREDITS_USED"])
+        # One wait for the held call (its ai_use_held row) and one for the pause; no failure.
+        self.assertEqual((recorder.counts["failures"], recorder.counts["deferred"]), (0, 2))
 
     def test_history_is_bounded_and_unreadable_lines_are_skipped(self):
         row = {"at": NOW.isoformat(), "source": "after_call", "failed": "AI_USAGE_READ_TIMEOUT"}

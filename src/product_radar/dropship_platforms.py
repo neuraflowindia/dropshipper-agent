@@ -654,9 +654,11 @@ def advance_platform(root, route, reader, *, as_of=None, limit=None, clock=utc_n
                     catalogue = load_catalogue(root, route)
                     parsed_failed = True
             if result["state"] != "read":
-                _log_read(route, cycle, request, "failed", result["reason"], read_seconds, receipt)
-                if (cycle["kind"] == "categories" and request.get("role") == CATEGORY_ROLE
-                        and (result["reason"] in _PAGE_ONLY or parsed_failed)):
+                page_only = (cycle["kind"] == "categories" and request.get("role") == CATEGORY_ROLE
+                             and (result["reason"] in _PAGE_ONLY or parsed_failed))
+                _log_read(route, cycle, request, "page_skipped" if page_only else "failed", result["reason"],
+                          read_seconds, receipt)
+                if page_only:
                     # That one category page (empty, moved, changed or unreadable) is not
                     # asked again this week; it is no failure of the platform, so it never
                     # lengthens the platform's waits or holds the other categories.

@@ -128,6 +128,9 @@ _SOLD_LINE = re.compile(r"\bUnits\s+Sold\s*:?\s*([0-9][0-9.]{0,5}[KkLM]?(?:\+|\s
 _GREETING = re.compile(r"(?m)^([ \t\u00a0]*Welcome,)(?:[ \t\u00a0]*[^\n]{1,80}|[ \t\u00a0]*\n[ \t\u00a0]*[^\n]{1,80})$")
 _HEADER = 600  # the greeting is in the page's header, above every product
 _GREETED = re.compile(r"(?m)^[ \t\u00a0]*Welcome,")  # the account header's greeting (name already removed)
+# A header that offers to sign in, sign up or register, or greets a guest, is a
+# signed-out header even when it says "Welcome,".
+_SIGNED_OUT_HEADER = re.compile(r"\b(?:log ?in|sign ?in|sign ?up|register|guest)\b", re.I)
 _SIGN_IN_PATH = re.compile(r"/(?:login|signin|sign-in|auth)\b")
 
 # One DOM read. __PRODUCT_PATTERN__ is the platform's product-address pattern
@@ -278,14 +281,20 @@ def expression(route):
 
 def signed_in_marker(snapshot):
     """False for a sign-in wall; True for a page showing products or the
-    account's own header greeting ("Welcome, ..."; a signed-in page whose
-    product layout was not recognised is still signed in); else None."""
+    account's own header greeting ("Welcome, ..." in a header that offers no
+    sign-in and greets no guest: a signed-in page whose product layout was not
+    recognised is still signed in); else None."""
     if not isinstance(snapshot, dict) or not isinstance(snapshot.get("text"), str):
         return None
     path = urlsplit(snapshot.get("url") or "").path.casefold()
     if snapshot.get("password") is True or _SIGN_IN_PATH.search(path) or _WALL.search(snapshot["text"][:3000]):
         return False
-    if snapshot.get("cards") or snapshot.get("product") or _GREETED.search(snapshot["text"][:_HEADER]):
+    if snapshot.get("cards") or snapshot.get("product"):
+        return True
+    header = snapshot["text"][:_HEADER]
+    # The greeting alone is not enough: the header must also offer no sign-in,
+    # sign-up or register link and greet no guest (and no password box, above).
+    if _GREETED.search(header) and not _SIGNED_OUT_HEADER.search(header):
         return True
     return None
 
@@ -654,8 +663,8 @@ class SignedInReader:
             from .signed_in_browser import record_site_observation
             try:
                 record_site_observation(self.pacing_root, self.route, False, route=self.route)
-            except SafetyError:
-                pass  # a busy record: the read still waits for the owner's sign-in
+            except (SafetyError, OSError):
+                pass  # a busy or unwritable record: the read still waits for the owner's sign-in
             result = dict(result, signed_in=False)
         snapshot = result.get("snapshot") if result.get("state") == "captured" else None
         body, wait_seconds = None, None

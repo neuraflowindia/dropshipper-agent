@@ -19,9 +19,16 @@ class TraceRoutesTest(unittest.TestCase):
         cls.store = load_store(root)
         cls.store.run_rows.append({"at": fx.T3, "event": "source_outcome", "route": "deodap", "state": "acquired",
                                    "actual_attempt": True, "timings": {"handler": 0.01}})
-        # One line that the meter counts both as a failure and as a refusal.
+        # One line that the meter counts both as a failure and as a refusal (a fresh read
+        # that met the sign-in wall).
         cls.store.run_rows.append({"at": fx.T3, "event": "source_outcome", "route": "indiamart", "state": "blocked",
-                                   "actual_attempt": True, "error_type": "AccessRefused", "reason": "SIGN_IN_WALL"})
+                                   "actual_attempt": True, "fresh_read": True, "error_type": "AccessRefused",
+                                   "reason": "OWNER_SIGN_IN_REQUIRED"})
+        # Platform page visits: a refused feed (a block) and a sign-in wall (a wait).
+        cls.store.run_rows.append({"at": fx.T3, "event": "platform_read", "route": "deodap", "state": "failed",
+                                   "reason": "DROPSHIP_FEED_REFUSED", "http_status": 429})
+        cls.store.run_rows.append({"at": fx.T3, "event": "platform_read", "route": "dropdash", "state": "failed",
+                                   "reason": "OWNER_SIGN_IN_REQUIRED", "signed_in": False})
         cls.report = routes_report(cls.store, fx.START)
         cls.routes = {row["route"]: row for row in cls.report["routes"]}
 
@@ -53,15 +60,31 @@ class TraceRoutesTest(unittest.TestCase):
         self.assertEqual(amazon["website"], {"reads_timed": 2, "average_seconds": 5.0, "median_seconds": 5.0})
         self.assertEqual(amazon["last_success_at"], fx.T1)
         trends = self.routes["google-trends"]["run_logs"]
-        self.assertEqual(trends["access_blocks"], {"blocked": 1})
-        self.assertEqual(trends["waits"], {"blocked": 1, "SIGNED_IN_READ_SPACING": 1})
+        # An older "blocked" line without the fresh-read fact proves no refusal: a wait (R18a meter rule).
+        self.assertEqual(trends["access_blocks"], {})
+        self.assertEqual(trends["waits"], {"blocked": 2, "SIGNED_IN_READ_SPACING": 1})
         self.assertEqual(trends["website"]["reads_timed"], 0)
         pages = self.routes["company-pages"]["run_logs"]
         self.assertEqual((pages["failures"], pages["reused_saved_failures"]), ({"SOURCE_ACTION_TIMEOUT": 1}, 1))
         self.assertNotIn("records", self.routes["company-pages"])
         both = self.routes["indiamart"]["run_logs"]
         self.assertEqual((both["failures"], both["access_blocks"], both["waits"]),
-                         ({"SIGN_IN_WALL": 1}, {"SIGN_IN_WALL": 1}, {}))
+                         ({"OWNER_SIGN_IN_REQUIRED": 1}, {"OWNER_SIGN_IN_REQUIRED": 1}, {}))
+        self.assertEqual(self.routes["deodap"]["run_logs"]["access_blocks"], {"DROPSHIP_FEED_REFUSED": 1})
+        self.assertEqual(self.routes["dropdash"]["run_logs"]["waits"], {"OWNER_SIGN_IN_REQUIRED": 1})
+
+    def test_the_trace_and_the_owner_meter_count_the_same_rows_alike(self):
+        import json
+        from product_radar.run_log_summary import summarise_lines
+        from product_radar.trace_records import at_or_after
+        rows = [row for row in self.store.run_rows if row["event"] in ("source_outcome", "platform_read")
+                and at_or_after(row["at"], fx.START)]
+        meter = summarise_lines([json.dumps(row) for row in rows], None)[0]
+        logs = [row["run_logs"] for row in self.routes.values() if "run_logs" in row]
+        totals = {name: sum(sum(item[name].values()) for item in logs) for name in ("failures", "access_blocks", "waits")}
+        self.assertEqual((totals["failures"], totals["access_blocks"], totals["waits"]),
+                         (meter["failures"], meter["access_blocks"], meter["waits"]))
+        self.assertEqual(sum(item["reused_saved_failures"] for item in logs), meter["reused_saved_failures"])
 
     def test_catalogue_platforms(self):
         self.assertIn("saved copy", self.routes["deodap"]["note"])

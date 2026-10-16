@@ -114,9 +114,23 @@ def _purpose(request, admission):
         return None
 
 
+def outcome_kind(outcome, notes, *, stopped=False):
+    """What the outcome was, for counting: "completed"; "stopped" (the owner's
+    Stop); "held" (refused by the allowance guard, whose own ``ai_use_held``
+    row is the counted wait); "waiting" (refused before the model by an owner
+    pause or a model-route pause); else "failed"."""
+    if outcome == "completed":
+        return "completed"
+    if stopped:
+        return "stopped"
+    if notes.get("held_reason") == outcome and notes.get("model_started_at") is None:
+        return "held" if notes.get("held_logged") else "waiting"
+    return "failed"
+
+
 def build_record(*, job_id, attempt, request, admission, notes, outcome, started_at, finished_at, call_seconds,
-                 returned_usage=None):
-    """The saved accounting of one runner call. ``outcome`` is "completed" or a failure code."""
+                 returned_usage=None, stopped=False):
+    """The saved accounting of one runner call. ``outcome`` is "completed" or the saved code."""
     payload = request.get("payload") if isinstance(request.get("payload"), dict) else {}
     mode = payload.get("mode") if isinstance(payload.get("mode"), str) else None
     tokens = usage_tokens(returned_usage) or usage_tokens(notes.get("usage"))
@@ -149,7 +163,7 @@ def build_record(*, job_id, attempt, request, admission, notes, outcome, started
             "started_at": started_at, "finished_at": finished_at, "call_seconds": round(call_seconds, 3),
             "model": model, "model_missing_reason": None if model else "model_not_started",
             "tokens": tokens, "tokens_missing_reason": tokens_missing,
-            "outcome": outcome, "allowance": allowance}
+            "outcome": outcome, "outcome_kind": outcome_kind(outcome, notes, stopped=stopped), "allowance": allowance}
 
 
 def log_values(record):
@@ -159,7 +173,7 @@ def log_values(record):
     values = {"job_id": record["job_id"], "role": record["role"], "purpose": record["purpose"],
               "mode": record["mode"], "prompt_version": record["prompt_version"], "attempt": record["attempt"],
               "item_count": record["item_count"], "call_seconds": record["call_seconds"],
-              "state": "completed" if record["outcome"] == "completed" else "failed"}
+              "state": record["outcome_kind"]}
     if record["outcome"] != "completed":
         values["reason"] = record["outcome"]
     if len(record["concept_ids"]) == 1:
@@ -205,6 +219,7 @@ class CallAccounting:
         self.started_at, self.clock = utc_now(), time.monotonic()
         self.outcome = "AI_LOCAL_EXECUTION_FAILED"  # replaced by "completed" or the saved failure code
         self.usage = None
+        self.stopped = False  # the owner's Stop (not a failed use)
 
     def finish(self, *, job_id, base, folder, request):
         try:
@@ -221,7 +236,8 @@ class CallAccounting:
             record = build_record(job_id=job_id, attempt="original" if folder == base else folder.name,
                                   request=request, admission=admission, notes=self.notes, outcome=self.outcome,
                                   started_at=self.started_at, finished_at=utc_now(),
-                                  call_seconds=time.monotonic() - self.clock, returned_usage=self.usage)
+                                  call_seconds=time.monotonic() - self.clock, returned_usage=self.usage,
+                                  stopped=self.stopped)
             return save_and_log(folder, record)
         except Exception:  # observability never changes a research outcome
             return False

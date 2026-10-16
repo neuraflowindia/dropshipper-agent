@@ -1642,7 +1642,29 @@ def _single_concept(task):
     return next(iter(targets)) if isinstance(targets, dict) and len(targets) == 1 else None
 
 
+def _fresh_read(*, local_saved, staged, reconciling, continued, result):
+    """Whether this outcome came from a request sent now (log only).
+
+    A saved reply shown again, a staged reply replayed after a restart, a
+    reconciled or recovered earlier dispatch, or a handler's own reuse is
+    not: one saved refusal is never counted again. A reconciled company-page
+    question resumed by its ordinary read is a real read."""
+    return bool(not local_saved and not staged and (not reconciling or continued)
+                and result.get("reused") is not True)
+
+
 def _outcome_log(state, acquisition_id, result, *, fresh):
+    """Run-log facts of one outcome; never raises (observability only)."""
+    try:
+        return _outcome_facts(state, acquisition_id, result, fresh=fresh)
+    except Exception:
+        return {"fresh_read": bool(fresh)}
+
+
+_HTTP_WORDS = re.compile(r"\bHTTP ([1-5][0-9]{2})\b")
+
+
+def _outcome_facts(state, acquisition_id, result, *, fresh):
     """Run-log facts of one outcome, never research authority: whether the
     website was read now (not a saved reply shown again), the HTTP answer of
     the saved response and its reason as a code (a challenge described in
@@ -1653,9 +1675,11 @@ def _outcome_log(state, acquisition_id, result, *, fresh):
     response = state["source_checks"].get(response_id) if isinstance(response_id, str) else None
     response = response if isinstance(response, dict) else {}
     access = response.get("access") if isinstance(response.get("access"), dict) else {}
+    reason = response.get("parse_reason") if isinstance(response.get("parse_reason"), str) else result.get("reason")
     if type(access.get("http_status")) is int:
         values["http_status"] = access["http_status"]
-    reason = response.get("parse_reason") if isinstance(response.get("parse_reason"), str) else result.get("reason")
+    elif isinstance(reason, str) and _HTTP_WORDS.search(reason):
+        values["http_status"] = int(_HTTP_WORDS.search(reason)[1])  # "Meta returned HTTP 403."
     if isinstance(reason, str):
         values["reason"] = (reason if re.fullmatch(r"[A-Z][A-Z0-9_]{0,159}", reason) else
                             "SOURCE_PAGE_CHALLENGE" if "challenge" in reason.casefold() else None)
@@ -3241,6 +3265,7 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
                                     "reason": "This route is waiting after an actual shared route failure.",
                                     "blocked_by": pause["receipt_id"], "next_retry_at": pause.get("next_retry_at")})
                     continue
+            continued = False  # a reconciled question resumed by a real read (company pages); log only
             if task.get("reconcile_required") or task["status"] == "dispatching" or terminal_recovery:
                 callback = registry[route]["recover_terminal"] if terminal_recovery else \
                     (lambda context: _staged_receipt(memory, context)) if staged else registry[route].get("reconcile")
@@ -3258,6 +3283,7 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
                 if route == "company-pages" and not staged and not terminal_recovery and continuation_hook:
                     continuation = continuation_hook(source_access_context(state, task, as_of=at))
                     if continuation is not None:
+                        continued = True
                         ordinary = registry[route]["handler"]
                         callback = lambda context, ordinary=ordinary, continuation=continuation: ordinary(
                             dict(context, company_unstarted_continuation=continuation))
@@ -3574,8 +3600,8 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
                                 "actual_attempt": result["dispatch_started"] is True,
                                 "dispatch_uncertain": result["dispatch_uncertain"], "receipt_id": result["receipt_id"],
                                 "timings": dict(trace.durations), "route": route}
-                results.append(row, log=_outcome_log(state, acquisition_id, result,
-                                                     fresh=not local_saved and result.get("reused") is not True))
+                results.append(row, log=_outcome_log(state, acquisition_id, result, fresh=_fresh_read(
+                    local_saved=local_saved, staged=staged, reconciling=reconciling, continued=continued, result=result)))
                 notify_progress(row)
                 if result["failure_scope"] == "route" and result["status"] in {"failed", "blocked"}:
                     saved_task = state["query_tasks"][task_id]

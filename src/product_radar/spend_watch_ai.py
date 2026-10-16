@@ -489,6 +489,7 @@ class AllowanceWatchedRunner:
             if str(error) in GUARD_CODES:
                 from .operations import record_event_once_per_round
                 record_event_once_per_round("ai_use_held", str(error), state="waiting", reason=str(error))
+                account(held_reason=str(error), held_logged=True)  # this row is the wait, not a failed AI use
             raise
 
     def _admit_checked(self, *, mark, source):

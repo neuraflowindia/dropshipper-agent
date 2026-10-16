@@ -1370,10 +1370,13 @@ class _ProgrammeRunner:
 
     def check_new_execution(self):
         """A local pause is checked before intent, not saved as provider failure."""
+        from .ai_accounting import note as account_ai
         if not programme_service_state(self.context["memory"])["enabled"]:
+            account_ai(held_reason="PROGRAMME_OWNER_PAUSED")  # a wait, not a failed AI use
             raise SafetyError("PROGRAMME_OWNER_PAUSED")
         pause = self.record.get("model_pause")
         if pause and timestamp(pause["next_retry_at"]) > timestamp(_context_time(self.context)):
+            account_ai(held_reason=pause["reason"])
             raise SafetyError(pause["reason"])
         guard = getattr(self.runner, "check_new_execution", None)
         if guard is not None:

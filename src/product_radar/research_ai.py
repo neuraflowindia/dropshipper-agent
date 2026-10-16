@@ -1484,7 +1484,7 @@ class Jobs:
             interrupted = isinstance(error, (KeyboardInterrupt, SystemExit))
             code = ("AI_INTERRUPTED_REVIEW_SAVED_JOB" if interrupted else
                     str(error) if isinstance(error, SafetyError) else "AI_LOCAL_EXECUTION_FAILED")
-            accounting.outcome = code
+            accounting.outcome, accounting.stopped = code, interrupted
             try:
                 atomic_json(folder / "failure.json", {"code": code, "exception_type": type(error).__name__,
                             "at": utc_now(), "next_action": "inspect_saved_output_before_deliberate_retry", "usage": None,

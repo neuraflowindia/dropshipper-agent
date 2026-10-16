@@ -16,7 +16,7 @@ from collections import Counter, defaultdict
 from statistics import mean, median
 
 from . import trace_labels as words
-from .operations import _WAIT_STATES, _access_outcome
+from .operations import classify_row
 from .trace_records import at_or_after, seconds_between
 
 OWNER_KIND = "source-acquisition-owner-v1"
@@ -86,15 +86,29 @@ def record_reads(store, since):
 
 
 def log_reads(store, since):
-    """Per route, from the run logs' product-check outcome lines."""
+    """Per route, from the run logs' product-check outcome lines (and the
+    platform page visits' failures, blocks and waits)."""
     routes = defaultdict(lambda: {"attempted": 0, "fresh": Counter(), "reused": 0, "reused_failures": 0, "failures": Counter(),
                                   "waits": Counter(), "blocks": Counter(), "website_seconds": [],
                                   "step_seconds": [], "last_success_at": None})
     for row in store.run_rows:
-        if row["event"] != "source_outcome" or not at_or_after(row["at"], since):
+        if row["event"] not in ("source_outcome", "platform_read") or not at_or_after(row["at"], since):
             continue
         item = routes[row.get("route") or "unknown"]
         state, reason = row.get("state"), row.get("reason") or row.get("error_type") or row.get("state")
+        # The owner meter's own rule (operations.classify_row): one failure
+        # per incident, blocks only for real refusals of a request sent now.
+        counted = classify_row(row["event"], row)
+        if counted["reused_failure"]:
+            item["reused_failures"] += 1
+        elif counted["failure"]:
+            item["failures"][reason] += 1
+        if counted["block"]:
+            item["blocks"][reason] += 1
+        if counted["wait"]:
+            item["waits"][reason] += 1
+        if row["event"] == "platform_read":
+            continue  # a platform page visit: counted above, not a product-check outcome
         timings = row.get("timings") if isinstance(row.get("timings"), dict) else {}
         if row.get("actual_attempt") is True:
             item["attempted"] += 1
@@ -106,21 +120,6 @@ def log_reads(store, since):
             item["fresh"][state] += 1
             if state != "insufficient":
                 item["last_success_at"] = _latest(item["last_success_at"], row["at"])
-        # The owner meter's own three rules (run_log_summary._row_into); they
-        # are independent, so one line can be both a failure and a block.
-        if row.get("error_type") or state == "failed":
-            # An earlier saved failure shown again (no new visit, nothing
-            # newly reported) is not a new failure.
-            if (state == "failed" and row.get("outcome_reused") is True and row.get("actual_attempt") is False
-                    and not row.get("error_reported")):
-                item["reused_failures"] += 1
-            else:
-                item["failures"][reason] += 1
-        access = _access_outcome("source_outcome", row)
-        if access == "block":
-            item["blocks"][reason] += 1
-        if state in _WAIT_STATES or access == "held":
-            item["waits"][reason] += 1
     return routes
 
 
