@@ -157,35 +157,49 @@ class OperationLogSummaryTests(unittest.TestCase):
         self.assertEqual((result["access_blocks"], result["top_access_block_routes"]), (0, {}))
 
     def test_website_refusals_are_access_blocks_and_held_questions_are_waits(self):
+        # Only a request sent now that the website refused (401/403/429, a
+        # challenge page or a sign-in wall) is an access block (17 October).
         row = {"schema_version": 1, "run_id": "run-a", "event": "source_outcome", "state": "blocked"}
         self.write("run-a.jsonl", [
-            dict(row, at="2026-10-13T18:01:00+00:00", route="google-maps", actual_attempt=True,
+            dict(row, at="2026-10-13T18:01:00+00:00", route="google-maps", actual_attempt=True, fresh_read=True,
                  reason="SUPPLIER_ROUTE_CHALLENGE"),
-            dict(row, at="2026-10-13T18:02:00+00:00", route="google-maps", actual_attempt=True,
+            dict(row, at="2026-10-13T18:02:00+00:00", route="google-maps", actual_attempt=True, fresh_read=True,
                  reason="SUPPLIER_ROUTE_CHALLENGE"),
-            dict(row, at="2026-10-13T18:03:00+00:00", route="indiamart", actual_attempt=True),
+            dict(row, at="2026-10-13T18:03:00+00:00", route="indiamart", actual_attempt=True, fresh_read=True,
+                 http_status=403),
             # Held behind the earlier refusal: nothing was sent, so it is a wait.
             dict(row, at="2026-10-13T18:04:00+00:00", route="google-maps", actual_attempt=False,
                  reason="SOURCE_ACCESS_WAIT"),
+            # A saved refusal shown again (no new request) is a wait, not another block.
+            dict(row, at="2026-10-13T18:04:10+00:00", route="google-trends", actual_attempt=True, fresh_read=False,
+                 reason="DIRECT_TRENDS_ACCESS_CHALLENGE"),
+            # A local state ("original company page not saved yet") is a wait, not a refusal.
+            dict(row, at="2026-10-13T18:04:20+00:00", route="company-pages", actual_attempt=True, fresh_read=True,
+                 http_status=200, reason="SUPPLIER_COMPANY_ORIGINAL_PENDING"),
+            # An older row without the fresh-read fact proves no refusal.
+            dict(row, at="2026-10-13T18:04:30+00:00", route="indiamart", actual_attempt=True),
             # A relayed progress copy is not a second refusal.
             dict(row, at="2026-10-13T18:05:00+00:00", event="programme_progress", route="google-maps",
                  actual_attempt=True)])
         result = operation_log_summary(self.root, since=START)
         self.assertEqual(result["access_blocks"], 3)
         self.assertEqual(result["top_access_block_routes"], {"google-maps": 2, "indiamart": 1})
-        self.assertEqual((result["failures"], result["waits"]), (0, 1))
-        self.assertEqual(result["top_wait_reasons"], {"SOURCE_ACCESS_WAIT": 1})
+        self.assertEqual((result["failures"], result["waits"]), (0, 4))
+        self.assertEqual(result["top_wait_reasons"], {"SOURCE_ACCESS_WAIT": 1, "DIRECT_TRENDS_ACCESS_CHALLENGE": 1,
+                                                      "SUPPLIER_COMPANY_ORIGINAL_PENDING": 1, "source_outcome": 1})
         self.assertEqual(result["top_failure_reasons"], {})
 
     def test_live_counter_uses_the_same_access_block_rules(self):
         from product_radar import operations
         with operations.operation_run(self.root), operations.operation_writer():
             operations.record_event("source_outcome", stage="acquire", state="blocked", actual_attempt=True,
-                                    route="google-maps", reason="SUPPLIER_ROUTE_CHALLENGE")
+                                    fresh_read=True, route="google-maps", reason="SUPPLIER_ROUTE_CHALLENGE")
+            operations.record_event("source_outcome", stage="acquire", state="blocked", actual_attempt=True,
+                                    fresh_read=False, route="google-maps", reason="SUPPLIER_ROUTE_CHALLENGE")
             operations.record_event("source_outcome", stage="acquire", state="blocked", actual_attempt=False,
                                     route="google-maps", reason="SOURCE_ACCESS_WAIT")
             counts = operations.read_operation_status(self.root)["counts"]
-        self.assertEqual((counts["access_blocks"], counts["deferred"], counts["failures"]), (1, 1, 0))
+        self.assertEqual((counts["access_blocks"], counts["deferred"], counts["failures"]), (1, 2, 0))
 
     def test_empty_folder_and_byte_bound(self):
         self.assertEqual(operation_log_summary(self.root, since=START)["events"], 0)

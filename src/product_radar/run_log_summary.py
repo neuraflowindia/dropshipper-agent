@@ -27,7 +27,9 @@ from .storage import atomic_json, load_json, safe_path
 FOLDER = "data/operations/research-runs"
 CACHE_NAME = "meter-summary-cache-v1.json"
 RETIRED_NAME = "retired-summary-v1.json"
-CACHE_CONTRACT = "run-log-summary-cache-v1"
+# v2 (17 October 2026): one failure per incident and honest access blocks;
+# a v1 speed copy counted by the older rules, so it is simply read again.
+CACHE_CONTRACT = "run-log-summary-cache-v2"
 RETIRED_CONTRACT = "run-log-retired-summary-v1"
 MAX_CACHE_BYTES = 64 * 1024 * 1024
 MAX_RETIRED_BYTES = 32 * 1024 * 1024
@@ -43,8 +45,12 @@ def empty_summary():
 
 
 def _row_into(totals, counters, runs, row):
-    """Add one already-filtered log record, with the live counter rules."""
-    from .operations import _WAIT_STATES, _access_outcome
+    """Add one already-filtered log record, with the live counter rules.
+
+    One failure per incident, access blocks only for real refusals, and no
+    harmless diagnostic as a wait (``operations.classify_row``).
+    """
+    from .operations import classify_row
     if isinstance(row.get("run_id"), str):
         runs.add(row["run_id"])
     totals["events"] += 1
@@ -54,23 +60,18 @@ def _row_into(totals, counters, runs, row):
     reason = row.get("reason") if isinstance(row.get("reason"), str) else event
     if row.get("useful_result") is True:
         totals["useful_results"] += 1
-    reused = (event == "source_outcome" and row.get("state") == "failed" and row.get("outcome_reused") is True
-              and row.get("actual_attempt") is False and not row.get("error_reported"))
-    # Same rule as the live counter: a filtered empty error marker on a
-    # useful result (e.g. a saved usable photo) is not a failure.
-    if row.get("error_type") or row.get("state") == "failed":
-        if reused:
-            totals["reused_saved_failures"] += 1
-        else:
-            totals["failures"] += 1
-            counters["failure_reasons"][reason[:120]] += 1
-    access = _access_outcome(event, row)
-    if access == "block":
-        # A website actually refused a sent request (challenge, 403/429,
-        # sign-in wall). Neither a local failure nor a wait.
+    counted = classify_row(event, row)
+    if counted["reused_failure"]:
+        totals["reused_saved_failures"] += 1
+    elif counted["failure"]:
+        totals["failures"] += 1
+        counters["failure_reasons"][reason[:120]] += 1
+    if counted["block"]:
+        # A website actually refused a request sent now (401/403/429, a
+        # challenge page or a sign-in wall). Neither a local failure nor a wait.
         totals["access_blocks"] += 1
         counters["block_routes"][row.get("route") if isinstance(row.get("route"), str) else "unknown"] += 1
-    if row.get("state") in _WAIT_STATES or access == "held":
+    if counted["wait"]:
         totals["waits"] += 1
         counters["wait_reasons"][reason[:120]] += 1
 

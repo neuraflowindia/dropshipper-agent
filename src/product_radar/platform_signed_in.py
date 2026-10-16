@@ -127,6 +127,8 @@ _SOLD_LINE = re.compile(r"\bUnits\s+Sold\s*:?\s*([0-9][0-9.]{0,5}[KkLM]?(?:\+|\s
 # the name never reaches a saved page.
 _GREETING = re.compile(r"(?m)^([ \t\u00a0]*Welcome,)(?:[ \t\u00a0]*[^\n]{1,80}|[ \t\u00a0]*\n[ \t\u00a0]*[^\n]{1,80})$")
 _HEADER = 600  # the greeting is in the page's header, above every product
+_GREETED = re.compile(r"(?m)^[ \t\u00a0]*Welcome,")  # the account header's greeting (name already removed)
+_SIGN_IN_PATH = re.compile(r"/(?:login|signin|sign-in|auth)\b")
 
 # One DOM read. __PRODUCT_PATTERN__ is the platform's product-address pattern
 # and __PAGE_SELECTORS__ its own page selectors (JSON text, ``selectors`` in the
@@ -275,13 +277,34 @@ def expression(route):
 
 
 def signed_in_marker(snapshot):
-    """False for a sign-in wall, True for a page showing products, else None."""
+    """False for a sign-in wall; True for a page showing products or the
+    account's own header greeting ("Welcome, ..."; a signed-in page whose
+    product layout was not recognised is still signed in); else None."""
     if not isinstance(snapshot, dict) or not isinstance(snapshot.get("text"), str):
         return None
     path = urlsplit(snapshot.get("url") or "").path.casefold()
-    if snapshot.get("password") is True or re.search(r"/(?:login|signin|sign-in|auth)\b", path) or _WALL.search(snapshot["text"][:3000]):
+    if snapshot.get("password") is True or _SIGN_IN_PATH.search(path) or _WALL.search(snapshot["text"][:3000]):
         return False
-    return True if snapshot.get("cards") or snapshot.get("product") else None
+    if snapshot.get("cards") or snapshot.get("product") or _GREETED.search(snapshot["text"][:_HEADER]):
+        return True
+    return None
+
+
+def landed_on_sign_in(result):
+    """Whether a read whose page was not captured had been sent to a sign-in
+    page: the last page answer in the read's own tab was a sign-in address
+    (16 October, r000005: ``/home`` then ``/signin``, then the capture failed)."""
+    if not isinstance(result, dict) or result.get("navigation_started") is not True:
+        return False
+    frame = result.get("primary_frame_id")
+    pages = [row for row in result.get("requests") or []
+             if isinstance(row, dict) and isinstance(row.get("url"), str) and (frame is None or row.get("frame") == frame)]
+    if not pages:
+        return False
+    try:
+        return bool(_SIGN_IN_PATH.search(urlsplit(pages[-1]["url"]).path.casefold()))
+    except ValueError:
+        return False
 
 
 def prices(text):
@@ -625,6 +648,15 @@ class SignedInReader:
             if reason in CALM_CODES:
                 return not_started(reason)
             result = dict(result, state="failed")
+        if result.get("state") != "captured" and landed_on_sign_in(result):
+            # Sent to the sign-in page, then the capture failed: that is the
+            # sign-in wall (the owner is asked to sign in), not an unreadable page.
+            from .signed_in_browser import record_site_observation
+            try:
+                record_site_observation(self.pacing_root, self.route, False, route=self.route)
+            except SafetyError:
+                pass  # a busy record: the read still waits for the owner's sign-in
+            result = dict(result, signed_in=False)
         snapshot = result.get("snapshot") if result.get("state") == "captured" else None
         body, wait_seconds = None, None
         if result.get("signed_in") is False:

@@ -23,6 +23,7 @@ from .fit_description import (DESCRIPTION_CONTRACT, DESCRIPTION_FIELDS, DESCRIPT
                               FUNCTIONAL_CONTRACT, FUNCTIONAL_FIELDS, FUNCTIONAL_INFERENCE_KIND,
                               FUNCTIONAL_STYLE, validate_functional_context, FUNCTIONAL_RESPONSE_VERSION,
                               FUNCTIONAL_SELECTION_KIND)
+from .ai_accounting import CallAccounting, note as account, stream_usage
 from .research_memory import key
 from .service import CATEGORIES
 from .runtime_storage import runtime_path
@@ -1455,6 +1456,7 @@ class Jobs:
                     raise SafetyError("AI_JOB_INTENT_CONFLICT")
         # No project/financial lock is held while waiting for the model.
         execution_certainty = "unknown"
+        accounting = CallAccounting()  # tokens, time and allowance of this call (observability only)
         try:
             try:
                 returned = self.runner(role, payload, folder)
@@ -1464,6 +1466,7 @@ class Jobs:
             if not isinstance(returned, (tuple, list)) or len(returned) != 2:
                 raise SafetyError("AI_RUNNER_RESULT_INVALID")
             response, usage = returned
+            accounting.usage = usage
             saved_result = {"request_hash": digest(request), "response": response,
                             "usage": usage, "completed_at": utc_now()}
             try:
@@ -1474,11 +1477,14 @@ class Jobs:
                 raise SafetyError("AI_OUTPUT_SIZE_LIMIT")
             # Persist before interpretation/application, even if one item is bad.
             atomic_json(folder / "result.json", saved_result)
-            return job_id, validate_results(role, payload, response, declared_version=version)
+            validated = validate_results(role, payload, response, declared_version=version)
+            accounting.outcome = "completed"
+            return job_id, validated
         except (SafetyError, OSError, subprocess.SubprocessError, KeyboardInterrupt, SystemExit) as error:
             interrupted = isinstance(error, (KeyboardInterrupt, SystemExit))
             code = ("AI_INTERRUPTED_REVIEW_SAVED_JOB" if interrupted else
                     str(error) if isinstance(error, SafetyError) else "AI_LOCAL_EXECUTION_FAILED")
+            accounting.outcome = code
             try:
                 atomic_json(folder / "failure.json", {"code": code, "exception_type": type(error).__name__,
                             "at": utc_now(), "next_action": "inspect_saved_output_before_deliberate_retry", "usage": None,
@@ -1492,6 +1498,8 @@ class Jobs:
                 # that a batch may catch and replace with its next model call.
                 raise
             raise SafetyError(code) from None
+        finally:
+            accounting.finish(job_id=job_id, base=base, folder=folder, request=request)
 
 
 def current_attempt(base):
@@ -2135,6 +2143,16 @@ class CodexRunner:
             with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
                 process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=output, stderr=errors,
                                            env=env, start_new_session=True)
+                model_clock, ended = time.monotonic(), []
+                account(model_started_at=utc_now())
+
+                def model_ended(exit_code):
+                    # The Codex process's own end: the model time, without the
+                    # allowance reading taken after the call.
+                    if not ended:
+                        ended.append(exit_code)
+                        account(model_finished_at=utc_now(), model_seconds=round(time.monotonic() - model_clock, 3),
+                                exit_code=exit_code)
                 failure_code = None
                 interruption = None
                 control_interrupt = None
@@ -2151,6 +2169,7 @@ class CodexRunner:
                                 raise SafetyError("AI_OUTPUT_SIZE_LIMIT")
                             if time.monotonic() >= deadline:
                                 raise SafetyError("AI_INTERRUPTED_REVIEW_SAVED_JOB")
+                    model_ended(process.returncode)
                     if os.fstat(output.fileno()).st_size > MAX_JOB_BYTES or os.fstat(errors.fileno()).st_size > MAX_JOB_BYTES:
                         raise SafetyError("AI_OUTPUT_SIZE_LIMIT")
                     output.seek(0)
@@ -2161,6 +2180,7 @@ class CodexRunner:
                         code = classify_failure(diagnostic)
                         raise SafetyError(code)
                     response, usage = parse_codex_output(raw)
+                    account(usage=usage, usage_source="turn_completed" if usage else None)
                     # Validated provider output is saved before temporary cleanup.
                     atomic_json(folder / "completion.json", {"response": response, "usage": usage, "exit_code": process.returncode})
                     return response, usage
@@ -2183,7 +2203,9 @@ class CodexRunner:
                         if control_interrupt is not None:
                             raise control_interrupt
                         raise
+                    model_ended(exit_code)
                     if failure_code is not None:
+                        _account_partial_usage(output)
                         try:
                             atomic_json(folder / "execution_failure.json", {**binding, "code": failure_code, "exit_code": exit_code,
                                         "owned_process_finished": True, "owned_group_cleanup_confirmed": True,
@@ -2204,6 +2226,7 @@ class CodexRunner:
                     except SafetyError:
                         pass
                     else:
+                        account(usage=usage, usage_source="turn_completed" if usage else None)
                         try:
                             atomic_json(folder / "completion.json", {"response": response, "usage": usage, "exit_code": exit_code,
                                         "recovered_after": failure_code})
@@ -2217,6 +2240,17 @@ class CodexRunner:
                 if control_interrupt is not None:
                     raise control_interrupt
                 raise SafetyError(failure_code) from None
+
+
+def _account_partial_usage(output):
+    """Tokens a failed or stopped run's stream already reported, for accounting only."""
+    try:
+        if os.fstat(output.fileno()).st_size <= MAX_JOB_BYTES:
+            output.seek(0)
+            usage = stream_usage(output.read(MAX_JOB_BYTES + 1))
+            account(usage=usage, usage_source="partial_stream" if usage else None)
+    except (OSError, ValueError):
+        pass
 
 
 def parse_codex_output(raw):

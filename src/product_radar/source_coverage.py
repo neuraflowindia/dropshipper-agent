@@ -14,6 +14,7 @@ from email.utils import parsedate_to_datetime
 from hashlib import sha256
 from pathlib import Path
 import os
+import re
 import signal
 import stat
 import threading
@@ -1635,6 +1636,32 @@ def _product_context(state, concept_id):
     return description, excluded
 
 
+def _single_concept(task):
+    """The one product (concept) a source question is about, else None (log only)."""
+    targets = task.get("targets") if isinstance(task, dict) else None
+    return next(iter(targets)) if isinstance(targets, dict) and len(targets) == 1 else None
+
+
+def _outcome_log(state, acquisition_id, result, *, fresh):
+    """Run-log facts of one outcome, never research authority: whether the
+    website was read now (not a saved reply shown again), the HTTP answer of
+    the saved response and its reason as a code (a challenge described in
+    words becomes ``SOURCE_PAGE_CHALLENGE``)."""
+    values = {"fresh_read": bool(fresh)}
+    record = state["batch_runs"].get(acquisition_id) if isinstance(acquisition_id, str) else None
+    response_id = record.get("active_response_id") if isinstance(record, dict) else None
+    response = state["source_checks"].get(response_id) if isinstance(response_id, str) else None
+    response = response if isinstance(response, dict) else {}
+    access = response.get("access") if isinstance(response.get("access"), dict) else {}
+    if type(access.get("http_status")) is int:
+        values["http_status"] = access["http_status"]
+    reason = response.get("parse_reason") if isinstance(response.get("parse_reason"), str) else result.get("reason")
+    if isinstance(reason, str):
+        values["reason"] = (reason if re.fullmatch(r"[A-Z][A-Z0-9_]{0,159}", reason) else
+                            "SOURCE_PAGE_CHALLENGE" if "challenge" in reason.casefold() else None)
+    return values
+
+
 def _reason(value):
     if not isinstance(value, str) or not value.strip() or len(value) > 4096:
         raise SafetyError("SOURCE_REASON_INVALID")
@@ -2951,10 +2978,13 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
     class Outcomes(list):
         # Every branch appends exactly one local outcome before moving on.
         # Do not buffer wait/skip reasons until a large pass eventually ends.
-        def append(self, row, *, outcome_reused=False):
+        def append(self, row, *, outcome_reused=False, log=None):
             super().append(row)
-            task_route = state["query_tasks"].get(row["task_id"], {}).get("route")
-            record_event("source_outcome", stage="acquire", **{**row, "route": task_route,
+            task = state["query_tasks"].get(row["task_id"], {})
+            # ``log``: run-log-only facts (fresh read, HTTP answer, reason code);
+            # the returned row itself is unchanged.
+            record_event("source_outcome", stage="acquire", **{**row, **(log or {}), "route": task.get("route"),
+                "concept_id": _single_concept(task),
                 "phase": row.get("failure_phase"),
                 "outcome_reused": outcome_reused,
                 "next_action": row.get("next_action", "continue_to_next_ready_item")})
@@ -3078,7 +3108,8 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
             # A real returned/failed handler refreshes the verified state.
             task = state["query_tasks"][task_id]
             route = task["route"]
-            record_event("source_inspection", stage="acquire", task_id=task_id, route=route)
+            record_event("source_inspection", stage="acquire", task_id=task_id, route=route,
+                         concept_id=_single_concept(task))
             if route not in registry:
                 # A deleted route's saved question (Amazon Movers & Shakers, W6)
                 # is closed once, including an open dispatch: never sent again,
@@ -3543,7 +3574,8 @@ def execute_source_run(memory, run_id, *, handlers=None, action_limit=None,
                                 "actual_attempt": result["dispatch_started"] is True,
                                 "dispatch_uncertain": result["dispatch_uncertain"], "receipt_id": result["receipt_id"],
                                 "timings": dict(trace.durations), "route": route}
-                results.append(row)
+                results.append(row, log=_outcome_log(state, acquisition_id, result,
+                                                     fresh=not local_saved and result.get("reused") is not True))
                 notify_progress(row)
                 if result["failure_scope"] == "route" and result["status"] in {"failed", "blocked"}:
                     saved_task = state["query_tasks"][task_id]

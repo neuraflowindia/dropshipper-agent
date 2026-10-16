@@ -173,7 +173,11 @@ class ClosedModelRetryTests(unittest.TestCase):
                 self.assertEqual((fresh.hint(job_id)["ready"], fresh.hint(job_id)["failure_code"]), (True, code))
         job_id, base, first = self.refused_by_guard()
         self.assertEqual(first["failures"][self.cid]["reason"], "AI_PAID_CREDITS_USED")
-        self.assertEqual(sorted(path.name for path in base.iterdir()), ["failure.json", "intent.json"])
+        # The refused call's own accounting (R18a) says the model never started.
+        self.assertEqual(sorted(path.name for path in base.iterdir()), ["accounting.json", "failure.json", "intent.json"])
+        accounting = load_json(base / "accounting.json")
+        self.assertEqual((accounting["outcome"], accounting["model"], accounting["tokens"]),
+                         ("AI_PAID_CREDITS_USED", None, None))
         originals = {path.name: path.read_bytes() for path in base.iterdir()}
         hint = self.hint(job_id, as_of=BEFORE)
         self.assertEqual((hint["ready"], hint["next_retry_at"], hint["failure_code"]), (False, AFTER, "AI_PAID_CREDITS_USED"))

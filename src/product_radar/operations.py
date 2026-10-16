@@ -107,20 +107,66 @@ def _alive(identity):
 
 
 _WAIT_STATES = {"waiting", "deferred", "skipped", "not_attempted"}
+# Diagnostics that are logged but are neither a wait nor a reason to show:
+# the optional research lookup copy (``index.json``) stops being updated once
+# it passes its size limit, and no research code reads it.
+HARMLESS_REASONS = frozenset({"RESEARCH_INDEX_SIZE_LIMIT"})
+# A website refused a request we actually sent: these HTTP answers, or one of
+# these challenge / sign-in-wall codes from a real (not reused) network read.
+REFUSAL_STATUSES = frozenset({401, 403, 429})
+CHALLENGE_REASONS = frozenset({
+    "MARKETPLACE_ACCESS_CHALLENGE", "DIRECT_TRENDS_ACCESS_CHALLENGE", "DIRECT_TRENDS_CONSENT_REQUIRED",
+    "DIRECT_TRENDS_GOOGLE_LIMIT", "SUPPLIER_ROUTE_CHALLENGE", "SUPPLIER_SEARCH_CHALLENGE",
+    "SUPPLIER_BROWSER_CHALLENGE", "OWNER_SIGN_IN_REQUIRED", "QUICKCOMMERCE_RATE_LIMITED",
+    "QUICKCOMMERCE_ACCESS_DENIED", "DROPSHIP_FEED_REFUSED", "SOURCE_PAGE_CHALLENGE"})
+
+
+def _action_failure(event, values):
+    """A source outcome written after its action raised (it alone carries the
+    failed ``phase``): the incident's one counted failure, whatever its state."""
+    return event == "source_outcome" and "phase" in values
 
 
 def _access_outcome(event, values):
-    """A source outcome refused by the website ("block") or held unsent ("held").
+    """A source outcome refused by the website ("block") or held ("held").
 
-    "blocked" with an actual attempt is a real access refusal of a sent
-    request. "blocked" without one is a question held behind an earlier
-    refusal or route pause: nothing was sent, so it is a wait, not a failure.
+    Only a real refusal of a request sent now is a block: an actual attempt,
+    a fresh read (not a saved reply shown again) and a refusing HTTP status
+    or a challenge / sign-in-wall code. Any other "blocked" outcome (a
+    question held behind an earlier refusal, a local state such as a
+    supplier's original page not saved yet, a page that did not draw) is a
+    wait, not a refusal and not a failure. A failed action is a failure.
     """
-    if event != "source_outcome" or values.get("state") != "blocked":
+    if event != "source_outcome" or values.get("state") != "blocked" or _action_failure(event, values):
         return None
-    if values.get("actual_attempt") is True:
+    if (values.get("actual_attempt") is True and values.get("fresh_read") is True
+            and (values.get("http_status") in REFUSAL_STATUSES or values.get("reason") in CHALLENGE_REASONS)):
         return "block"
-    return "held" if values.get("actual_attempt") is False else None
+    return "held"
+
+
+def classify_row(event, values):
+    """How one run-log row counts: one failure per incident, honest blocks.
+
+    Shared by the live counters and the owner meter. A failed website action
+    writes ``source_action_failed`` (details), then ``source_outcome`` (the
+    counted incident), then a ``programme_progress`` echo of that outcome;
+    an AI call that failed writes ``phase_finished`` (runner_call_failed) and
+    ``ai_use_finished`` (the counted incident). Echoes and details count
+    nothing. Harmless diagnostics (``HARMLESS_REASONS``) are not waits.
+    """
+    echo = (event == "programme_progress" and values.get("phase_state") == "source_result"
+            or event == "source_action_failed"
+            or event == "phase_finished" and values.get("phase_state") == "runner_call_failed")
+    reused = (event == "source_outcome" and values.get("state") == "failed" and values.get("outcome_reused") is True
+              and values.get("actual_attempt") is False and not values.get("error_reported"))
+    failed = not echo and bool(values.get("error_type") or values.get("state") == "failed"
+                               or _action_failure(event, values))
+    access = None if echo else _access_outcome(event, values)
+    wait = (not echo and values.get("reason") not in HARMLESS_REASONS
+            and (values.get("state") in _WAIT_STATES or access == "held"))
+    return {"failure": failed and not reused, "reused_failure": failed and reused, "block": access == "block",
+            "wait": wait}
 
 
 def _fields(values):
@@ -128,7 +174,8 @@ def _fields(values):
     result = {}
     for name in ("programme_id", "review_scope_id", "turn_id", "concept_id", "task_id", "job_id", "acquisition_id",
                  "stage", "phase", "next_phase", "phase_state", "state", "route", "role", "next_action", "error_type",
-                 "record_kind", "record_id", "checkpoint"):
+                 "record_kind", "record_id", "checkpoint", "purpose", "mode", "prompt_version", "attempt",
+                 "page_kind", "cycle_kind"):
         value = values.get(name)
         if isinstance(value, str) and _TOKEN.fullmatch(value):
             result[name] = value
@@ -136,7 +183,9 @@ def _fields(values):
         result["detail"] = values["detail"]
     if isinstance(values.get("reason"), str) and _CODE.fullmatch(values["reason"]):
         result["reason"] = values["reason"]
-    for name in ("cycle", "supplied_items", "exit_code", "scanned", "remaining", "elapsed_seconds", "deadline_seconds"):
+    for name in ("cycle", "supplied_items", "exit_code", "scanned", "remaining", "elapsed_seconds", "deadline_seconds",
+                 "item_count", "call_seconds", "model_seconds", "input_tokens", "cached_input_tokens", "output_tokens",
+                 "http_status"):
         value = values.get(name)
         if type(value) in (int, float) and math.isfinite(value) and value >= 0:
             result[name] = round(value, 6)
@@ -145,7 +194,7 @@ def _fields(values):
     if type(position) is int and type(count) is int and 1 <= position <= count <= 10000:
         result.update(group_position=position, group_count=count)
     for name in ("dispatch_started", "dispatch_uncertain", "response_saved", "photo_applied", "useful_result", "stalled",
-                 "actual_attempt", "outcome_reused"):
+                 "actual_attempt", "outcome_reused", "fresh_read", "signed_in", "accounting_saved"):
         if type(values.get(name)) is bool:
             result[name] = values[name]
     for name in ("counts", "timings"):
@@ -235,6 +284,10 @@ REASON_TEXT = {
     "SUPPLIER_BROWSER_FALLBACK_PROOF_REQUIRED": "a supplier website needs a browser check that is not ready yet",
     "PRODUCT_IMAGE_USABLE_SAVED": "a usable product photo was saved",
     "RESEARCH_INDEX_SIZE_LIMIT": "the research lookup file reached its size limit",
+    "AI_PLAN_LIMIT_CREDITS_PROTECTED": "AI is waiting so it doesn't spend paid Codex credits (the plan allowance is used up)",
+    "AI_PAID_CREDITS_USED": "AI is waiting because a research call used paid Codex credits",
+    "AI_USAGE_READ_FAILED": "AI is waiting because the Codex allowance could not be read",
+    "OWNER_SIGN_IN_REQUIRED": "a signed-in website needs you to sign in again",
     "RESEARCH_INDEX_WRITE_UNAVAILABLE": "the research lookup file could not be updated",
     "DIRECT_TRENDS_RECEIPT_MISMATCH": "a Google Trends answer did not match its question",
     "AI_PROVIDER_REQUEST_FAILED": "the AI service did not answer",
@@ -309,6 +362,7 @@ class OperationRun:
         self.last_reason = None
         self.counts = {"events": 0, "completed_results": 0, "failures": 0, "deferred": 0,
                        "saved_failed_results": 0, "access_blocks": 0}
+        self.round_marks = set()  # what ``record_event_once_per_round`` already wrote this round
         self.logger = logging.Logger("product-radar." + self.run_id)
         self.logger.propagate = False
         self.handler = None
@@ -369,16 +423,16 @@ class OperationRun:
             # No dispatch alone does not mean historical reuse: a new local
             # or prelaunch failure can also occur before a website request.
             # Only the exact saved-outcome branch identifies an older result.
-            reused_failure = (event == "source_outcome" and values.get("state") == "failed"
-                and values.get("outcome_reused") is True and values.get("actual_attempt") is False
-                and not error_type_supplied)
-            if values.get("error_type") or values.get("state") == "failed":
+            counted = classify_row(event, values)
+            reused_failure = counted["reused_failure"]
+            if counted["failure"] or reused_failure:
                 self.counts["saved_failed_results" if reused_failure else "failures"] += 1
-            access = _access_outcome(event, values)
-            if access == "block":
+            if counted["block"]:
                 self.counts["access_blocks"] += 1
-            if values.get("state") in _WAIT_STATES or access == "held":
+            if counted["wait"]:
                 self.counts["deferred"] += 1
+            if event in _ROUND_EVENTS:
+                self.round_marks = set()
             if values.get("stage"):
                 self.step = values["stage"]
             if event == "stage_started":
@@ -387,7 +441,7 @@ class OperationRun:
                 self.detail = values["detail"]
             if values.get("next_action"):
                 self.next_action = values["next_action"]
-            if values.get("reason"):
+            if values.get("reason") and values["reason"] not in HARMLESS_REASONS:
                 self.last_reason = values["reason"]
             if event in {"phase_started", "stage_started"}:
                 self.phase = values.get("phase", values.get("stage"))
@@ -474,6 +528,25 @@ def record_event(event, **values):
     recorder = _ACTIVE.get()
     if recorder:
         recorder.emit(event, **values)
+
+
+# A research round starts with its saved order and ends with its summary.
+_ROUND_EVENTS = frozenset({"programme_order", "round_finished"})
+
+
+def record_event_once_per_round(event, mark, **values):
+    """Record ``event`` at most once per research round for the same ``mark``.
+
+    For a repeating wait (an AI step held by the allowance guard) that would
+    otherwise be invisible or fill the log. A run with no round yet counts
+    as one round. Returns True when the row was written now.
+    """
+    recorder = _ACTIVE.get()
+    if recorder is None or (event, mark) in recorder.round_marks:
+        return False
+    recorder.round_marks.add((event, mark))
+    recorder.emit(event, **values)
+    return True
 
 
 def record_heartbeat(event, **values):
@@ -729,7 +802,8 @@ def run_outcome(root, pid, *, since, tail_bytes=262144):
             if not isinstance(row, dict):
                 continue
             reason = row.get("reason") if isinstance(row.get("reason"), str) and _CODE.fullmatch(row["reason"]) else None
-            if reason:
+            stopped = row.get("event") in {"programme_stopped_for_recovery", "invocation_failed"}
+            if reason and (stopped or reason not in HARMLESS_REASONS):
                 result["last_reason"] = reason
             if row.get("event") in {"invocation_started", "invocation_finished", "invocation_interrupted", "invocation_failed"}:
                 result["interrupted"] = row["event"] == "invocation_interrupted"

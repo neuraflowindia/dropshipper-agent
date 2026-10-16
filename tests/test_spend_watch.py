@@ -317,6 +317,15 @@ class SpendWatchTests(unittest.TestCase):
         self.assertEqual(rows["config/research/spend_watch.json"]["kind"], "public_setting")
         self.assertEqual(selected["unsafe"], [])
         self.assertNotIn("data/research/captured/spend_watch/runner.lock", rows)
+        # The allowance history (R18a) is kept once it exists; none is asked for before.
+        self.assertNotIn("data/research/captured/spend_watch/allowance-history.jsonl", rows)
+        from product_radar.spend_watch_ai import append_allowance_history
+        self.assertTrue(append_allowance_history(self.root, {"at": "2026-10-14T10:00:00+00:00", "source": "after_call",
+                                                             "failed": "AI_USAGE_READ_TIMEOUT"}))
+        selected = select_essential_backup_files({table: {} for table in TABLES}, ({}, {}), root=self.root)
+        rows = {row["relative_path"]: row for row in selected["files"]}
+        self.assertEqual(rows["data/research/captured/spend_watch/allowance-history.jsonl"]["kind"], "operating_control")
+        self.assertEqual(selected["unsafe"], [])
         settings.write_text(json.dumps({"schema_version": 1}))
         selected = select_essential_backup_files({table: {} for table in TABLES}, ({}, {}), root=self.root)
         self.assertNotIn("config/research/spend_watch.json", {row["relative_path"] for row in selected["files"]})

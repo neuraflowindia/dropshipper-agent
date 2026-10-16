@@ -32,8 +32,11 @@ import signal
 import subprocess
 import time
 
+from .ai_accounting import allowance_reading, note as account
 from .models import SafetyError, canonical, decode_json, timestamp, utc_now
-from .spend_watch import alert, clear_wait, load_settings, load_state, observe, set_wait, writing
+from .runtime_storage import runtime_path
+from .spend_watch import AREA, alert, clear_wait, load_settings, load_state, observe, set_wait, writing
+from .storage import file_lock, safe_path
 
 METHOD = "account/rateLimits/read"
 READ_SECONDS = 20
@@ -50,6 +53,13 @@ WATCH_UNAVAILABLE = "AI_SPEND_WATCH_UNAVAILABLE"
 # Every refusal the guard raises; all of them come before the model starts.
 GUARD_CODES = (PROTECT_REASON, PAUSE_REASON, READ_FAILED, WATCH_UNAVAILABLE)
 LABEL = "Codex paid credits"
+# Every allowance reading (and failed reading), oldest first, one JSON line
+# each, beside the latest-only state: the history over time. Bounded: when the
+# file passes the limit it becomes the one kept older file (any older one is
+# dropped), so at most about twice the limit is ever kept.
+HISTORY_FILE = "allowance-history.jsonl"
+HISTORY_PREVIOUS = "allowance-history.previous.jsonl"
+HISTORY_MAX_BYTES = 2 * 1024 * 1024
 _LIMIT_ID = re.compile(r"[A-Za-z0-9_.-]{1,80}")
 _REACHED = re.compile(r"[a-z_]{1,80}")
 
@@ -378,6 +388,52 @@ def record_read_failure(state, alerts, reason, at):
                   at=at, message=text)
 
 
+def append_allowance_history(root, row, *, max_bytes=HISTORY_MAX_BYTES):
+    """Append one reading to the allowance history; never stops AI work.
+
+    Returns True when the line was written. Rows hold window percentages,
+    reset times, signals, the credits balance and when/why it was read: no
+    account id, no Codex folder, no secret.
+    """
+    try:
+        folder = safe_path(runtime_path(root, AREA))
+        folder.mkdir(parents=True, exist_ok=True)
+        encoded = canonical(row) + b"\n"
+        with file_lock(folder / "history.lock", 5, "SPEND_WATCH_HISTORY_BUSY"):
+            path = folder / HISTORY_FILE
+            if path.is_symlink():
+                raise SafetyError("SYMLINK_PATH_REFUSED")
+            if path.exists() and path.stat().st_size + len(encoded) > max_bytes:
+                os.replace(path, folder / HISTORY_PREVIOUS)
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o644)
+            try:
+                if os.write(descriptor, encoded) != len(encoded):
+                    raise SafetyError("SPEND_WATCH_HISTORY_WRITE_FAILED")
+            finally:
+                os.close(descriptor)
+        return True
+    except (OSError, SafetyError, TypeError, ValueError):
+        return False
+
+
+def read_allowance_history(root, *, limit=None):
+    """Saved readings, oldest first (the kept older file, then the current one). Read only."""
+    rows = []
+    folder = runtime_path(root, AREA)
+    for name in (HISTORY_PREVIOUS, HISTORY_FILE):
+        path = folder / name
+        if path.is_symlink() or not path.is_file():
+            continue
+        for line in path.read_bytes().splitlines():
+            try:
+                row = decode_json(line)
+            except SafetyError:
+                continue  # a line cut by a power cut
+            if isinstance(row, dict):
+                rows.append(row)
+    return rows if limit is None else rows[-limit:]
+
+
 class AllowanceWatchedRunner:
     """Wraps a Codex runner: flags usage windows and guards paid credits.
 
@@ -392,7 +448,7 @@ class AllowanceWatchedRunner:
             raise SafetyError("AI_CONFIGURATION_CHANGED")
         self.runner, self.root, self.reader, self.clock, self.sleep = runner, Path(root), reader, clock, sleep
         self.identity = getattr(runner, "identity", "codex-chatgpt-high-v1")
-        self._settings, self._cached = settings, None
+        self._settings, self._cached, self._cached_at = settings, None, None
 
     def _write(self, change):
         try:
@@ -402,8 +458,10 @@ class AllowanceWatchedRunner:
         except (SafetyError, OSError, KeyError, TypeError, ValueError):
             raise SafetyError(WATCH_UNAVAILABLE) from None
 
-    def _read(self, at):
-        """One read, retried once after a short pause; failures back off."""
+    def _read(self, at, source):
+        """One read, retried once after a short pause; failures back off.
+
+        Every reading and every failed reading is added to the history."""
         try:
             reading = self.reader()
         except SafetyError:
@@ -412,13 +470,28 @@ class AllowanceWatchedRunner:
                 reading = self.reader()
             except SafetyError as error:
                 reason = str(error) if str(error).startswith("AI_") else READ_FAILED
+                append_allowance_history(self.root, {"at": at, "source": source, "failed": reason})
                 self._write(lambda state, alerts: record_read_failure(state, alerts, reason, at))
                 self._cached = None
                 raise SafetyError(READ_FAILED) from None
-        self._cached = (time.monotonic(), reading)
+        self._cached, self._cached_at = (time.monotonic(), reading), at
+        append_allowance_history(self.root, allowance_reading(reading, at=at, source=source))
         return reading
 
-    def _admit(self, *, mark):
+    def _admit(self, *, mark, source):
+        """Admit (or refuse) one AI step; returns the reading it was admitted on.
+
+        A refusal by this guard is also one run-log row, at most once per
+        round per reason, so the wait is visible (``ai_use_held``)."""
+        try:
+            return self._admit_checked(mark=mark, source=source)
+        except SafetyError as error:
+            if str(error) in GUARD_CODES:
+                from .operations import record_event_once_per_round
+                record_event_once_per_round("ai_use_held", str(error), state="waiting", reason=str(error))
+            raise
+
+    def _admit_checked(self, *, mark, source):
         at = self.clock(); timestamp(at)
         try:
             state = load_state(self.root) or {}
@@ -433,7 +506,13 @@ class AllowanceWatchedRunner:
         cached = self._cached
         fresh = (wait is not None or state.get("ai", {}).get("pending_call") is not None
                  or cached is None or time.monotonic() - cached[0] > CACHE_SECONDS)
-        reading = self._read(at) if fresh else cached[1]
+        if fresh:
+            reading = self._read(at, source)
+            seen = allowance_reading(reading, at=at, source=source)
+        else:
+            reading = cached[1]
+            seen = allowance_reading(reading, at=self._cached_at or at, source=source, from_cache=True,
+                                     age_seconds=time.monotonic() - cached[0])
 
         def admit(state, alerts):
             if fresh:
@@ -453,18 +532,24 @@ class AllowanceWatchedRunner:
         refused = self._write(admit)
         if refused:
             raise SafetyError(refused)
+        return seen
 
     def check_new_execution(self):
         guard = getattr(self.runner, "check_new_execution", None)
         if guard is not None:
             guard()
-        self._admit(mark=False)
+        self._admit(mark=False, source="admission_check")
 
     def __call__(self, role, payload, folder):
-        self._admit(mark=True)
+        try:
+            account(allowance_before=self._admit(mark=True, source="before_call"))
+        except SafetyError as error:
+            account(allowance_before_missing=str(error), allowance_after_missing="call_not_admitted")
+            raise
         try:
             value = self.runner(role, payload, folder)
         except (KeyboardInterrupt, SystemExit):
+            account(allowance_after_missing="owner_stop_not_read")
             raise  # an owner Stop is not delayed; the saved mark is compared later
         except BaseException:
             self._settle()
@@ -473,12 +558,15 @@ class AllowanceWatchedRunner:
         return value
 
     def _settle(self):
-        at = self.clock()
+        at, reading = self.clock(), None
         try:
-            reading = self._read(at)
+            reading = self._read(at, "after_call")
+            account(allowance_after=allowance_reading(reading, at=at, source="after_call"))
             self._write(lambda state, alerts: record_ai_reading(state, alerts, reading, at))
-        except SafetyError:
-            pass  # the mark stays; the next admission reads again and fails closed if it cannot
+        except SafetyError as error:
+            if reading is None:
+                account(allowance_after_missing=str(error))
+            # the mark stays; the next admission reads again and fails closed if it cannot
 
 
 def watched_codex_runner(runner, config, *, root):

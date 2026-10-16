@@ -632,8 +632,11 @@ def advance_platform(root, route, reader, *, as_of=None, limit=None, clock=utc_n
             request = cycle["queue"][0]
             refresh["sequence"] += 1
             _save_refresh(root, route, refresh)  # a read's file name is never reused, even after a crash
+            read_clock = time.monotonic()
             result = reader.read(request, folder, refresh["sequence"], at)
+            read_seconds, receipt = time.monotonic() - read_clock, result.get("receipt") or {}
             if result["state"] == "not_started":
+                _log_read(route, cycle, request, "waiting", result["reason"], read_seconds, receipt)
                 outcome.update(state="waiting", reason=result["reason"], next_retry_at=result.get("next_retry_at"))
                 refresh.update(wait={"reason": result["reason"], "at": at})
                 _save_refresh(root, route, refresh)
@@ -651,6 +654,7 @@ def advance_platform(root, route, reader, *, as_of=None, limit=None, clock=utc_n
                     catalogue = load_catalogue(root, route)
                     parsed_failed = True
             if result["state"] != "read":
+                _log_read(route, cycle, request, "failed", result["reason"], read_seconds, receipt)
                 if (cycle["kind"] == "categories" and request.get("role") == CATEGORY_ROLE
                         and (result["reason"] in _PAGE_ONLY or parsed_failed)):
                     # That one category page (empty, moved, changed or unreadable) is not
@@ -665,6 +669,8 @@ def advance_platform(root, route, reader, *, as_of=None, limit=None, clock=utc_n
                 _save_refresh(root, route, refresh)
                 outcome.update(state="waiting", reason=result["reason"], next_retry_at=refresh["blocked_until"])
                 break
+            _log_read(route, cycle, request, "read", None, read_seconds, receipt,
+                      items=len(parsed["items"]), next_pages=len(parsed["follow"]))
             cycle["queue"] = parsed["follow"] + cycle["queue"][1:]
             refresh.update(failures=0, blocked_until=None, wait={})
             catalogue.update(updated_at=at, parser_version=reader.parser_version)
@@ -673,6 +679,19 @@ def advance_platform(root, route, reader, *, as_of=None, limit=None, clock=utc_n
             outcome["state"] = "reading"
         outcome["reads"] = reads
     return outcome
+
+
+def _log_read(route, cycle, request, state, reason, seconds, receipt, *, items=None, next_pages=None):
+    """One run-log row per platform page visit (a feed request or a signed-in
+    page): which page, what happened, how long it took, how many items it
+    showed and, for a signed-in page, whether it looked signed in. No address,
+    page text or account detail is logged."""
+    from .operations import record_event
+    counts = {name: value for name, value in (("items_found", items), ("next_pages", next_pages)) if value is not None}
+    record_event("platform_read", route=route, cycle_kind=cycle.get("kind"), page_kind=request.get("kind"),
+                 record_kind=request.get("role"), state=state, reason=reason,
+                 http_status=receipt.get("http_status"), signed_in=receipt.get("signed_in"),
+                 timings={"read_seconds": seconds}, counts=counts)
 
 
 def _apply_read(catalogue, cycle, request, parsed, at, relative, config, *, authoritative=True):

@@ -49,7 +49,8 @@ _SOURCE_AREAS = {"direct_marketplace", "direct_trends", "direct_meta", "supplier
                  "trends_browser", "marketplace_browser", "amazon_trials", "image_captures",
                  "trends_checks", "supplier_searches", "dropship_platforms", "meta_depth", "wider_discovery"}
 _MODEL_FILES = ("intent.json", "result.json", "completion.json", "failure.json", "runner_execution.json",
-                "execution_failure.json", "runner_preflight.json", "derived_result.json", "retries.json")
+                "execution_failure.json", "runner_preflight.json", "derived_result.json", "accounting.json",
+                "retries.json")
 _PROOF_FILES = {"snapshot.json", "scope.json", "transport.json", "parsed.json", "interpretation.json",
                 "rendered.html", "multiTimeline.csv", "native_result.json", "native_dispatch.json", "owned_process.json",
                 "native_expression.js", "native_ready.js",
@@ -1394,6 +1395,11 @@ def select_essential_backup_files(research_state, financial_state, *, root, pend
     elif alerts.is_dir():
         for path in sorted(alerts.glob("*.jsonl")):
             selection.add(path, "operating_control", "spend_watch/alerts", required=False)
+    # The allowance history (every reading over time) and its one kept older file.
+    for name in ("allowance-history.previous.jsonl", "allowance-history.jsonl"):
+        history = selection.memory / "spend_watch" / name
+        if history.exists() or history.is_symlink():
+            selection.add(history, "operating_control", "spend_watch", required=False)
     for control in pending_controls:
         path = control.get("path") if isinstance(control, dict) else control
         saved = selection.add(path, "operating_control", "supplied_pending_control")
