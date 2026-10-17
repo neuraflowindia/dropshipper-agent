@@ -35,7 +35,7 @@ from .runtime_storage import logical_path, runtime_path
 from .storage import Journal, atomic_bytes, atomic_json, load_json, safe_path
 from .report_examples import (RECOMMENDATION_CONTRACT, FUNCTIONAL_REPORT_FIELDS, OPTIONAL_FUNCTIONAL_REPORT_FIELDS,
     functional_report_fields, WORKBOOK_HEADERS as EXAMPLE_WORKBOOK_HEADERS,
-                              validate_functional_examples, example_source_label, example_workbook_rows)
+                              validate_functional_examples, example_workbook_rows)
 
 ROOT = Path(__file__).resolve().parents[2]
 LOGO = ROOT / "media" / "NeuraFlow" / "long_maroon_path_transparent_1024.png"
@@ -43,43 +43,23 @@ LANGUAGES = {"en", "hi-Latn"}
 PRICE_DISPLAY_VERSION = "price-display-v2"
 LEGACY_PRICE_DISPLAY_VERSION = "price-display-v1"
 INTERNAL_STAGE_VERSION = "checked-report-stages-v1"
-WORKBOOK_GENERATION_VERSION = "deterministic-workbook-v1"
+WORKBOOK_GENERATION_VERSION = "deterministic-workbook-v1-style-v2"
 LEGACY_WORKBOOK_GENERATION_VERSION = "legacy-verified-workbook-v1"
 LEGACY_HTML_RENDER_VERSION = "functional-report-stages-v1"
-HTML_RENDER_VERSION = "functional-report-stages-v1-print-v2"
-SOURCE_WORKBOOK_GENERATION_VERSION = "deterministic-workbook-v2"
+HTML_RENDER_VERSION = "functional-report-stages-v1-print-v3"
+SOURCE_WORKBOOK_GENERATION_VERSION = "deterministic-workbook-v2-style-v2"
 LEGACY_SOURCE_HTML_RENDER_VERSION = "functional-report-stages-v2"
-SOURCE_HTML_RENDER_VERSION = "functional-report-stages-v2-print-v2"
-TYPE_WORKBOOK_GENERATION_VERSION = "deterministic-workbook-v3"
+SOURCE_HTML_RENDER_VERSION = "functional-report-stages-v2-print-v3"
+TYPE_WORKBOOK_GENERATION_VERSION = "deterministic-workbook-v3-style-v2"
 LEGACY_TYPE_HTML_RENDER_VERSION = "functional-report-stages-v3"
-TYPE_HTML_RENDER_VERSION = "functional-report-stages-v3-print-v2"
+TYPE_HTML_RENDER_VERSION = "functional-report-stages-v3-print-v3"
 TYPE_WORKBOOK_CONTRACT = "fit-checklist-examples-v2"
 LEGACY_SUPPLIER_TERMS_DISPLAY_VERSION = "supplier-terms-v1"
 SUPPLIER_TERMS_DISPLAY_VERSION = "supplier-terms-v2"
 MAX_STAGE_FILE = 32 * 1024 * 1024
 MAX_CORE_FILE = 4 * 1024 * 1024
-DISPATCH_LABELS = {"supported": "Single-piece sourcing and dispatch supported", "not_supported": "Single-piece sourcing and dispatch not supported",
-                   "not_stated": "Single-piece sourcing and dispatch not stated"}
-SUBSCRIPTION_LABELS = {"no_subscription_stated": "No subscription stated by the supplier", "subscription_stated": "Subscription stated by the supplier",
-                       "not_stated": "Subscription terms not stated"}
-HI_DISPATCH_LABELS = {"supported": "Single-piece sourcing aur dispatch saath mein supported hain", "not_supported": "Single-piece sourcing aur dispatch saath mein supported nahi hain",
-                     "not_stated": "Single-piece sourcing aur dispatch ki poori jankari nahi di gayi hai"}
-HI_SUBSCRIPTION_LABELS = {"no_subscription_stated": "Supplier ne subscription na hone ki baat kahi hai", "subscription_stated": "Supplier ne subscription ka zikr kiya hai",
-                         "not_stated": "Subscription ki shartein nahi di gayi hain"}
-HI_STATES = {"Positive": "Achha sanket mila hai", "Not-positive": "Positive sanket nahi mila hai", "Insufficient": "Jankari abhi kaafi nahi hai",
-             "Unavailable": "Is source ki jankari available nahi hai", "Available": "Jankari available hai"}
-HI_MARKET_LABELS = {"Worth Watching": "Nazar rakhne layak", "Promising Market Signal": "Achhe bazaar sanket", "Strong Market Signal": "Mazboot bazaar sanket",
-                    "Weak": "Kamzor bazaar sanket", "Insufficient evidence": "Jankari abhi kaafi nahi hai"}
-COPY = {
-    "en": {"title": "Product picks", "overview": "At a glance", "why": "Why this product", "market": "Market checks",
-           "prices": "Observed prices", "suppliers": "Supplier leads", "links": "Sources", "missing_price": "Price not stated",
-           "missing_supplier": "No supplier lead found in the saved research.", "new": "New", "updated": "Updated",
-           "unknown_image": "Product image not available"},
-    "hi-Latn": {"title": "Product sujhaav", "overview": "Ek nazar mein", "why": "Yeh product kyun", "market": "Bazaar ke sanket",
-                "prices": "Dekhi gayi keemat", "suppliers": "Supplier sujhaav", "links": "Sources", "missing_price": "Keemat nahi di gayi",
-                "missing_supplier": "Saved research mein koi supplier lead nahi mila.", "new": "Naya", "updated": "Update",
-                "unknown_image": "Product ki tasveer available nahi hai"},
-}
+from .report_copy import (DISPATCH_LABELS, SUBSCRIPTION_LABELS, HI_DISPATCH_LABELS,  # noqa: E402  (shared wording)
+                          HI_SUBSCRIPTION_LABELS)
 
 
 @lru_cache(maxsize=1)
@@ -447,6 +427,9 @@ def validate_dataset(issue, dataset, *, root=None):
             from .report_source_facts import validate_functional_route_proof
             validate_frozen_functional_fit(value)
             validate_frozen_functional_market(value)
+            from .report_visuals import validate_quick_commerce_checks
+            if validate_quick_commerce_checks(value["quick_commerce_checks"])["as_of"] != value["functional_market_proof"]["as_of"]:
+                raise SafetyError("LIVE_QUICK_COMMERCE_CHECKS_INVALID")
             validate_frozen_functional_photo(value)
             validate_functional_route_proof(value)
         elif any(field in value or field in frozen for field in (*FUNCTIONAL_REPORT_FIELDS, *OPTIONAL_FUNCTIONAL_REPORT_FIELDS, "display_asset")):
@@ -584,9 +567,9 @@ def _narrative(narrative, products, language):
             for phrase in phrases:
                 if set(phrase) != {"id", "text"}:
                     raise SafetyError("LIVE_CHECKLIST_PHRASES_INVALID")
-                from .report_narration import _plain
+                from .report_narration import WRITING_LIMITS, _plain
                 try:
-                    _plain(phrase["text"], "checklist", 220)
+                    _plain(phrase["text"], "checklist", WRITING_LIMITS[language]["checklist"], title=product.get("title"))
                     if not phrase["text"].strip() or language == "hi-Latn" and re.search(r"[\u0900-\u097f]", phrase["text"]):
                         raise SafetyError("LIVE_CHECKLIST_PHRASES_INVALID")
                 except SafetyError:
@@ -595,6 +578,16 @@ def _narrative(narrative, products, language):
             raise SafetyError("LIVE_NARRATIVE_UPDATE_NOT_ADMITTED")
         for field in ("reason", "limitation", "update_sentence"):
             _text(row.get(field, ""), optional=field != "reason")
+        from .report_narration import LIMITATION_LIMIT, WRITING_LIMITS, budget_length
+        limits = WRITING_LIMITS[language]
+        # The page prints {{title}} as the product name, so the budgets count it that way.
+        title = product.get("title") if isinstance(product.get("title"), str) else ""
+        if (budget_length(row["reason"], title) > limits["reason"]
+                or budget_length(row.get("update_sentence") or "", title) > limits["update_sentence"]
+                or len(row.get("limitation") or "") > LIMITATION_LIMIT
+                or isinstance(row.get("points"), list) and any(isinstance(point, str) and budget_length(point, title) > limits["point"]
+                                                               for point in row["points"])):
+            raise SafetyError("LIVE_NARRATIVE_TOO_LONG")
         if not isinstance(row.get("points"), list) or len(row["points"]) > 3:
             raise SafetyError("LIVE_NARRATIVE_INVALID")
         allowed = {"title", "rank", "kpi_matches", "date", "retail_price", "supplier_price"}
@@ -667,39 +660,6 @@ def _owned_asset(dataset, owner_id, *, root, as_bytes=False):
     return saved["bytes"] if as_bytes else saved["data_url"]
 
 
-def _table_head(product, headings):
-    """Keep the owning product visible when Chrome repeats a table header."""
-    context = f'{product["rank"]:02d} · {product["title"]}'
-    return ('<thead><tr class="live-table-context"><th colspan="' + str(len(headings)) + '">'
-            + escape(context) + '</th></tr><tr>'
-            + ''.join('<th scope="col">' + escape(heading) + '</th>' for heading in headings)
-            + '</tr></thead>')
-
-
-def _example_html(product, language):
-    title = "Example products" if language == "en" else "Is type ke product examples"
-    rows = []
-    for row in product["example_products"]:
-        price = (row["price"]["displayed"] + "; unit and price basis not verified") if row["price"] else "Price not stated"
-        cells = [row["title"], example_source_label(row), row["seller"] or "Seller not stated", row["pack"] or "Pack not stated",
-                 price, row["observed_at"][:10]]
-        link = '<a href="' + escape(row["url"], quote=True) + '">Open source</a>' if row["url"] else "Link not stated"
-        rows.append('<tr>' + ''.join('<td>' + escape(cell) + '</td>' for cell in cells) + '<td>' + link + '</td></tr>')
-    if not rows:
-        message = ("Product examples are omitted here to keep the report file small."
-            if product.get("example_selection") else "No reviewed product example was saved for this type.")
-        return '<h2>' + title + '</h2><p>' + message + '</p>'
-    headings = ("Example", "Source", "Seller", "Pack", "Observed quote", "Observed", "Link")
-    result = '<h2>' + title + '</h2><table class="live-evidence-table live-examples-table">'
-    result += _table_head(product, headings) + '<tbody>' + ''.join(rows) + '</tbody></table>'
-    omitted = product["example_coverage"]["omitted_offers"]
-    if omitted:
-        result += '<p class="small">' + str(omitted) + ' further retained examples are not displayed in this report.</p>'
-    if product.get("example_selection"):
-        result += '<p class="small">Fewer examples are displayed to keep the report file small.</p>'
-    return result
-
-
 def workbook_contract(dataset):
     if dataset.get("schema_version") == 3:
         return TYPE_WORKBOOK_CONTRACT
@@ -725,136 +685,29 @@ def _supported_render_versions(dataset):
 
 
 def render_html(issue, dataset, *, language="en", root=None):
+    """One self-contained HTML edition (no script, no external resource).
+
+    The packet is validated first; the layout itself lives in ``report_view``
+    (pages, charts, theme and fixed wording in their own small modules).
+    """
     validate_dataset(issue, dataset, root=root or ROOT)
     if language not in LANGUAGES:
         raise SafetyError("LIVE_LANGUAGE_INVALID")
     narrative = dataset["narratives"].get(language)
     if not narrative:
         raise SafetyError("LIVE_NARRATIVE_LANGUAGE_MISSING")
-    labels = COPY[language]
-    _, pdf_style = _style_helpers()
-    css = pdf_style.CSS + """
-    .page {height:auto;min-height:297mm;overflow:visible;} h1,h2,h3{text-transform:none;letter-spacing:0;}
-    .live-cover{display:flex;flex-direction:column;justify-content:space-between;} .live-logo{width:58mm;height:26mm;object-fit:contain;object-position:left;}
-    .live-cover h1{font-size:34pt;max-width:145mm;line-height:1.07;} .live-date{font-size:14pt;color:var(--maroon);}
-    .live-notice{font-size:9pt;max-width:150mm;color:var(--mid);} .live-overview{list-style:none;padding:0;}
-    .live-overview li{display:grid;grid-template-columns:12mm 1fr 22mm;gap:5mm;padding:3.5mm 0;border-bottom:.25mm solid var(--line);}
-    .live-hero{display:grid;grid-template-columns:1fr 65mm;gap:8mm;margin-bottom:7mm;} .live-hero img{width:65mm;height:65mm;object-fit:contain;}
-    .live-hero-no-image{display:block;} .live-image-missing{margin:3mm 0 0;text-align:left;color:var(--mid);font-size:9pt;}
-    .live-product h1{font-size:25pt;line-height:1.08;} .live-meta{color:var(--mid);margin:3mm 0;} .live-checks{display:block;margin:5mm 0;}
-    .live-check{padding-top:3mm;border-top:.3mm solid var(--line);font-size:9pt;} .live-check strong{display:block;color:var(--navy);}
-    .live-details{display:grid;grid-template-columns:1fr 1fr;gap:8mm;margin-top:6mm;} .live-details p{font-size:9pt;} .live-source-links{margin-top:4mm;font-size:8pt;}
-    .live-page-footer{display:inline;color:var(--mid);font-size:8pt;}
-    .live-product .live-main-copy{font-family:var(--serif);font-size:12pt;} .live-bulk-notice{color:var(--maroon);}
-    .live-product p,.live-source-links{overflow-wrap:anywhere;orphans:2;widows:2;}
-    .live-evidence-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:9pt;line-height:1.42;}
-    .live-evidence-table th,.live-evidence-table td{text-align:left;vertical-align:top;padding:1mm 2mm;overflow-wrap:anywhere;}
-    .live-evidence-table th{color:var(--navy);background:var(--cream-deep);font-size:8.5pt;}
-    .live-evidence-table td{border-bottom:.25mm solid var(--line);}
-    .live-evidence-table .live-table-context th{font-size:8pt;color:var(--mid);background:var(--cream);padding-top:2mm;}
-    .live-fit-table col:nth-child(1){width:25%;}.live-fit-table col:nth-child(2){width:19%;}
-    .live-price-table col:first-child{width:10mm;}.live-price-table p{margin:0;}
-    .live-market-table{width:100%;table-layout:fixed;border-collapse:collapse;}
-    .live-market-table th{text-align:left;color:var(--mid);font-size:8pt;font-weight:normal;padding:0 0 2mm;}
-    .live-market-table td{vertical-align:top;width:33.333%;padding:0 2.5mm 5mm;}
-    .live-market-table td:first-child{padding-left:0;}.live-market-table td:last-child{padding-right:0;}
-    @media print{
-      @page{size:A4 portrait;margin:14mm 16mm 15mm 17mm;background:#F9F3EC;}
-      html,body{background:var(--cream);-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-      .page{width:auto;height:auto;min-height:0;padding:0;overflow:visible;}
-      .live-cover{min-height:268mm;}
-      h1,h2,h3{break-after:avoid;page-break-after:avoid;}
-      .live-hero,.live-check,.live-overview li{break-inside:avoid;page-break-inside:avoid;}
-      .live-checks{display:block;break-inside:auto;page-break-inside:auto;}
-      .live-evidence-table thead,.live-market-table thead{display:table-header-group;}
-      .live-fit-table tr,.live-market-table tr{break-inside:avoid;page-break-inside:avoid;}
-      .live-details{display:block;break-after:avoid;page-break-after:avoid;}
-      .live-details>div+div{margin-top:6mm;}
-      .live-details p{break-inside:avoid;page-break-inside:avoid;}
-      .live-details>div:last-child,.live-details>div:last-child>p:last-child{break-after:avoid;page-break-after:avoid;}
-      .live-price-table,.live-price-table tr:last-child,.live-details>div:first-child{break-after:avoid;page-break-after:avoid;}
-      .live-source-links{break-before:avoid;page-break-before:avoid;break-inside:avoid;page-break-inside:avoid;}
-    }
-    @media screen and (max-width:800px){.page{width:100%;min-height:0;padding:7vw;}.live-cover h1{font-size:30px;}.live-hero{grid-template-columns:1fr;}.live-hero img{width:100%;height:220px;}.live-details{grid-template-columns:1fr;} .live-market-table,.live-market-table thead,.live-market-table tbody,.live-market-table tr,.live-market-table td{display:block;} .live-market-table td{width:100%;padding:0 0 5mm;} .live-logo{max-width:60%;}}
-    """
     functional = dataset["schema_version"] == 3
     logo = _owned_asset(dataset, "brand-logo", root=root or ROOT) if functional else _image(LOGO)
-    notice = ("Illustrative sample. Products and evidence are manufactured for testing." if dataset["evidence_type"] == "synthetic" else
-              "Research suggestions for testing. Prices and supplier terms may change.")
-    counts = issue["counts"]
-    count_sentence = f'{counts["products"]} products. {counts["new"]} new. {counts["updates"]} updates.' if language == "en" else f'Is report mein {counts["products"]} products hain. {counts["new"]} naye hain aur {counts["updates"]} updates hain.'
-    brand = f'<img class="live-logo" src="{logo}" alt="NeuraFlow">' if logo or not functional else '<p>NeuraFlow</p>'
-    cover = f'<section class="page live-cover">{brand}<div><h1>{escape(narrative["title"])}</h1><p class="live-date">{escape(dataset["release_date"])}</p><p>{escape(count_sentence)}</p></div><p class="live-notice">{escape(notice)}</p></section>'
-    total = dataset.get("kpi_total", 13)
-    overview_rows = "".join(f'<li><span>{p["rank"]:02d}</span><span><a href="#product-{p["concept_id"]}">{escape(p["title"])}</a></span><span>{p["kpi_matches"]}/{total}</span></li>' for p in dataset["products"])
-    pages = [cover, f'<section class="page"><div class="page-top"><span class="folio">02</span></div><h1>{labels["overview"]}</h1><ul class="live-overview">{overview_rows}</ul></section>']
-    for index, (product, prose) in enumerate(zip(dataset["products"], narrative["products"]), 3):
-        image = (_owned_asset(dataset, product["concept_id"], root=root or ROOT)
-                 if functional else _image(product["image_path"]))
-        hero_class = "live-hero" if image else "live-hero live-hero-no-image"
-        visual = f'<img src="{image}" alt="{escape(product["title"], quote=True)}">' if image else f'<p class="live-image-missing">{labels["unknown_image"]}</p>'
-        if image and product.get("image_provenance", {}).get("relationship") == "relevant_family":
-            visual += '<p class="small">' + ("Photo of a similar product type." if language == "en" else
-                                               "Milte-julte product ki tasveer.") + '</p>'
-        check_cards = [f'<div class="live-check"><strong>{escape(check["source"])}</strong><p>{escape(check["state"] if language == "en" else HI_STATES.get(check["state"], check["state"]))}</p><p>{escape(check["detail"])}</p></div>' for check in display_market_checks(product)]
-        checks = ('<table class="live-market-table"><thead><tr><th colspan="3">'
-                  + escape(f'{product["rank"]:02d} · {product["title"]}') + '</th></tr></thead><tbody>')
-        for start in range(0, len(check_cards), 3):
-            cards = check_cards[start:start + 3]
-            checks += '<tr>' + ''.join('<td>' + card + '</td>' for card in cards)
-            checks += '<td></td>' * (3 - len(cards)) + '</tr>'
-        checks += '</tbody></table>'
-        if product["prices"]:
-            price_headings = ("#", "Observed price and original conditions") if language == "en" else (
-                "#", "Dekhi gayi keemat aur asal shartein")
-            prices = '<table class="live-evidence-table live-price-table"><colgroup><col><col></colgroup>'
-            prices += _table_head(product, price_headings) + '<tbody>'
-            prices += ''.join(f'<tr><td>{number}</td><td><p>{escape(price_display(price, language))}</p></td></tr>'
-                              for number, price in enumerate(product["prices"], 1))
-            prices += '</tbody></table>'
-        else:
-            prices = f'<p>{labels["missing_price"]}</p>'
-        warning = next((text for price in product["prices"] if (text := _bulk_order_notice(price, language))), None)
-        if warning:
-            prices += f'<p class="live-bulk-notice">{escape(warning)}</p>'
-        empty_supplier = ("Supplier search has not been completed." if language == "en" else "Supplier search abhi poori nahi hui hai.") if product["supplier_search_status"] == "not_started" else (
-            "Supplier search could not be completed." if language == "en" else "Supplier search poori nahi ho paayi.") if product["supplier_search_status"] == "blocked" else labels["missing_supplier"]
-        if product.get("fit_policy_id") == FIT_POLICY_ID and product.get("supplier_effort_satisfied") is True:
-            empty_supplier = ("Supplier search did not produce any usable results." if language == "en" else
-                              "Supplier search se koi kaam ka result nahi mila.")
-        shown_suppliers = product["suppliers"] if product.get("source_route_contract") in SOURCE_ROUTE_CONTRACTS else product["suppliers"][:2]
-        suppliers = "".join(_supplier_html(supplier, language, terms_version=_supplier_terms_version(product))
-                            for supplier in shown_suppliers) or f'<p>{empty_supplier}</p>'
-        links = " · ".join(f'<a href="{escape(ref["url"], quote=True)}">{escape(ref["source"])} ({escape(ref["observed_at"][:10])})</a>' for ref in product["source_refs"] if ref.get("url"))
-        points = "".join(f'<li>{escape(_prose(text, product, dataset, language))}</li>' for text in prose["points"])
-        caveat = escape(_prose(prose.get("limitation", ""), product, dataset, language))
-        update = escape(_prose(prose.get("update_sentence", ""), product, dataset, language))
-        market_label = product["market_label"] if language == "en" else HI_MARKET_LABELS.get(product["market_label"], product["market_label"])
-        checklist = f'{product["kpi_matches"]}/{total} checklist matches' if language == "en" else f'Checklist ke {total} points mein se {product["kpi_matches"]} match hue.'
-        opportunity = ""
-        if product.get("opportunity_policy_id") == SCORE_POLICY_ID:
-            # Code-owned score and crowding lines (the writer never restates them).
-            opportunity = ('<br>' + escape(score_text(product, language)) + '<br>'
-                           + escape(crowding_text(product, language)))
-        checklist_panel = ""
-        if product.get("fit_policy_id") == FIT_POLICY_ID:
-            from .research_ai import CRITERIA_BY_ID
-            phrases = {row["id"]: row["text"] for row in prose["checklist_phrases"]}
-            checklist_panel = '<h2>Product fit</h2><p>' + ("Good fit" if product["fit_tier"] == "good" else "Decent fit") + '</p><table class="live-evidence-table live-fit-table"><colgroup><col><col><col></colgroup>'
-            fit_headings = ("Checklist point", "Result", "Reason") if language == "en" else (
-                "Checklist point", "Nateeja", "Wajah")
-            checklist_panel += _table_head(product, fit_headings) + '<tbody>'
-            for row in product["criteria"]:
-                state_label = row["state"]
-                if row["basis"] == "inferred":
-                    state_label += " (estimated)" if language == "en" else " (andaaza)"
-                checklist_panel += '<tr><td>' + escape(CRITERIA_BY_ID[row["id"]]) + '</td><td>' + escape(state_label) + '</td><td>' + escape(phrases[row["id"]]) + '</td></tr>'
-            checklist_panel += '</tbody></table>'
-        source_footer = f'<p class="live-source-links"><span class="live-page-footer">NeuraFlow · {escape(dataset["release_date"])} · </span>{labels["links"]}: {links}</p>'
-        examples = _example_html(product, language) if functional else ""
-        pages.append(f'<section class="page live-product" id="product-{product["concept_id"]}" data-concept-id="{product["concept_id"]}"><div class="page-top"><span class="folio">{index:02d}</span></div><div class="{hero_class}"><div><p class="product-rank">{product["rank"]:02d}</p><h1>{escape(product["title"])}</h1><p class="live-meta">{escape(product["category"])} · {labels["new" if product["status"] == "New" else "updated"]}</p><p>{escape(market_label)}<br>{escape(checklist)}{opportunity}</p></div>{visual}</div><h2>{labels["why"]}</h2><p class="live-main-copy">{escape(_prose(prose["reason"], product, dataset, language))}</p><ul>{points}</ul><p class="small">{caveat}</p><p class="small">{update}</p>{checklist_panel}<h2>{labels["market"]}</h2><div class="live-checks">{checks}</div>{examples}<div class="live-details"><div><h2>{labels["prices"]}</h2>{prices}</div><div><h2>{labels["suppliers"]}</h2>{suppliers}</div></div>{source_footer}</section>')
-    rendered = "".join(pages)
-    return '<!doctype html><html lang="' + ("en" if language == "en" else "hi-Latn") + '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' + escape(narrative["title"]) + '</title><style>' + css + '</style></head><body>' + rendered + '</body></html>'
+    images = [_owned_asset(dataset, product["concept_id"], root=root or ROOT) if functional else _image(product["image_path"])
+              for product in dataset["products"]]
+    from .report_view import render_document
+    html = render_document(issue, dataset, narrative, language, logo=logo, images=images)
+    # The same refusal the native PDF renderer applies, plus: embedded resources
+    # are data only (links may open public pages; nothing is fetched to print).
+    from .report_guard import fetches_or_runs
+    if re.search(r"<(?:script|iframe|object|embed)\b", html, re.I) or fetches_or_runs(html):
+        raise SafetyError("LIVE_RENDER_HTML_INVALID")
+    return html
 
 
 def _safe_cell(value):
@@ -904,24 +757,6 @@ def supplier_workbook_rows(product):
              "\n".join([supplier.get("reason") or "Not stated",
                          supplier_terms_display(supplier, terms_version=_supplier_terms_version(product))]),
              supplier.get("url") or "Not stated", product["concept_id"]] for supplier in product["suppliers"]]
-
-
-def _supplier_html(supplier, language, *, terms_version):
-    from .supplier_scoped_display import is_scoped_supplier, scoped_supplier_lines
-    if not is_scoped_supplier(supplier):
-        return (f'<p><strong>{escape(supplier["name"])}</strong><br>'
-                f'{escape(supplier_display(supplier, language, terms_version=terms_version))}<br>'
-                f'{escape(supplier.get("reason", ""))}</p>')
-    lines = "".join("<li>" + escape(line) + "</li>" for line in scoped_supplier_lines(supplier, language))
-    links, seen = [], set()
-    for row in supplier["company_workflows"] + supplier["product_offers"]:
-        for page in row["source_pages"]:
-            if page["url"] in seen:
-                continue
-            seen.add(page["url"])
-            label = ("Company source: " if row["scope_kind"] != "product_offer" else "Offer source: ") + row["scope_label"]
-            links.append(f'<a href="{escape(page["url"], quote=True)}">{escape(label)}</a>')
-    return f'<div class="live-supplier-scoped"><p><strong>{escape(supplier["name"])}</strong></p><ul>{lines}</ul><p>{" · ".join(links)}</p></div>'
 
 
 def _workbook_bytes(issue, dataset, *, deterministic=False, root=None):
@@ -991,6 +826,8 @@ def _workbook_bytes(issue, dataset, *, deterministic=False, root=None):
             displayed = ["Open source" if heading in ("Link", "Source link") and isinstance(value, str) and value.startswith(("http://", "https://")) else value
                          for heading, value in zip(headings, values)]
             sheet.row_dimensions[row_number].height = _row_height(displayed, widths[name])
+        from .report_workbook_style import style_sheet
+        style_sheet(style, sheet, name, headings, len(rows))
         sheet.freeze_panes = "C7"
         sheet.auto_filter.ref = f"A6:{sheet.cell(max(6, len(rows) + 6), len(headings)).coordinate}"
         style.configure_page(sheet, len(headings), len(rows) + 6, 1)

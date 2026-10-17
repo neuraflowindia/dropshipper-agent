@@ -268,8 +268,10 @@ class CurrentFitPipelineTests(unittest.TestCase):
             self.assertEqual(result["dataset"], replay["dataset"])
             for language in ("en", "hi-Latn"):
                 html = render_html(issue, result["dataset"], language=language)
-                self.assertIn("6/10", html)
-                self.assertNotIn("6/13", html)
+                self.assertEqual(html.count('<td class="c5">6<span class="of">/10</span></td>'), len(result["dataset"]["products"]))
+                self.assertTrue(("6 of 10 checklist points met" if language == "en" else "Checklist ke 10 mein se 6 point poore") in html)
+                self.assertFalse('<span class="of">/13</span>' in html)
+                self.assertFalse(" of 13 checklist" in html or "Checklist ke 13 " in html)
                 self.assertEqual(len(result["dataset"]["narratives"][language]["products"][0]["checklist_phrases"]), 10)
             workbook = _workbook_bytes(issue, result["dataset"])
             _workbook(workbook, result["dataset"])

@@ -33,32 +33,40 @@ def is_scoped_supplier(supplier):
     return supplier.get("scoped_supplier_contract") == CONTRACT
 
 
-def _dated(row, hindi):
+def _iso_day(value):
+    return value[:10]
+
+
+def _dated(row, hindi, day=_iso_day):
     value = row.get("observed_at", row.get("source_capture_at"))
     label = "Source date " if not hindi else "Source ki tareekh "
-    result = label + value[:10] if value else ("Source date not stated" if not hindi else "Source ki tareekh nahi di gayi")
+    result = label + day(value) if value else ("Source date not stated" if not hindi else "Source ki tareekh nahi di gayi")
     if row.get("current") is not True:
         result += "; older information; check again" if not hindi else "; purani jankari; dobara check karein"
     return result
 
 
+def _stated(rows):
+    return [row for row in rows if row.get("basis") != "not_stated"]
+
+
+def _term_text(row, hindi):
+    """One stated term without its date: label, value and every qualifier."""
+    label = _LABELS.get(row["field"])
+    if label is None:
+        raise SafetyError("LIVE_SCOPED_SUPPLIER_FIELD_INVALID")
+    text = label[1 if hindi else 0] + ": " + row["value"]
+    if row.get("basis") == "inferred":
+        text += " (estimated)" if not hindi else " (andaza)"
+    elif row.get("basis") == "conflicting":
+        text += " (statements conflict)" if not hindi else " (shartein aapas mein nahi milti hain)"
+    if row.get("qualified") is not True:
+        text += "; not confirmed for this offer" if not hindi else "; is offer ke liye confirm nahi hai"
+    return text
+
+
 def _terms(rows, hindi):
-    values = []
-    for row in rows:
-        if row.get("basis") == "not_stated":
-            continue
-        label = _LABELS.get(row["field"])
-        if label is None:
-            raise SafetyError("LIVE_SCOPED_SUPPLIER_FIELD_INVALID")
-        text = label[1 if hindi else 0] + ": " + row["value"]
-        if row.get("basis") == "inferred":
-            text += " (estimated)" if not hindi else " (andaza)"
-        elif row.get("basis") == "conflicting":
-            text += " (statements conflict)" if not hindi else " (shartein aapas mein nahi milti hain)"
-        if row.get("qualified") is not True:
-            text += "; not confirmed for this offer" if not hindi else "; is offer ke liye confirm nahi hai"
-        values.append(text + "; " + _dated(row, hindi))
-    return values
+    return [_term_text(row, hindi) + "; " + _dated(row, hindi) for row in _stated(rows)]
 
 
 def scoped_supplier_lines(supplier, language="en"):
@@ -92,15 +100,68 @@ def scoped_supplier_lines(supplier, language="en"):
     return result
 
 
-def _price(price, hindi, *, fee=False):
+def _money(currency, amount):
+    return currency + " " + amount
+
+
+def _price_text(price, hindi, *, fee=False, money=_money):
+    """One quoted price or fee without its date."""
     label = ("Fee" if fee else "Offer price") if not hindi else ("Fee" if fee else "Offer ki keemat")
-    text = label + ": " + price["currency"] + " " + price["amount"] + "; " + price["unit"]
+    text = label + ": " + money(price["currency"], price["amount"]) + "; " + price["unit"]
     for field in ("quantity_condition", "qualifier"):
         if price.get(field):
             text += "; " + price[field]
     if price.get("qualified") is not True:
         text += "; needs confirmation" if not hindi else "; confirmation chahiye"
-    return text + "; " + _dated(price, hindi)
+    return text
+
+
+def _price(price, hindi, *, fee=False):
+    return _price_text(price, hindi, fee=fee) + "; " + _dated(price, hindi)
+
+
+def scoped_supplier_groups(supplier, language="en", *, day=_iso_day, money=_money):
+    """The facts of ``scoped_supplier_lines`` grouped for the report page: one group
+    per company workflow and per offer, in the same order, with the same terms,
+    prices, fees and qualifiers. A group states its source date once; a term or
+    price repeats its own date only when it differs from the group's (date or
+    currentness), so nothing is dropped. ``day`` and ``money`` only format dates
+    and amounts. Returns {"groups": [...], "notes": [...]}; each group has
+    kind ("company" / "offer"), number, head, label, date, items, inherited and
+    the scope's source pages."""
+    if not is_scoped_supplier(supplier) or language not in {"en", "hi-Latn"}:
+        raise SafetyError("LIVE_SCOPED_SUPPLIER_DISPLAY_INVALID")
+    hindi = language == "hi-Latn"
+
+    def own(row, text, group_date):
+        dated = _dated(row, hindi, day)
+        return text if dated == group_date else text + "; " + dated
+
+    groups = []
+    for row in supplier["company_workflows"]:
+        date = _dated(row, hindi, day)
+        items = [own(term, _term_text(term, hindi), date) for term in _stated(row["terms"])]
+        items += [own(fee, _price_text(fee, hindi, fee=True, money=money), date) for fee in row["fees"]]
+        groups.append({"kind": "company", "number": None, "head": "Company information" if not hindi else "Company ki jankari",
+                       "label": row["scope_label"], "date": date, "items": items, "inherited": [],
+                       "pages": [page["url"] for page in row.get("source_pages", [])]})
+    for number, offer in enumerate(supplier["product_offers"], 1):
+        date = _dated(offer, hindi, day)
+        items = [own(term, _term_text(term, hindi), date) for term in _stated(offer["terms"])]
+        inherited = [row for row in offer.get("effective_terms", []) if row.get("application_id") != offer["application_id"]]
+        items += [own(price, _price_text(price, hindi, money=money), date) for price in offer["prices"]]
+        items += [own(fee, _price_text(fee, hindi, fee=True, money=money), date) for fee in offer["fees"]]
+        if not offer["prices"]:
+            items.append("Offer price not stated." if not hindi else "Offer ki keemat nahi di gayi.")
+        groups.append({"kind": "offer", "number": number, "head": "Offer " + str(number), "label": offer["scope_label"],
+                       "date": date, "items": items,
+                       "inherited": [own(term, _term_text(term, hindi), date) for term in _stated(inherited)],
+                       "inherited_head": "Applicable company terms" if not hindi else "Is offer par lagu company ki shartein",
+                       "pages": [page["url"] for page in offer.get("source_pages", [])]})
+    notes = [] if supplier["product_offers"] else [
+        "A supplier lead is not a confirmed offer for this product type." if not hindi else
+        "Supplier ka lead milna is product type ke offer ka confirmation nahi hai."]
+    return {"groups": groups, "notes": notes}
 
 
 def scoped_supplier_limitation(suppliers, language):

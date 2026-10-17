@@ -44,7 +44,7 @@ class ScopedSupplierOutputTests(unittest.TestCase):
         self.assertEqual(written["failures"], {}, written)
         for language in ("en", "hi-Latn"):
             html = render_html(self.issue, written["dataset"], root=self.root, language=language)
-            self.assertIn("live-supplier-scoped", html)
+            self.assertIn('<div class="sup-block s-scoped">', html)
             self.assertIn("100 packs", html)
             self.assertIn("10 pieces", html)
             self.assertIn("/offers/a", html)

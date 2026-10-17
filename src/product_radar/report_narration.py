@@ -18,6 +18,36 @@ from .report_examples import RECOMMENDATION_CONTRACT
 from .work_turns import new_model_work_wait
 
 LANGUAGES = ("en", "hi-Latn")
+# Writing budgets in characters (owner choice 3, 16 October 2026): what fits
+# one product's first report page, Roman Hinglish running about 15% longer.
+# The title and the code-owned limitation (copied exactly) keep their limits.
+# Budgets count {{title}} as the product name it stands for (what the page prints);
+# other placeholders count as written. They apply to the budgeted prompt versions
+# (G v5 / v6); genuine saved v1-v4 writing keeps the limits it was written under.
+WRITING_LIMITS = {"en": {"reason": 320, "point": 90, "update_sentence": 130, "checklist": 90},
+                  "hi-Latn": {"reason": 360, "point": 105, "update_sentence": 150, "checklist": 105}}
+LEGACY_WRITING_LIMITS = {"reason": 450, "point": 220, "update_sentence": 250, "checklist": 220}
+BUDGETED_VERSIONS = ("research-g-v5", "research-g-v6")
+CHECKLIST_VERSIONS = ("research-g-v3", "research-g-v4", "research-g-v5", "research-g-v6")
+TITLE_LIMIT, LIMITATION_LIMIT = 100, 1000
+WRITING_LIMITS_TEXT = (
+    " Keep the writing short enough for one product page: in English the reason is at most 320 characters, each point "
+    "at most 90, the update_sentence at most 130 and each checklist phrase at most 90; in Roman Hinglish at most 360, "
+    "105, 150 and 105. The {{title}} placeholder counts as the full product name it stands for (the title fact); "
+    "other placeholders count as written.")
+
+
+def budget_length(text, title):
+    """Characters a writing slot takes on the page: {{title}} counted as the product name."""
+    return len(text.replace("{{title}}", title or ""))
+
+
+def writing_limits(language, version=None):
+    """The limits a writing result is checked against: the budgets for the current (budgeted)
+    prompt versions, the old fixed limits for genuine saved older writing."""
+    return WRITING_LIMITS[language] if version is None or version in BUDGETED_VERSIONS else LEGACY_WRITING_LIMITS
+
+
 PLACEHOLDERS = ("title", "rank", "kpi_matches", "date", "retail_price", "supplier_price")
 SUPPLIER_ASSERTION = re.compile(
     r"\b(suppliers?|dispatch|subscription|moq|cod)\b[^.!?]{0,80}\b"
@@ -102,7 +132,7 @@ def _contract_repairable(code):
 def _contract_repair_available(context, item):
     # Do not retrofit a new corrective contract into an immutable v1 request
     # that lacks the explicit writing-slot/reference hints introduced in v2.
-    return (prompt_version("G", context) in ("research-g-v2", "research-g-v3", "research-g-v4")
+    return (prompt_version("G", context) in ("research-g-v2", *CHECKLIST_VERSIONS)
             and "output_template" in item and "allowed_reference_ids" in item)
 
 
@@ -231,7 +261,7 @@ def validate_functional_writing(dataset, language, narrative):
     for item in payload["items"]:
         row = rows[item["id"]]
         checked = validate_results("G", dict(context, items=[item]), {"results": [row["accepted"]]},
-                                   declared_version="research-g-v4")
+                                   declared_version=research_ai.FUNCTIONAL_NARRATION_PROMPT_VERSION)
         if checked["failures"] or row["reference"]["writing_input_hash"] != digest([context, item]):
             raise SafetyError("REPORT_WRITING_ACCEPTANCE_INVALID")
         if item["kind"] == "report_title":
@@ -379,8 +409,9 @@ def make_narrative_input(dataset, language, *, english=None, item_ids=None, engl
     return dict(context, items=items)
 
 
-def _plain(text, slot, limit):
-    if not isinstance(text, str) or len(text) > limit:
+def _plain(text, slot, limit, *, title=None):
+    """Plain, number-free writing within its limit (``title`` given: {{title}} counts as the name)."""
+    if not isinstance(text, str) or (len(text) if title is None else budget_length(text, title)) > limit:
         raise SafetyError("AI_REPORT_TEXT_TOO_LONG_" + slot)
     tokens = re.findall(r"\{\{(.*?)\}\}", text)
     stripped = re.sub(r"\{\{.*?\}\}", "", text)
@@ -399,7 +430,10 @@ def validate_narration_result(item, value, *, declared_version=None):
         raise SafetyError("AI_REPORT_SCOPE_MISMATCH")
     if len(value["points"]) > 3:
         raise SafetyError("AI_REPORT_POINTS_INVALID")
-    if declared_version in ("research-g-v3", "research-g-v4"):
+    budgeted = declared_version is None or declared_version in BUDGETED_VERSIONS
+    title = next((fact["text"] for fact in item["facts"] if fact.get("id") == "title"), "") if budgeted else None
+    limits = writing_limits(item["language"], declared_version)
+    if declared_version in CHECKLIST_VERSIONS:
         from .fit_policy import policy_for
         phrases = value.get("checklist_phrases")
         wanted = [] if item["kind"] == "report_title" else list(policy_for("fit-10-v1")["active_ids"])
@@ -407,16 +441,17 @@ def validate_narration_result(item, value, *, declared_version=None):
                 or sorted(row.get("id") for row in phrases) != wanted):
             raise SafetyError("AI_REPORT_CHECKLIST_PHRASES_INVALID")
         for row in phrases:
-            _plain(row["text"], "checklist", 220)
+            _plain(row["text"], "checklist", limits["checklist"], title=title)
             if not row["text"].strip() or item["language"] == "hi-Latn" and re.search(r"[\u0900-\u097f]", row["text"]):
                 raise SafetyError("AI_REPORT_CHECKLIST_PHRASES_INVALID")
     refs = {f["id"] for f in item["facts"]}
     if len(set(value["references"])) != len(value["references"]) or not set(value["references"]) <= refs:
         raise SafetyError("AI_REPORT_FACT_REFERENCE_INVALID")
-    for field, maximum in (("title", 100), ("reason", 450), ("limitation", 1000), ("update_sentence", 250)):
-        _plain(value[field], field, maximum)
+    for field, maximum in (("title", TITLE_LIMIT), ("reason", limits["reason"]), ("limitation", LIMITATION_LIMIT),
+                           ("update_sentence", limits["update_sentence"])):
+        _plain(value[field], field, maximum, title=None if field in ("title", "limitation") else title)
     for point in value["points"]:
-        _plain(point, "point", 220)
+        _plain(point, "point", limits["point"], title=title)
         if not point.strip():
             raise SafetyError("AI_REPORT_POINTS_INVALID")
     if item["language"] == "hi-Latn" and any(re.search(r"[\u0900-\u097f]", s) for s in
@@ -473,7 +508,7 @@ def recovered_narration_problems(state, root, *, as_of):
         try:
             request = job["request"]
             if (request["role"] != "G" or request["model"] != MODEL
-                    or request["prompt_version"] not in ("research-g-v1", "research-g-v2", "research-g-v3", "research-g-v4")):
+                    or request["prompt_version"] not in ("research-g-v1", "research-g-v2", *CHECKLIST_VERSIONS)):
                 continue
             payload = request["payload"]
             context = {k: v for k, v in payload.items() if k not in ("items", "narration_repair")}
@@ -511,7 +546,7 @@ def recovered_narration_problems(state, root, *, as_of):
                     entry["rejected_output"] = rows[0] if len(rows) == 1 else None
                     entry.update(rejected_rows=rows, response_hash=digest(saved["response"]), failure=checked["failures"][item["id"]])
                     rejected.setdefault((*scope, checked["failures"][item["id"]]), []).append(entry)
-                if request["prompt_version"] in ("research-g-v2", "research-g-v3", "research-g-v4") and item["id"] in checked["accepted"]:
+                if request["prompt_version"] in ("research-g-v2", *CHECKLIST_VERSIONS) and item["id"] in checked["accepted"]:
                     accepted.setdefault(scope, []).append(entry)
         except (SafetyError, OSError, KeyError, TypeError, ValueError, AttributeError):
             continue
@@ -840,24 +875,24 @@ def _writing_item_ref(memory, context, item, accepted, job_id, *, state=None):
     full_context = {field: value for field, value in payload.items() if field != "items"}
     if ({field: value for field, value in full_context.items() if field != "narration_repair"} != context
             or request["role"] != "G" or request["model"] != MODEL
-            or request["prompt_version"] != "research-g-v4" or item not in payload["items"]
+            or request["prompt_version"] != research_ai.FUNCTIONAL_NARRATION_PROMPT_VERSION or item not in payload["items"]
             or key("job", request) != job_id):
         raise SafetyError("REPORT_NARRATION_SOURCE_JOB_CONFLICT")
     binding = digest(["G", item, full_context, request["model"], request["prompt_version"], request["runner"]])
     if job["binding_keys"].get(item["id"]) != binding:
         raise SafetyError("REPORT_NARRATION_SOURCE_JOB_CONFLICT")
-    validate_narration_result(item, accepted, declared_version="research-g-v4")
+    validate_narration_result(item, accepted, declared_version=research_ai.FUNCTIONAL_NARRATION_PROMPT_VERSION)
     return {"job_id": job_id, "item_id": item["id"], "accepted_row_hash": digest(accepted),
             "writing_input_hash": digest([context, item]), "binding": binding}
 
 
 def reuse_narrative_items(memory, context, items, *, issue, dataset, runner_identity, save_failures=None, state=None):
-    """Recover exactly comparable G-v4 rows and record the new packet link.
+    """Recover exactly comparable current functional G rows (v6) and record the new packet link.
 
-    This does not interpret a legacy job as v4 or relax its original binding.
+    This does not interpret a legacy (v1-v5) job as current or relax its original binding.
     Image/revision hashes are audit links here, never model writing inputs.
     """
-    if prompt_version("G", context) != "research-g-v4":
+    if prompt_version("G", context) != research_ai.FUNCTIONAL_NARRATION_PROMPT_VERSION:
         raise SafetyError("REPORT_WRITING_REUSE_CONTRACT_INVALID")
     state = memory.snapshot() if state is None else state
     found = _completed_items(memory, context, items, runner_identity=runner_identity, state=state)
@@ -917,7 +952,7 @@ def _functional_writing_rows(memory, issue, dataset, payload, runner, chunk_size
     try:
         state = memory.snapshot()
         completed = reuse_narrative_items(memory, context, items, issue=issue, dataset=dataset,
-            # Exact v4 rows keep and verify their original runner provenance.
+            # Exact current (v6) rows keep and verify their original runner provenance.
             # Today's caller does not need to rewrite already accepted prose.
             runner_identity=None, save_failures=save_failures, state=state)
         owned = _possible_original_writing_ids(state, context, [item for item in items if item["id"] not in completed])

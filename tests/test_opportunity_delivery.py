@@ -1,5 +1,6 @@
 """The opportunity score travels through selection, files and delivery without AI choosing it."""
 
+from html import escape
 from copy import deepcopy
 from io import BytesIO
 import unittest
@@ -47,10 +48,18 @@ class OpportunityDeliveryTests(unittest.TestCase):
         _, issue, dataset = selection(current_fixture())
         dataset["narratives"] = narratives(dataset)
         product = dataset["products"][0]
+        parts = product["opportunity_basis"]["parts"]
+        counts = parts["room"]["items"]["crowding"]["facts"]["counts"]
         for language in ("en", "hi-Latn"):
             html = render_html(issue, dataset, language=language)
-            self.assertIn(score_text(product, language), html)
-            self.assertIn(crowding_text(product, language), html)
+            # The code-owned lines name the score ring and the crowding gauge; their
+            # figures are the printed parts and crowding facts (never model prose).
+            self.assertTrue(f'aria-label="{escape(score_text(product, language), quote=True)}"' in html)
+            self.assertTrue(f'aria-label="{escape(crowding_text(product, language), quote=True)}"' in html)
+            page = html.split(f'data-concept-id="{product["concept_id"]}"', 1)[1]
+            for part in ("want", "early", "room", "product"):
+                self.assertTrue(f'<span class="part-val"><b>{parts[part]["points"]}</b>/{parts[part]["max"]}</span>' in page, part)
+            self.assertTrue(f'Amazon {counts["relevant_listings"]["amazon"]} · Flipkart {counts["relevant_listings"]["flipkart"]}' in page)
         self.assertIn("Amazon/Flipkart crowding: Low (1 relevant listings", crowding_text(product))
         self.assertIn("Amazon/Flipkart par bheed: Kam", crowding_text(product, "hi-Latn"))
 

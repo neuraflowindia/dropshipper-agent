@@ -1131,10 +1131,10 @@ class ExampleTests(unittest.TestCase):
                    "example_coverage": {"omitted_offers": 0}}
         with patch.object(examples, "validate_functional_examples"):
             self.assertEqual(examples.example_workbook_rows(product)[0][3], "IndiaMART · Supplier listing (lead)")
-        from product_radar import live_outputs
-        with patch.object(live_outputs, "_table_head", return_value=""):
-            html = live_outputs._example_html(product, "en")
+        from product_radar.report_view import examples_html
+        html = examples_html(product, "en")
         self.assertIn("IndiaMART · Supplier listing (lead)", html)
+        self.assertIn("Supplier listings (leads)", html)
 
 
 if __name__ == "__main__":

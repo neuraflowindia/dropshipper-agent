@@ -530,10 +530,14 @@ _FUNCTIONAL_SUPPLIER_FIELDS = ("suppliers", "supplier_limitation", "supplier_sea
     "supplier_search_check_ids", "supplier_assessment_ids")
 
 
+LEGACY_LEAD_LIMITATION = "This dated supplier lead still needs matching to this product type."
+LEGACY_LEADS_LIMITATION = "These dated supplier leads still need matching to this product type."
+
+
 def _functional_supplier_projection(suppliers):
     """Retain dated company leads, never inherit new-type commercial promises."""
     leads = deepcopy(suppliers["all_leads"])
-    limitation = "This dated supplier lead still needs matching to this product type."
+    limitation = LEGACY_LEAD_LIMITATION
     for lead in leads:
         lead.update(relationship="unclear", type_scope_limitation=limitation,
             relevance={"relationship": "unclear", "reason": limitation, "references": []},
@@ -542,7 +546,7 @@ def _functional_supplier_projection(suppliers):
         lead["terms"] = [{"field": term["field"], "value": "Not stated", "basis": "not_stated",
             "references": [], "quotes": [], "reason": limitation} for term in lead["terms"]]
     return {"suppliers": leads,
-        "supplier_limitation": "These dated supplier leads still need matching to this product type." if leads
+        "supplier_limitation": LEGACY_LEADS_LIMITATION if leads
                                else "Supplier search did not produce any usable results.",
         "supplier_search_status": suppliers["status"], "supplier_leads_checked": suppliers["checked"],
         "supplier_leads_found": len(leads), "supplier_decisions": deepcopy(suppliers["excluded"]),
@@ -815,6 +819,7 @@ def _functional_facts(state, product, assessment, suppliers, as_of, route_covera
     from .frozen_records import freeze_original_json
     from .market_validation import functional_market_context, functional_score_support, freeze_functional_market
     from .fit_description import FUNCTIONAL_INFERENCE_KIND
+    from .report_visuals import quick_commerce_checks, validate_quick_commerce_checks
     cid = product["id"]
     block = freeze_functional_examples(state, cid, as_of=as_of)
     context = functional_market_context(state, cid, as_of=as_of)
@@ -871,6 +876,7 @@ def _functional_facts(state, product, assessment, suppliers, as_of, route_covera
         "functional_fit_proof": deepcopy(assessment["functional_proof"]), "functional_fit_proof_hash": assessment["functional_proof_hash"],
         "functional_fit_reference_proofs": _freeze_fit_references(state, assessment),
         "functional_market_contract": context["contract"], "functional_market_proof": freeze_functional_market(state, context, as_of=as_of),
+        "quick_commerce_checks": quick_commerce_checks(state, cid, as_of=as_of),
         "source_route_contract": FUNCTIONAL_SOURCE_ROUTE_CONTRACT, "source_route_checks": routes,
         "functional_route_proof": freeze_functional_route_proof(state, cid, as_of=as_of),
         "supplier_terms_display_version": SUPPLIER_TERMS_DISPLAY_VERSION, **block,
@@ -880,6 +886,7 @@ def _functional_facts(state, product, assessment, suppliers, as_of, route_covera
     validate_frozen_functional_fit(fact)
     from .market_validation import validate_frozen_functional_market
     validate_frozen_functional_market(fact)
+    validate_quick_commerce_checks(fact["quick_commerce_checks"])
     validate_frozen_functional_photo(fact)
     validate_functional_route_proof(fact)
     return fact

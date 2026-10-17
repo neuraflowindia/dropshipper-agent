@@ -1,7 +1,9 @@
 """Synthetic packet checks; these are not real client research or publication."""
 
 from copy import deepcopy
+from html import unescape
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -15,6 +17,7 @@ from product_radar.issue_allocation import allocate_issues, _fingerprint
 from product_radar.live_outputs import (LEGACY_PRICE_DISPLAY_VERSION, PRICE_DISPLAY_VERSION, build_issue_dataset, price_display, render_html, supplier_display,
                                         supplier_terms_display, validate_dataset, write_issue_package, _supplier_minimum_order)
 from product_radar.models import SafetyError, digest
+from product_radar.report_copy import TEXT
 from product_radar.service import CATEGORIES
 from product_radar.storage import atomic_json
 from test_fit_pipeline import older_format_scores
@@ -43,6 +46,17 @@ def fixture(count=10):
     return issue, dataset
 
 
+def price_columns(html, concept_id):
+    """{column label: [(figure, its own wording)]} from one product's market page: each price row's
+    figure and the rest of its exact display text, bound to the column (label) it is printed under."""
+    page = html.split(f'<section class="sheet product-b" data-concept-id="{concept_id}">', 1)[1].split('<section class="sheet ', 1)[0]
+    columns = {}
+    for label, rows in re.findall(r'<p class="sub">(.*?)</p><ul class="price-list">(.*?)</ul>', page):
+        columns[unescape(label)] = [(unescape(figure), unescape(re.sub(r"<[^>]+>", "", what)))
+                                    for figure, what in re.findall(r'<li><b class="price[^"]*">(.*?)</b><span class="p-what">(.*?)</span>', rows)]
+    return columns
+
+
 @older_format_scores
 class LiveOutputTests(unittest.TestCase):
     def photo_fixture(self):
@@ -68,7 +82,7 @@ class LiveOutputTests(unittest.TestCase):
         with patch("product_radar.product_images.MEDIA_ROOT", path.parent):
             validate_dataset(issue, dataset)
             html = render_html(issue, dataset)
-        self.assertIn("Photo of a similar product type.", html)
+        self.assertTrue('<figcaption class="plate-note">Photo of a similar product type</figcaption>' in html)
 
     def test_changed_photo_binding_is_not_silently_accepted(self):
         for field, value in (("sha256", "f" * 64), ("owner_id", "different-product"),
@@ -184,7 +198,7 @@ class LiveOutputTests(unittest.TestCase):
         for language, phrase in (("en", "Some quoted offers have bulk minimum orders."),
                                  ("hi-Latn", "Kuch quotes mein bulk minimum order hai.")):
             html = render_html(issue, dataset, language=language)
-            self.assertEqual(html.count('class="live-bulk-notice"'), 1)
+            self.assertEqual(html.count('<p class="bulk">'), 1)
             self.assertEqual(html.count(phrase), 1)
             for condition in conditions:
                 self.assertIn(condition, html)
@@ -197,7 +211,7 @@ class LiveOutputTests(unittest.TestCase):
                            "Minimum order quantity: 500 rolls", "MOQ 2", "MOQ 1,000 units"):
             with self.subTest(conditions=conditions):
                 price.update(conditions=conditions, moq=None)
-                self.assertEqual(render_html(issue, dataset).count('class="live-bulk-notice"'), 1)
+                self.assertEqual(render_html(issue, dataset).count('<p class="bulk">'), 1)
 
     def test_pack_price_capacity_and_moq_one_do_not_create_bulk_minimums(self):
         issue, dataset = fixture()
@@ -212,39 +226,36 @@ class LiveOutputTests(unittest.TestCase):
         for conditions in examples:
             with self.subTest(conditions=conditions):
                 price.update(conditions=conditions, moq=None)
-                self.assertNotIn('class="live-bulk-notice"', render_html(issue, dataset))
+                self.assertFalse('<p class="bulk">' in render_html(issue, dataset))
 
     def test_bulk_warning_does_not_apply_supplier_minimum_to_retail_offer(self):
         issue, dataset = fixture()
         dataset["products"][0]["prices"] = [dict(dataset["products"][0]["prices"][0], conditions="MOQ 500 pieces")]
-        self.assertNotIn('class="live-bulk-notice"', render_html(issue, dataset))
+        self.assertFalse('<p class="bulk">' in render_html(issue, dataset))
 
-    def test_live_footer_is_inline_with_sources_and_missing_photo_note_is_compact(self):
+    def test_running_footer_is_a_page_box_and_every_product_keeps_its_sources(self):
         issue, dataset = fixture()
         html = render_html(issue, dataset)
-        self.assertNotIn('<p class="live-page-footer">', html)
-        self.assertEqual(html.count('<p class="live-source-links"><span class="live-page-footer">'), 10)
-        self.assertIn('.live-hero-no-image{display:block;}', html)
-        self.assertIn('.live-image-missing{margin:3mm 0 0;text-align:left;', html)
-        self.assertIn('.live-hero img{width:65mm;height:65mm;', html)
-        self.assertIn('html,body{background:var(--cream);', html)
-        self.assertIn('.page {height:auto;min-height:297mm;overflow:visible;}', html)
+        self.assertTrue('@bottom-left{content:"NeuraFlow · Product Opportunity Brief · 13 October 2026"' in html)
+        self.assertTrue('content:"Page " counter(page) " of " counter(pages)' in html)
+        self.assertEqual(html.count('<section class="src-sec">'), 10)
+        self.assertEqual(html.count('<figure class="plate plate--empty plate--big">'), 10)
+        self.assertTrue('.plate--big{height:50mm}' in html)
+        self.assertTrue('@page{size:A4 portrait;margin:15mm 16mm 17mm 16mm;background:#F9F3EC;' in html)
 
     def test_missing_image_heading_is_full_width_with_small_explicit_note(self):
         issue, dataset = fixture()
         title = "Synthetic long product heading that should use the full page width without a blank picture column"
         dataset["products"][0]["title"] = title
         before = deepcopy(dataset)
-        for language, note in (("en", "Product image not available"),
-                               ("hi-Latn", "Product ki tasveer available nahi hai")):
+        for language, note in (("en", "No product photo in this issue"),
+                               ("hi-Latn", "Is issue mein product ki tasveer nahi hai")):
             html = render_html(issue, dataset, language=language)
-            self.assertEqual(html.count('class="live-hero live-hero-no-image"'), 10)
-            self.assertEqual(html.count(f'<p class="live-image-missing">{note}</p>'), 10)
-            self.assertIn('<h1>' + title + '</h1>', html)
-            self.assertIn('.live-product h1{font-size:25pt;', html)
-            self.assertNotIn('<div class="live-image-missing">', html)
-            self.assertNotIn('min-height:22mm', html)
-            self.assertNotIn('.live-hero img,.live-image-missing', html)
+            self.assertEqual(html.count('<figure class="plate plate--empty plate--big">'), 10)
+            self.assertEqual(html.count(f'<b>{note}</b>'), 16)  # ten product pages and six cover tiles
+            self.assertTrue('<h1 class="h-title">' + title + '</h1>' in html)
+            self.assertTrue('.h-title{font-family:var(--head);font-weight:600;font-size:var(--fs-title);' in html)
+            self.assertTrue('--fs-title:18pt' in html)
         self.assertEqual(dataset, before)
 
     def test_available_fixture_image_keeps_original_photographed_hero_dimensions(self):
@@ -253,11 +264,11 @@ class LiveOutputTests(unittest.TestCase):
         # it is not presented as a real product photograph or a client packet.
         dataset["products"][0]["image_path"] = str(ROOT / "media" / "NeuraFlow" / "long_maroon_path_transparent_1024.png")
         html = render_html(issue, dataset)
-        self.assertEqual(html.count('class="live-hero"'), 1)
-        self.assertEqual(html.count('class="live-hero live-hero-no-image"'), 9)
-        self.assertIn('.live-hero{display:grid;grid-template-columns:1fr 65mm;', html)
-        self.assertIn('.live-hero img{width:65mm;height:65mm;object-fit:contain;}', html)
-        self.assertIn('alt="Synthetic product 1"', html)
+        self.assertEqual(html.count('<figure class="plate plate--big"><img src="data:image/png;base64,'), 1)
+        self.assertEqual(html.count('<figure class="plate plate--empty plate--big">'), 9)
+        self.assertTrue('.pa-head{display:grid;grid-template-columns:50mm 1fr 30mm;' in html)
+        self.assertTrue('.plate img{max-width:100%;max-height:100%;object-fit:contain;' in html)
+        self.assertEqual(html.count('alt="Synthetic product 1"'), 2)  # the product page and its cover tile
 
     def test_full_width_heading_does_not_omit_prices_conditions_sources_or_dates(self):
         issue, dataset = fixture()
@@ -269,35 +280,37 @@ class LiveOutputTests(unittest.TestCase):
         before = deepcopy(dataset)
         for language in ("en", "hi-Latn"):
             html = render_html(issue, dataset, language=language)
-            self.assertIn(product["prices"][1]["conditions"], html)
-            self.assertIn("₹149", html)
-            self.assertIn("₹45", html)
-            self.assertIn("2026-10-13", html)
-            self.assertEqual(html.count('href="https://example.org/extra"'), 2)
-            self.assertEqual(html.count("Extra source (2026-10-07)"), 2)
-            self.assertEqual(html.count('class="live-bulk-notice"'), 1)
+            self.assertTrue(product["prices"][1]["conditions"] in html)
+            self.assertTrue("₹149" in html)
+            self.assertTrue("₹45" in html)
+            self.assertTrue("13 October 2026" in html)
+            # Two references to the same page seen on the same day are one dated link.
+            self.assertEqual(html.count('href="https://example.org/extra"'), 1)
+            self.assertEqual(html.count('Extra source</a> <span class="nw">7 Oct</span>'), 1)
+            self.assertEqual(html.count('<p class="bulk">'), 1)
         self.assertEqual(dataset, before)
 
-    def test_print_uses_physical_page_margins_not_fragment_only_section_padding(self):
+    def test_print_uses_physical_page_margins_and_a_full_bleed_cover(self):
         issue, dataset = fixture()
         html = render_html(issue, dataset)
-        self.assertIn('@page{size:A4 portrait;margin:14mm 16mm 15mm 17mm;background:#F9F3EC;}', html)
-        self.assertIn('.page{width:auto;height:auto;min-height:0;padding:0;overflow:visible;}', html)
-        self.assertIn('.live-cover{min-height:268mm;}', html)
-        # Screen A4 previews and normal typography remain separate from print.
-        self.assertIn('.page {height:auto;min-height:297mm;overflow:visible;}', html)
-        self.assertIn('.live-product h1{font-size:25pt;', html)
-        self.assertIn('.live-details p{font-size:9pt;}', html)
+        self.assertTrue('@page{size:A4 portrait;margin:15mm 16mm 17mm 16mm;background:#F9F3EC;' in html)
+        self.assertTrue('@page cover{margin:0;' in html)
+        self.assertTrue('.cover{page:cover;height:297mm}' in html)
+        # Screen A4 previews keep their own padding; print relies on the page margins.
+        self.assertTrue('.sheet{position:relative;width:210mm;min-height:297mm;margin:0 auto 8mm;padding:15mm 16mm 17mm;' in html)
+        self.assertTrue('--fs-label:9pt' in html)
 
-    def test_print_stacks_long_quotes_and_keeps_headers_and_source_tail_connected(self):
+    def test_print_keeps_headings_with_their_content_and_never_splits_rows(self):
         issue, dataset = fixture()
         html = render_html(issue, dataset)
-        self.assertIn('.live-details{display:grid;grid-template-columns:1fr 1fr;', html)
-        self.assertIn('.live-details{display:block;break-after:avoid;page-break-after:avoid;}', html)
-        self.assertIn('h1,h2,h3{break-after:avoid;page-break-after:avoid;}', html)
-        self.assertIn('.live-details p{break-inside:avoid;page-break-inside:avoid;}', html)
-        self.assertIn('.live-details>div:last-child,.live-details>div:last-child>p:last-child{break-after:avoid;page-break-after:avoid;}', html)
-        self.assertIn('.live-source-links{break-before:avoid;page-break-before:avoid;break-inside:avoid;page-break-inside:avoid;}', html)
+        self.assertTrue('.sheet{break-after:page;page-break-after:always}' in html)
+        self.assertTrue('margin-bottom:2mm;break-after:avoid;page-break-after:avoid}' in html)
+        for rule in ('.price-list li{display:grid;', '.sup tr,.sup tbody{break-inside:avoid;page-break-inside:avoid}',
+                     '.league tr{break-inside:avoid;page-break-inside:avoid}', '.fit-list li{break-inside:avoid;',
+                     '.tile{background:var(--card);', '.src-sec{margin-top:2mm;break-inside:avoid;',
+                     '.sup-block{padding:1.1mm 0;border-bottom:.25mm solid var(--line-soft);break-inside:avoid;'):
+            self.assertTrue(rule in html, rule)
+        self.assertFalse("overflow:hidden}" in html.split(".cover{page:cover")[1].split("}")[1])
 
     def test_long_print_flow_preserves_all_offers_suppliers_and_sources_in_order(self):
         issue, dataset = fixture()
@@ -313,10 +326,10 @@ class LiveOutputTests(unittest.TestCase):
         for language in ("en", "hi-Latn"):
             html = render_html(issue, dataset, language=language)
             for offer in product["prices"]:
-                self.assertIn(offer["conditions"], html)
-            self.assertIn(product["suppliers"][0]["reason"], html)
-            self.assertIn('href="https://example.org/final-source"', html)
-            self.assertIn("Last exact source (2026-10-07)", html)
+                self.assertTrue(offer["conditions"] in html)
+            self.assertTrue(product["suppliers"][0]["reason"] in html)
+            self.assertTrue('href="https://example.org/final-source"' in html)
+            self.assertTrue('Last exact source</a> <span class="nw">7 Oct</span>' in html)
             self.assertLess(html.index("END-QUOTE-ONE"), html.index("END-QUOTE-TWO"))
             self.assertLess(html.index("END-QUOTE-TWO"), html.index("END-SUPPLIER-EXPLANATION"))
             self.assertLess(html.index("END-SUPPLIER-EXPLANATION"), html.index("Last exact source"))
@@ -631,8 +644,12 @@ class LiveOutputTests(unittest.TestCase):
             packets = [write_issue_package(issue, dataset, folder, language=language) for language in ("en", "hi-Latn")]
             for language, packet in zip(("en", "hi-Latn"), packets):
                 html = Path(packet["artifacts"]["html"]["path"]).read_text()
-                self.assertIn(price_display(price, language), html)
-                self.assertIn(price["conditions"], html)
+                # The figure leads its own price row, under the retail column, with the rest of the same exact wording.
+                figure, rest = price_display(price, language).partition("; ")[::2]
+                columns = price_columns(html, dataset["products"][0]["concept_id"])
+                self.assertIn((figure.split(": ", 1)[1], rest), columns[TEXT[language]["retail"]])
+                self.assertNotIn(figure.split(": ", 1)[1], [row[0] for row in columns[TEXT[language]["supplier"]]])
+                self.assertTrue(price["conditions"] in html)
                 self.assertNotIn("Retail listing: Price not stated", html)
                 self.assertNotIn("Retail listing ki keemat: keemat nahi di gayi", html)
             book = load_workbook(packets[0]["artifacts"]["workbook"]["path"])
@@ -645,32 +662,39 @@ class LiveOutputTests(unittest.TestCase):
         issue, dataset = fixture()
         html = render_html(issue, dataset)
         self.assertIn("No supplier lead found in the saved research.", html)
-        self.assertIn("Product image not available", html)
-        self.assertNotIn("DEMO-", html)
-        self.assertNotIn("Pet", html)
+        self.assertIn("No product photo in this issue", html)
+        text = html.split("</style>", 1)[1]  # the embedded font data is not report text
+        self.assertNotIn("DEMO-", text)
+        self.assertNotIn("Pet", text)
         dataset["products"][0]["supplier_search_status"] = "not_started"
         self.assertIn("Supplier search has not been completed.", render_html(issue, dataset))
 
     def test_cover_disclaimer_is_once_not_every_page(self):
         issue, dataset = fixture()
         html = render_html(issue, dataset)
-        self.assertEqual(html.count("Products and evidence are manufactured for testing."), 1)
+        self.assertEqual(html.count("This issue uses manufactured test data."), 1)
 
     def test_two_independent_languages_keep_identical_facts_and_negation(self):
         issue, dataset = fixture()
         english = render_html(issue, dataset, language="en")
         hinglish = render_html(issue, dataset, language="hi-Latn")
-        self.assertIn("Single-piece dispatch is not confirmed.", english)
-        self.assertIn("Single-piece dispatch confirm nahi hai.", hinglish)
-        self.assertIn("₹149", english)
-        self.assertIn("₹149", hinglish)
-        self.assertIn("Retail listing ki keemat: ₹149", hinglish)
-        self.assertIn("Supplier ka quote: ₹45", hinglish)
-        self.assertIn("minimum order: 100", hinglish)
-        self.assertIn("Checklist ke 13 points mein se 7 match hue.", hinglish)
-        self.assertIn("Achha sanket mila hai", hinglish)
-        self.assertIn("Is report mein 10 products hain. 10 naye hain aur 0 updates hain.", hinglish)
-        self.assertIn("2026-10-13", hinglish)
+        self.assertTrue("Single-piece dispatch is not confirmed." in english)
+        self.assertTrue("Single-piece dispatch confirm nahi hai." in hinglish)
+        retail, supplier = dataset["products"][0]["prices"][:2]
+        for language, html in (("en", english), ("hi-Latn", hinglish)):
+            self.assertTrue('<b class="price">₹149</b>' in html)
+            self.assertTrue('<b class="price">₹45</b>' in html)
+            self.assertEqual(html.count('<td class="c5">7<span class="of">/13</span></td>'), 10)
+            # Each figure stays bound to its own label (column) and its own conditions.
+            columns = price_columns(html, dataset["products"][0]["concept_id"])
+            self.assertEqual(columns[TEXT[language]["retail"]], [("₹149", price_display(retail, language).partition("; ")[2])])
+            self.assertEqual(columns[TEXT[language]["supplier"]], [("₹45", price_display(supplier, language).partition("; ")[2])])
+        self.assertTrue('<p class="sub">Retail listing</p>' in hinglish)
+        self.assertTrue('<p class="sub">Supplier aur dropship quote</p>' in hinglish)
+        self.assertTrue("minimum order: 100" in hinglish)
+        self.assertTrue("Achha sanket mila hai" in hinglish)
+        self.assertTrue("Indian dropshipping ke liye 10 product types: is issue mein 10 naye, 0 update." in hinglish)
+        self.assertTrue("13 October 2026" in hinglish)
         for product in dataset["products"]:
             self.assertIn(product["concept_id"], english)
             self.assertIn(product["concept_id"], hinglish)
