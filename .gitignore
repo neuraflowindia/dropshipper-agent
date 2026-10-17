@@ -38,3 +38,6 @@ node_modules/
 /media/trials/
 .coverage
 .coverage.*
+
+# Owner file of 17 Oct 2026 that may hold a password; never commit it.
+/dropdash.txt

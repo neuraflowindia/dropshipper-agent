@@ -25,7 +25,8 @@ Each topic has one main home. Other documents link to it rather than repeat its 
 | Indian dropshipping platforms (DeoDap, BaapStore, Dropdash; Dropship India dropped 15 October): research behind the built platform routes; paid search services set aside | [Platform research](research/sources/2026-10-14_dropshipping_platforms_and_search_services.md) |
 | Plain-language explanation of how the program works | [How it works](project/how-it-works.md) |
 | Step-by-step wiring of the research program with the numbers of 16 October (what it starts from, every website, every AI step, every gate, where time and AI went) | [How the research program really works](project/research-wiring-explained-2026-10-16.md) |
-| The proposed next direction: rank instead of pass/fail, a product universe for 10+ months, full tracing | [Plan R18](project/plan-2026-10-17-ranking-and-big-universe.md) |
+| The owner's 17 October questions answered: corrected step-by-step counts, real rounds, why the faults happened, where the AI allowance really went, and the owner's new direction under discussion | [Discussion paper, 17 October](project/discussion-2026-10-17-how-it-works-and-new-direction.md) |
+| The proposed next direction of 16 October (to be rewritten once the 17 October discussion is agreed) | [Plan R18](project/plan-2026-10-17-ranking-and-big-universe.md) |
 | Proposed client-report redesign (plan, high-fidelity mock-ups and renders, waiting for owner approval; not built) | [Report redesign, 16 October](client-preview/design/report-redesign-2026-10-16/plan.md) |
 | Agreed programme of 16 October: second fresh start, year-long product map, long-run durability | [Plan R11](project/plan-2026-10-16-fresh-start-and-year-long-research.md) |
 

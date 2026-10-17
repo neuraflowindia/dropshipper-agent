@@ -1,39 +1,41 @@
 # Project tracker
 
-Latest state: **17 October 2026, about 22:45 UTC on 16 October (4:15 am India time on 17 October) — regroup.** The owner **stopped research at 20:50:41 UTC on 16 October** and asked for a full, granular explanation of how the program works and for a new direction. The explanation, with every step, website, AI use and gate and the day's numbers, is [How the research program really works](research-wiring-explained-2026-10-16.md). The proposed direction is [Plan R18](plan-2026-10-17-ranking-and-big-universe.md): rank by likelihood instead of pass/fail gates, a product universe for 10+ months, and full tracing. Plan R18 **waits for the owner's answers** (15 questions, also in the handoff). Built for the owner's tracing request and now on `main`: the read-only tracing tool and per-AI-use accounting (R18a). This is the sole current progress summary. Requirements belong to the [product contract](../product/india_dropshipping_product_opportunity_radar_product_brief.md); technical changes belong to the [implementation record](../operations/implementation_2026-10-11.md).
+Latest state: **17 October 2026, about 07:30 UTC (1:00 pm India time) — discussion round.** Research has been **stopped since 20:50:41 UTC on 16 October** (owner's switch). On 17 October the owner asked for a toddler-level explanation with every number adding up, a look at AI use, and set out a new direction to discuss and agree before any plan change or building. The answer is the [discussion paper](discussion-2026-10-17-how-it-works-and-new-direction.md): corrected counts, two real rounds narrated, why each fault happened, where the AI allowance really went, the owner's direction restated with recommendations, and 29 questions. [Plan R18](plan-2026-10-17-ranking-and-big-universe.md) is unchanged and will be rewritten after the owner agrees the direction. This is the sole current progress summary. Requirements belong to the [product contract](../product/india_dropshipping_product_opportunity_radar_product_brief.md); technical changes belong to the [implementation record](../operations/implementation_2026-10-11.md).
 
-## Current position — research day of 16 October (06:58:54–20:50:41 UTC)
+## Current position — research day of 16 October (06:58:54–20:50:41 UTC), corrected 17 October
 
 | Measure | Count |
 |---|---:|
 | Product-map headings used / total | 32 / 1,706 |
-| Raw items collected for ideas / read by the AI | 347 / 128 |
-| Candidates / defined product types / passing the checklist | 34 / 30 / 30 of 34 |
-| **Report-ready types** (need 20 across the two first sets) | **1** |
-| Why the others are held (one type can be held by several) | crowding not decided 23; no supplier search yet 9; "too quiet" 6; checklist under 5 Meets 4 |
+| Listings collected for ideas / read by the AI / not read | 354 / 128 / 226 (156 in line, 23 AI pause, 20 limit, 2 bad answers, 25 silently marked done) |
+| Products named / removed (outside categories, big brand) / match unfinished | 78 / 14 + 5 / 16 |
+| New product types / definitions accepted / passing the checklist | 34 / 30 / 30 of 34 |
+| Crowding worked out | 9 of 34 (7 High, 1 Medium, 1 Low) |
+| Types with zero "want" points | 26 of 34 (32 below the 5-point bar) |
+| **Report-ready types** | **1** (extendable microfiber duster) |
 | Report sets produced | 0 / 2 |
-| AI | 244 uses, 5.25 M input + 0.33 M output tokens (hidden reasoning not recorded), 81 AI minutes |
-| Rounds | 30; median about 17 minutes, growing from about 8 to about 47 |
-| Money since the fresh start | ₹0 cash; Apify US$0; quick-commerce pack 66 of 100 credits used (34 left, expire 2 November) |
+| Research AI | 244 calls, 5.25 M input + 0.33 M output tokens (thinking is inside output), 81 AI minutes; last call 18:08:39 UTC |
+| Money | ₹0 cash on 16 October; Apify free allowance US$1.38 of US$4.50 used this month (none on 16 October); quick-commerce pack 66 of 100 credits used (34 left, expire 2 November) |
 
 **State of things now:**
-- **Research is stopped** (owner's switch off). Plan R18 recommends keeping it stopped until its phase 2 loads.
-- **AI allowance:** the program's last reading (18:10 UTC) shows the weekly allowance at 100%. The owner reset it that night; the program will see the reset at its next AI use.
-- **Dropdash is signed out** (since between 08:18 and 17:26 UTC on 16 October; most likely the session expired). It has given 0 products so far. Owner action: sign in once.
-- **Google Trends** (check passed at 17:56 UTC) and **IndiaMART** (from 17:45 UTC) are signed in.
+- **Research is stopped.** Recommended to stay stopped until the new design is built (question 24).
+- **AI allowance (read 17 October 06:00 UTC):** 5-hour window 0%, weekly 16% used (resets 23 October 20:41:55 UTC); by 06:42 the owner's own Codex project had moved it to 29% / 20%. The owner reset it at 20:41:55 UTC on 16 October; the owner's own Codex projects then used 16% in 19 minutes and filled the 5-hour window; research made no AI call after 18:08:39. Paid Codex credits fell from 59,904.14 to 58,522.08 (1,382, used by the owner's other projects; research never uses credits).
+- **Dropdash is signed out and not populated.** The agent's attempt to sign in with the details the owner gave was blocked by Claude Code's automatic-mode safety rule; nothing was typed or saved. Options are question 20.
+- **Google Trends and IndiaMART** were signed in at the stop.
 
 **Built, and where it is:**
 
 | Work | Where | State |
 |---|---|---|
-| Wiring audit + Plan R18 | `docs/project/` on `main` | Done; reviewed once by a separate checker and corrected |
-| Read-only tracing tool (`scripts/research_trace.py`: funnel, routes, ai, product, summary) | `main` (`84012ec`), pushed | **Live**. 60/60 focused tests, 98% branch coverage; whole suite on its branch 6,102 OK (2 skipped). It runs in 5–40 s on the live records |
-| R18a per-AI-use accounting + honest run records (accounting file per AI use with allowance before/after, allowance history, AI and platform run-log rows, Dropdash detection fixes, honest failure/block counters, product id on rows) | `main` (`ff2ca3e`), pushed | **Live** (takes effect when research restarts). A separate review found no must-fix items; its 6 should-fix items were fixed. Whole suite 6,142 OK (2 skipped). The meter now reports 75 failures instead of 105 (one per incident) and 0 access blocks instead of 57 (no website really refused on 16 October) |
-| R14 report redesign + review fixes | `redesign` / `r10` | Done, not loaded; Plan R18 keeps its engine and simplifies its product page |
-| R16 rounds 7–9× faster | `speed` (on `r10`) | Done, whole suite not run on the final commit; Plan R18 phase 0 loads it |
-| R17 market checks first | `evidence` (on `r10`) | Plan R18 drops it |
+| Discussion paper (17 October) | `docs/project/` | Done; reviewed by a separate checker |
+| Wiring audit (16 October) + Plan R18 | `docs/project/` | Audit carries a corrections note; Plan R18 unchanged, to be rewritten after the discussion |
+| Read-only tracing tool (`scripts/research_trace.py`) | `main` | Live. Known count faults (fixed in the paper, not yet in the tool): crowding "21 not checked" misses the 4 undefined types; checklist lines mix 30 and 34 types |
+| R18a per-AI-use accounting | `main` | Live from the next run. Still drops Codex's `reasoning_output_tokens` and `cache_write_input_tokens` (question 14) |
+| R14 report redesign | `redesign` / `r10` | Done, not loaded |
+| R16 rounds 7–9× faster | `speed` (on `r10`) | Done, not loaded |
+| R17 market checks first | `evidence` (on `r10`) | To be dropped |
 
-Next actions, in order, once the owner answers: Plan R18 section 8 (phase 0: load the speed fix, accounting and Dropdash fixes; owner signs in to Dropdash; then phases 2–6). Until then, nothing new is built.
+Next actions, in order, once the owner answers: agree the direction (questions 1–13), then rewrite Plan R18 into the new design, get it reviewed, and build. Until then, nothing new is built and research stays stopped.
 
 ## Earlier fresh start — 13 October 2026 (history)
 
