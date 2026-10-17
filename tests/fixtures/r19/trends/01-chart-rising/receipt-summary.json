@@ -1,0 +1,11 @@
+{
+ "observed_at": "2026-10-16T17:25:21.2044153Z",
+ "reason": "DIRECT_TRENDS_CHART_EXPORT_VERIFIED",
+ "request": {
+  "country": "IN",
+  "query": "wardrobe organiser"
+ },
+ "route": "google-trends",
+ "scope_verified": true,
+ "state": "usable"
+}

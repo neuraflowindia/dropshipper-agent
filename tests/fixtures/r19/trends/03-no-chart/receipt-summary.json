@@ -1,0 +1,11 @@
+{
+ "observed_at": "2026-10-16T20:37:21.4697312Z",
+ "reason": "DIRECT_TRENDS_EXPLICIT_NO_DATA",
+ "request": {
+  "country": "IN",
+  "query": "travel soap cases"
+ },
+ "route": "google-trends",
+ "scope_verified": true,
+ "state": "no_data"
+}

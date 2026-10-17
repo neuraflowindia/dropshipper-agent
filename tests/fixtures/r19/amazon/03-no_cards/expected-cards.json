@@ -1,0 +1,9 @@
+{
+ "cards": {},
+ "parser_version": 3,
+ "reason": "CROWDING_CARDS_NOT_FOUND",
+ "route": "amazon-search",
+ "state": "no_cards",
+ "total_results": null,
+ "total_results_lower_bound": false
+}

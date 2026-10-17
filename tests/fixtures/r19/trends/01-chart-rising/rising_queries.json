@@ -1,0 +1,30 @@
+{
+ "acquisition_id": "discovery-acquisition-4a4525b07dcde173affeeb74220621b9156db729",
+ "country": "IN",
+ "kind": "trends-rising-queries-v1",
+ "observed_at": "2026-10-16T17:25:21.2044153Z",
+ "parser_version": "trends-rising-dom-v1",
+ "queries": [
+  {
+   "growth_kind": "percentage",
+   "growth_percent": 150.0,
+   "query": "bathroom organiser",
+   "rank": 1,
+   "raw_value": "+150%"
+  },
+  {
+   "growth_kind": "percentage",
+   "growth_percent": 40.0,
+   "query": "kitchen organiser",
+   "rank": 2,
+   "raw_value": "+40%"
+  }
+ ],
+ "scope_sha256": "e81c76ce46b5a5742df397ba45581682e59f712ed7e2877724b76f3ccf45691e",
+ "section": "Rising",
+ "source_reference": "https://trends.google.com/trends/explore?geo=IN&q=wardrobe%20organiser&hl=en",
+ "state": "read",
+ "term": "wardrobe organiser",
+ "time_range": "today 12-m",
+ "total": null
+}

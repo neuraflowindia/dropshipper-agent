@@ -1,0 +1,12 @@
+{
+ "country": "IN",
+ "item": {
+  "id": "supplier-route-request-56de01ad3b2719f1b16beb1332b679aeae588415",
+  "url": "https://dir.indiamart.com/search.mp?ss=duvet+cover+pillowcases+fitted+sheet+set"
+ },
+ "limit": 10,
+ "query": "duvet cover pillowcases fitted sheet set",
+ "route": "indiamart",
+ "transport": "signed-in-browser",
+ "url": "https://dir.indiamart.com/search.mp?ss=duvet+cover+pillowcases+fitted+sheet+set"
+}

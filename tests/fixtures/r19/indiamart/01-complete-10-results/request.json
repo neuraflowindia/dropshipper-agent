@@ -1,0 +1,12 @@
+{
+ "country": "IN",
+ "item": {
+  "id": "supplier-route-request-c09583f30558a00ada896b074f486820f218dbe1",
+  "url": "https://dir.indiamart.com/search.mp?ss=GWD+cot+mobile"
+ },
+ "limit": 10,
+ "query": "GWD cot mobile",
+ "route": "indiamart",
+ "transport": "signed-in-browser",
+ "url": "https://dir.indiamart.com/search.mp?ss=GWD+cot+mobile"
+}

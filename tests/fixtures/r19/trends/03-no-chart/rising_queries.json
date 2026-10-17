@@ -1,0 +1,15 @@
+{
+ "acquisition_id": "discovery-acquisition-3c43cf8d1a85aa6dbe33bd10c31f78bba3794329",
+ "country": "IN",
+ "kind": "trends-rising-queries-v1",
+ "observed_at": "2026-10-16T20:37:21.4697312Z",
+ "parser_version": "trends-rising-dom-v1",
+ "queries": [],
+ "scope_sha256": "96d2b68a1908694ba6490632134261bfebb750314b58975ddd33c5383905fc80",
+ "section": null,
+ "source_reference": "https://trends.google.com/trends/explore?geo=IN&q=travel%20soap%20cases&hl=en",
+ "state": "unreadable",
+ "term": "travel soap cases",
+ "time_range": "today 12-m",
+ "total": null
+}

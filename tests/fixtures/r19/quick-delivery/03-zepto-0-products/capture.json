@@ -1,0 +1,39 @@
+{
+ "http_status": 200,
+ "observed_at": "2026-10-16T17:55:47+00:00",
+ "omitted": 0,
+ "partial": false,
+ "products": [],
+ "purchase_made": false,
+ "raw_response": {
+  "data": {
+   "lat": 28.6139,
+   "lon": 77.209,
+   "platform": "Zepto",
+   "products": [],
+   "query": "compartment travel organizer",
+   "total_results": 0
+  },
+  "status": "success"
+ },
+ "reason": null,
+ "rejected": [],
+ "request": {
+  "country": "IN",
+  "limit": 50,
+  "location": {
+   "lat": "28.6139",
+   "lon": "77.2090",
+   "name": "Delhi NCR"
+  },
+  "platform": "zepto",
+  "provider_platform": "Zepto",
+  "query": "compartment travel organizer",
+  "version": "quickcommerce-location-v1"
+ },
+ "requested_url": "https://api.quickcommerceapi.com/v1/search?platform=Zepto&q=compartment+travel+organizer&lat=28.6139&lon=77.2090",
+ "state": "completed_no_results",
+ "total_results": 0,
+ "transport_contract": "quickcommerce-owned-http-v1",
+ "version": "quickcommerce-location-v1"
+}

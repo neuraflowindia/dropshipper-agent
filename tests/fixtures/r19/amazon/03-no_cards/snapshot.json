@@ -1,0 +1,12 @@
+{
+ "card_count": 0,
+ "cards": [],
+ "empty": false,
+ "heading": "This site can’t be reached",
+ "html_characters": 186027,
+ "query": null,
+ "text": "This site can’t be reached\n\nwww.amazon.in’s DNS address could not be found. Diagnosing the problem.\n\nTry running Windows Network Diagnostics.\nDNS_PROBE_STARTED\nReload",
+ "text_truncated": false,
+ "title": "www.amazon.in",
+ "url": "chrome-error://chromewebdata/"
+}

@@ -1,0 +1,10 @@
+{
+ "country": "IN",
+ "department": null,
+ "limit": 30,
+ "pages": 1,
+ "route": "amazon-search",
+ "schema_version": 1,
+ "term": "baby care kit",
+ "url": "https://www.amazon.in/s?k=baby+care+kit"
+}

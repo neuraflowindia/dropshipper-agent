@@ -1,0 +1,12 @@
+{
+ "country": "IN",
+ "item": {
+  "id": "supplier-route-request-956bb227c24b413b9490a886e839b2377972ba1d",
+  "url": "https://www.tradeindia.com/search.html?keyword=bird+themed+wall+decoration"
+ },
+ "limit": 10,
+ "query": "bird themed wall decoration",
+ "route": "tradeindia",
+ "transport": "public-browser",
+ "url": "https://www.tradeindia.com/search.html?keyword=bird+themed+wall+decoration"
+}

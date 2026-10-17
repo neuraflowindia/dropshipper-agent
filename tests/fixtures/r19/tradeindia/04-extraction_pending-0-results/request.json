@@ -1,0 +1,12 @@
+{
+ "country": "IN",
+ "item": {
+  "id": "supplier-route-request-6d59c7694f5e64feb6ee5229936efd2d744308b9",
+  "url": "https://www.tradeindia.com/search.html?keyword=baby+lotion"
+ },
+ "limit": 10,
+ "query": "baby lotion",
+ "route": "tradeindia",
+ "transport": "public-http",
+ "url": "https://www.tradeindia.com/search.html?keyword=baby+lotion"
+}

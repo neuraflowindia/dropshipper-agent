@@ -1,0 +1,23 @@
+{
+ "acquisition_id": "discovery-acquisition-c428091e5c476f1720986c79e6694b427981baad",
+ "country": "IN",
+ "kind": "trends-rising-queries-v1",
+ "observed_at": "2026-10-16T19:48:39.3123255Z",
+ "parser_version": "trends-rising-dom-v1",
+ "queries": [
+  {
+   "growth_kind": "percentage",
+   "growth_percent": 50.0,
+   "query": "pigeon nipple puller",
+   "rank": 1,
+   "raw_value": "+50%"
+  }
+ ],
+ "scope_sha256": "194bab784b53ddd28aea7d80bcae2154df19a7a6f133a4e811cac05b9c2ac434",
+ "section": "Rising",
+ "source_reference": "https://trends.google.com/trends/explore?geo=IN&q=nipple%20puller&hl=en",
+ "state": "read",
+ "term": "nipple puller",
+ "time_range": "today 12-m",
+ "total": null
+}
