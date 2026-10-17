@@ -1,5 +1,7 @@
 # Windows desktop and tray controls
 
+**17 October 2026:** this guide describes the program as it ran until research was stopped on 16 October 2026. [Plan R19](../project/plan-2026-10-17-r19-product-flow-engine.md) replaces that program; this guide is updated when Plan R19's launcher and sign-in work lands.
+
 Updated: 15 October 2026 (Plan R10 sign-in button, sign-in/Trends/platform lines, spend lines and the progress watch built on branch `r10`; they appear once the rebuilt app is installed at the W13 cutover). This is the installed owner control for the existing research program. It is not a second research system or proof that the unfinished research/report work is complete.
 
 ## Open and use it

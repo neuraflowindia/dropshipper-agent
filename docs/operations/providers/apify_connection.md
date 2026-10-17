@@ -1,14 +1,16 @@
 # Apify connection diagnostics
 
+**17 October 2026:** under [Plan R19](../../project/plan-2026-10-17-r19-product-flow-engine.md) Apify is kept only as the fallback for Facebook Ad Library searches when the free browser read is blocked, within the month's free allowance; the deeper-Meta read is deleted. This note is shortened to match when that fallback is built.
+
 Updated: 7 October 2026. Purpose: existing checker behavior and intended token scope. Current work is planning only; three-account routing is specified but not implemented.
 Current account/funding procedure: [account guide](apify_environment_handover.md).
-Current service/budget: [operator plan](../local_execution_and_provider_setup.md), [cost plan](../build_activation_and_costs_2026-10-03.md).
+Current service/budget: [operator plan](../local_execution_and_provider_setup.md), cost plan.
 
 ## Current access
 
 Initial authenticated run-list check passed on 3 October at 08:35:56 UTC. Genuine private binding, first request preflight, run and output access passed on 4 October. The first sample's data quality is accepted; remaining source/production acceptance is pending. Profile/monthly-usage reads can return 403 under the working restricted token.
 
-Initial setup is complete. Trends has a verified runtime request-queue permission error. The owner-supplied 5 October screenshot shows Limit token permissions enabled; Actors Read/Run/List runs; Tasks, Schedules and general Storages empty. It does not show Running Actors, default-run-storage access or full-permission-Actor controls. This is a displayed-settings observation, not a new authenticated runtime test or proof of the exact denied operation. No settings were changed. [Measured results](../benchmarks/2026-10-03/benchmark_record.md).
+Initial setup is complete. Trends has a verified runtime request-queue permission error. The owner-supplied 5 October screenshot shows Limit token permissions enabled; Actors Read/Run/List runs; Tasks, Schedules and general Storages empty. It does not show Running Actors, default-run-storage access or full-permission-Actor controls. This is a displayed-settings observation, not a new authenticated runtime test or proof of the exact denied operation. No settings were changed. Measured results.
 
 Browser Trends now works in bounded chart/export tests and remains the selected route. No new Apify Trends attempt or permission repair is authorised. Only after browser alternatives fail and a fallback is discussed would missing lower settings be inspected. Recovery navigation: Settings → API & Integrations → Edit beside the existing project token → Limit token permissions → lower Running Actors section. These are token-editor controls, not items on the main API page. Never reveal a token or save a speculative permission change.
 

@@ -1,7 +1,9 @@
 # QuickCommerce API connection diagnostics
 
+**17 October 2026:** [Plan R19](../../project/plan-2026-10-17-r19-product-flow-engine.md) uses these checks only for the products picked for a report (section 3.4, stage C), and buying more credit packs is approved: the program tells the owner which pack to buy and keeps working. This note is updated when Plan R19's report assembly is built.
+
 Updated: 16 October 2026. Purpose: the access checker, the private key file and how the running research uses the provider.
-Source rules (who is checked, where, and what a result is worth): [product brief](../../product/india_dropshipping_product_opportunity_radar_product_brief.md). What was built and its wait codes: [implementation record, R10 (W5, W12)](../implementation_2026-10-11.md#r10-plan-r10-sources-crowding-check-product-map-and-spend-watch-1415-october). Owner steps for buying credits: [operator guide, section 8.3](../local_execution_and_provider_setup.md). Money limits: [cost plan](../build_activation_and_costs_2026-10-03.md). Measurement rules: [benchmark plan](../benchmarks/2026-10-03/benchmark_plan.md).
+Source rules (who is checked, where, and what a result is worth): [product brief](../../product/india_dropshipping_product_opportunity_radar_product_brief.md). Owner steps for buying credits: [operator guide, section 8.3](../local_execution_and_provider_setup.md).
 
 ## How research uses it (Plan R10, live since 15 October 2026)
 

@@ -6,6 +6,8 @@
 
 **What is in this folder**
 
+**17 October 2026:** only `plan.md` is still here. The mock-ups, `renders/` and `source/` listed below (and every later mention of them in this plan) were removed from the working folder and are kept in git history at commit `02c8326`, for example `git show 02c8326:docs/client-preview/design/report-redesign-2026-10-16/mockup-en.html`. The built report engine lives on the `r10` branch.
+
 | File | What it is |
 |---|---|
 | `plan.md` | This plan: direction, exact specifications, build approach, owner choices |

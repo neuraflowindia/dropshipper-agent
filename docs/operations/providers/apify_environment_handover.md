@@ -1,6 +1,8 @@
 # Apify account and allowance operations
 
-Updated: 7 October 2026. Purpose: current access provenance/private configuration and planned approved-account migration. [Financial authority](../build_activation_and_costs_2026-10-03.md), [measured evidence](../benchmarks/2026-10-03/benchmark_record.md), [existing commands](../benchmarks/2026-10-03/offline_runner_guide.md), [exact implementation](../benchmarks/2026-10-03/execution_specification.md).
+**17 October 2026:** under [Plan R19](../../project/plan-2026-10-17-r19-product-flow-engine.md) Apify is kept only as the fallback for Facebook Ad Library searches when the free browser read is blocked, within the month's free allowance; the deeper-Meta read is deleted. This note is shortened to match when that fallback is built.
+
+Updated: 7 October 2026. Purpose: current access provenance/private configuration and planned approved-account migration. Financial authority, measured evidence, existing commands, exact implementation.
 
 Current work is planning/review; no new paid search, key binding, permission change or account switch is performed in this turn.
 
