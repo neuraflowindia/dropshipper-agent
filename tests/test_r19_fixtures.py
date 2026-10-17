@@ -1,4 +1,7 @@
-"""The R19 fixtures (trimmed real pages of 16-17 October 2026) load, are listed, and hold no account data."""
+"""The R19 fixtures (trimmed real pages of 16-17 October 2026) load, are listed, and hold no account data.
+
+Their description is a plain-text README.txt: Markdown documents belong under docs/ (test_documentation_layout).
+"""
 
 import csv
 import gzip
@@ -15,7 +18,7 @@ MOBILE = re.compile(r"(?<![\w])(?:\+91[\s-]?|91[\s-]?|0)?[6-9]\d{4}[\s-]?\d{5}(?
 
 
 def fixture_files():
-    return sorted(path for path in ROOT.rglob("*") if path.is_file() and path.name != "README.md")
+    return sorted(path for path in ROOT.rglob("*") if path.is_file() and path.name != "README.txt")
 
 
 def text_of(path):
@@ -55,7 +58,7 @@ class R19FixtureTests(unittest.TestCase):
                 self.assertLess(path.stat().st_size, 300 * 1024)
 
     def test_readme_describes_every_fixture_folder(self):
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        readme = (ROOT / "README.txt").read_text(encoding="utf-8")
         folders = {path.parent.relative_to(ROOT).parts[0] for path in fixture_files()
                    if path.parent != ROOT}
         for folder in sorted(folders):
