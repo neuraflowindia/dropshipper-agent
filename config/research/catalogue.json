@@ -424,7 +424,9 @@
    ]
   },
   {
-   "aliases": [],
+   "aliases": [
+    "Peel-and-stick marble kitchen wallpaper"
+   ],
    "author": "Codex-assisted public research and functional-family review",
    "basis": "plausible_extension",
    "category": "Home and Decor",
@@ -473,6 +475,22 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "wallpaper panels"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds Meta ads for marble-look peel-and-stick wallpaper used on kitchen walls.",
+     "source": "meta",
+     "text": "marble peel and stick kitchen wallpaper"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds supplier catalogue listings for peel-and-stick kitchen wallpaper with a marble look.",
+     "source": "dropship",
+     "text": "peel and stick marble kitchen wallpaper"
     }
    ],
    "problem": "People need to refresh an entire wall with a covering.",
@@ -5522,6 +5540,14 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "baby wipes"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find this product type in dropshipping catalogues.",
+     "source": "dropship",
+     "text": "baby wipes"
     }
    ],
    "problem": "People need to provide a disposable cleaning wipe for caregiving.",
@@ -6063,7 +6089,9 @@
    ]
   },
   {
-   "aliases": [],
+   "aliases": [
+    "Baby Lotion"
+   ],
    "author": "Codex-assisted public research and functional-family review",
    "basis": "observed",
    "category": "Baby Products",
@@ -6114,6 +6142,22 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "baby skin-care products"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find ads for baby lotion presented for infant skin care.",
+     "source": "meta",
+     "text": "baby lotion for infant skin care"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Find marketplace listings for infant lotion and the topical care purpose they describe.",
+     "source": "marketplace",
+     "text": "baby lotion infant care"
     }
    ],
    "problem": "People need to provide topical infant cleansing or moisturising.",
@@ -8197,7 +8241,9 @@
    ]
   },
   {
-   "aliases": [],
+   "aliases": [
+    "Refillable apple-shaped liquid soap dispenser"
+   ],
    "author": "Codex-assisted public research and functional-family review",
    "basis": "observed",
    "category": "Home and Kitchen",
@@ -8248,6 +8294,30 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "soap dispensing tools"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find ads for refillable liquid soap dispensers for bathrooms or wash areas.",
+     "source": "meta",
+     "text": "refillable liquid soap dispenser"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Find marketplace listings for refillable manual-pump soap dispensers.",
+     "source": "marketplace",
+     "text": "refillable liquid soap dispenser pump"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find this product type in dropshipping catalogues.",
+     "source": "dropship",
+     "text": "refillable soap dispenser"
     }
    ],
    "problem": "People need to portion washing liquid during cleaning.",
@@ -8451,6 +8521,14 @@
      "purpose": "validation",
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
+     "text": "spice containers and racks"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Search the dropshipping catalogue for spice storage products in the supplied category.",
+     "source": "dropship",
      "text": "spice containers and racks"
     }
    ],
@@ -8657,6 +8735,14 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "oil pouring dispensers"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Search the dropshipping catalogue for the supplied oil dispenser category.",
+     "source": "dropship",
+     "text": "oil dispensers"
     }
    ],
    "problem": "People need to portion cooking oil from a refillable vessel.",
@@ -19705,7 +19791,10 @@
    "sources": []
   },
   {
-   "aliases": [],
+   "aliases": [
+    "Washable split AC dust covers",
+    "Washable split AC dust cover"
+   ],
    "author": "Claude-assisted exhaustive product map (16 October 2026)",
    "basis": "plausible_extension",
    "category": "Home and Decor",
@@ -19756,6 +19845,22 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "ac cover"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds Meta ads for washable dust covers fitted over split air conditioners.",
+     "source": "meta",
+     "text": "washable split AC dust cover"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds supplier catalogue listings for washable dust covers fitted to split air conditioners.",
+     "source": "dropship",
+     "text": "washable split AC dust cover"
     }
    ],
    "problem": "People need to protect air conditioner units and air coolers from dust and rain.",
@@ -21182,7 +21287,9 @@
    "sources": []
   },
   {
-   "aliases": [],
+   "aliases": [
+    "Baby Buddha showpiece set"
+   ],
    "author": "Claude-assisted exhaustive product map (16 October 2026)",
    "basis": "plausible_extension",
    "category": "Home and Decor",
@@ -21233,6 +21340,30 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "buddha statue"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find ads for Buddha figures used as home or office decor.",
+     "source": "meta",
+     "text": "Buddha showpiece set home decor"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Find marketplace listings for Buddha-themed decorative figures.",
+     "source": "marketplace",
+     "text": "Buddha showpiece set home decor"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find this product type in dropshipping catalogues.",
+     "source": "dropship",
+     "text": "Buddha decorative showpiece set"
     }
    ],
    "problem": "People need to add a calm Buddha figure to a living room or desk.",
@@ -35766,6 +35897,14 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "solar lights"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Use the supplied garden-lighting category as a broad catalogue research direction for this family.",
+     "source": "dropship",
+     "text": "garden lighting"
     }
    ],
    "problem": "People need to light balconies and gardens using solar power with no wiring.",
@@ -36424,7 +36563,9 @@
    "sources": []
   },
   {
-   "aliases": [],
+   "aliases": [
+    "Nik case wireless doorbell"
+   ],
    "author": "Claude-assisted exhaustive product map (16 October 2026)",
    "basis": "plausible_extension",
    "category": "Home and Decor",
@@ -36475,6 +36616,30 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "wireless doorbell"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find ads for wireless doorbells that notify occupants when a visitor presses the button.",
+     "source": "meta",
+     "text": "wireless doorbell for home and office"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Find marketplace listings for wireless doorbells with plug-in chimes.",
+     "source": "marketplace",
+     "text": "wireless doorbell plug in chime"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find this product type in dropshipping catalogues.",
+     "source": "dropship",
+     "text": "wireless doorbell kit"
     }
    ],
    "problem": "People need to install a doorbell with no wiring work.",
@@ -42335,7 +42500,9 @@
    "sources": []
   },
   {
-   "aliases": [],
+   "aliases": [
+    "Six-piece revolving plastic spice rack"
+   ],
    "author": "Claude-assisted exhaustive product map (16 October 2026)",
    "basis": "plausible_extension",
    "category": "Home and Kitchen",
@@ -42385,6 +42552,22 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "revolving spice carousels"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds spice storage racks that rotate for access to multiple jars.",
+     "source": "meta",
+     "text": "360 degree revolving spice rack airtight jars"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds catalogue listings for revolving spice racks that store multiple jars.",
+     "source": "dropship",
+     "text": "revolving spice rack set"
     }
    ],
    "problem": "People need to keep many spice jars on a rotating stand so any spice is a quick turn away.",
@@ -52461,7 +52644,9 @@
    "sources": []
   },
   {
-   "aliases": [],
+   "aliases": [
+    "Extendable Microfiber Cleaning Brush offer"
+   ],
    "author": "Claude-assisted exhaustive product map (16 October 2026)",
    "basis": "plausible_extension",
    "category": "Home and Kitchen",
@@ -52511,6 +52696,22 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "bendable microfibre dusters"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find ads for extendable microfiber dusting brushes presented for car and home cleaning.",
+     "source": "meta",
+     "text": "extendable microfiber dusting brush car home"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Find marketplace listings for extendable microfiber dusters used around cars and homes.",
+     "source": "marketplace",
+     "text": "extendable microfiber duster car home"
     }
    ],
    "problem": "People need to dust behind furniture and on high surfaces with a bendable extendable duster.",
@@ -59061,6 +59262,14 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "insulated lunch bags"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find the supplied lunch bag product type in the catalogue.",
+     "source": "dropship",
+     "text": "insulated lunch bag"
     }
    ],
    "problem": "People need to carry tiffins and bottles in a bag that keeps food hot or cold.",
@@ -59137,7 +59346,10 @@
    "sources": []
   },
   {
-   "aliases": [],
+   "aliases": [
+    "Warm drink flasks and bottles",
+    "Insulated vacuum bottles"
+   ],
    "author": "Claude-assisted exhaustive product map (16 October 2026)",
    "basis": "plausible_extension",
    "category": "Home and Kitchen",
@@ -59187,6 +59399,22 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "vacuum flasks"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Explore the supplied flask and bottle category within the existing insulated flask family.",
+     "source": "dropship",
+     "text": "warm drink flasks and bottles"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find the supplied insulated vacuum bottle type in the catalogue.",
+     "source": "dropship",
+     "text": "insulated vacuum bottle"
     }
    ],
    "problem": "People need to keep drinks hot or cold for many hours in a steel vacuum flask.",
@@ -62435,7 +62663,10 @@
    "sources": []
   },
   {
-   "aliases": [],
+   "aliases": [
+    "Looped microfiber kitchen hand towels",
+    "Microfiber kitchen towel with loop"
+   ],
    "author": "Claude-assisted exhaustive product map (16 October 2026)",
    "basis": "plausible_extension",
    "category": "Home and Kitchen",
@@ -62485,6 +62716,22 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "hanging kitchen hand towels"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds Meta ads for kitchen hand towels that hang by a loop.",
+     "source": "meta",
+     "text": "microfiber kitchen hand towel hanging loop"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds catalogue listings for looped microfiber kitchen hand towels.",
+     "source": "dropship",
+     "text": "microfiber hanging kitchen hand towel with loop"
     }
    ],
    "problem": "People need to dry hands with a towel that hangs from oven or cabinet handles by a loop.",
@@ -62561,7 +62808,9 @@
    "sources": []
   },
   {
-   "aliases": [],
+   "aliases": [
+    "Transparent Table Protector"
+   ],
    "author": "Claude-assisted exhaustive product map (16 October 2026)",
    "basis": "plausible_extension",
    "category": "Home and Kitchen",
@@ -62611,6 +62860,30 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "waterproof table covers"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find ads for clear covers used to protect table surfaces.",
+     "source": "meta",
+     "text": "transparent table protector"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Find marketplace listings for clear table-protection covers.",
+     "source": "marketplace",
+     "text": "transparent table protector cover"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find this type of product in dropshipping catalogues.",
+     "source": "dropship",
+     "text": "transparent table cover"
     }
    ],
    "problem": "People need to protect the whole dining table from spills with a wipe-clean cover.",
@@ -82597,7 +82870,9 @@
    "sources": []
   },
   {
-   "aliases": [],
+   "aliases": [
+    "Kids' 8.5-inch LCD writing tablet"
+   ],
    "author": "Claude-assisted exhaustive product map (16 October 2026)",
    "basis": "plausible_extension",
    "category": "Baby Products",
@@ -82647,6 +82922,30 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "writing tablet"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find ads for reusable writing and drawing tablets intended for children.",
+     "source": "meta",
+     "text": "kids LCD writing tablet"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Find listings for reusable LCD writing pads for children.",
+     "source": "marketplace",
+     "text": "kids LCD writing tablet"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find this product type in dropshipping catalogues.",
+     "source": "dropship",
+     "text": "kids LCD writing pad"
     }
    ],
    "problem": "People need to let kids draw and write on a reusable screen that erases with one button.",
@@ -94849,7 +95148,9 @@
    "sources": []
   },
   {
-   "aliases": [],
+   "aliases": [
+    "Car cleaning brush set"
+   ],
    "author": "Claude-assisted exhaustive product map (16 October 2026)",
    "basis": "plausible_extension",
    "category": "Travel and Outdoor",
@@ -94900,6 +95201,22 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "car detailing brushes"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds brush kits intended to reach vents, consoles, and other car interior areas.",
+     "source": "meta",
+     "text": "car interior detailing brush set vents dashboard"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds catalogue listings for sets of brushes used to clean vehicle interiors.",
+     "source": "dropship",
+     "text": "car interior cleaning brush set"
     }
    ],
    "problem": "People need to clean dust out of car vents, buttons and seams.",
@@ -98977,7 +99294,9 @@
    "sources": []
   },
   {
-   "aliases": [],
+   "aliases": [
+    "Keyless 3-digit combination padlock with built-in wire"
+   ],
    "author": "Claude-assisted exhaustive product map (16 October 2026)",
    "basis": "plausible_extension",
    "category": "Travel and Outdoor",
@@ -99027,6 +99346,30 @@
      "reason": "Use only if the identified product matches this meaning; narrow the term to the actual concept rather than attributing parent-category interest. This is an optional route, not an instruction to run every listed source.",
      "source": "trends",
      "text": "bicycle cable locks"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find ads for keyless combination cable locks suitable for securing bicycles.",
+     "source": "meta",
+     "text": "3 digit combination cable lock for bicycle India"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Find listings for flexible bicycle cable locks and check whether combination locks are included.",
+     "source": "marketplace",
+     "text": "3 digit combination bicycle cable lock keyless"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find this product type in dropshipping catalogues.",
+     "source": "dropship",
+     "text": "combination bicycle wire lock"
     }
    ],
    "problem": "People need to lock a cycle to a pole or railing.",
@@ -108975,6 +109318,742 @@
     ]
    },
    "sources": []
+  },
+  {
+   "aliases": [],
+   "author": "bounded-role-c-seed",
+   "basis": "observed",
+   "category": "Home and Decor",
+   "definition": "Garden cutters serve a plant-cutting task; the supplied families cover watering, spraying, shade, lighting, or decoration.",
+   "disposition": "usable",
+   "examples": [
+    {
+     "basis": "observed",
+     "label": "Garden Cutter",
+     "sources": [
+      "catalogue-material-example-e15269a448018948d29358ee0fb6e0b7abc0fb71"
+     ]
+    }
+   ],
+   "excluded": [
+    "Seller, colour, motif, ordinary material and pack changes alone are not separate functions."
+   ],
+   "id": "family-d29c5296b1e17f1d4a61110dc6d9f4523609fe97",
+   "included": [
+    "Garden Cutter"
+   ],
+   "label": "Garden cutting tools",
+   "next_review": "After measured searches or a meaningful mechanism/source change.",
+   "overlaps": [
+    "hd-garden-pump-sprayers"
+   ],
+   "parent_id": "branch-hd-balcony-and-garden-setup",
+   "phrases": [
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Explore ads describing tools for cutting or trimming garden plants.",
+     "source": "meta",
+     "text": "easy garden pruning with garden shears"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Check whether this type appears in the dropshipping catalogue.",
+     "source": "dropship",
+     "text": "garden cutters"
+    }
+   ],
+   "problem": "People need tools to cut or trim garden plants.",
+   "rationale": "The supplied Garden Cutter category identifies a distinct cutting function, but does not specify a particular cutter mechanism.",
+   "review_note": "Upfront research direction; source presence is not demand, fit or supplier confirmation.",
+   "reviewed_at": "2026-10-16T07:05:04+00:00",
+   "season": {
+    "kind": "unknown",
+    "months": []
+   },
+   "sources": [
+    "catalogue-material-example-e15269a448018948d29358ee0fb6e0b7abc0fb71"
+   ]
+  },
+  {
+   "aliases": [],
+   "author": "bounded-role-c",
+   "basis": "observed",
+   "category": "Home and Decor",
+   "definition": "A bird wall hanging is decorative wall art. The supplied candidates serve specific purposes such as measuring growth, holding candles, or displaying a clock; this concept has no stated function beyond wall decoration.",
+   "disposition": "usable",
+   "examples": [
+    {
+     "basis": "observed",
+     "label": "Wallkriti Bird Wall Hanging",
+     "sources": [
+      "page-1b7c2d333fee133e9c332a5ef030238437cf296d"
+     ]
+    }
+   ],
+   "excluded": [
+    "Seller, colour or ordinary size changes alone are not distinct families."
+   ],
+   "id": "family-036f3bb72c7519d382976e3444ffae2bcaa743e7",
+   "included": [
+    "Wallkriti Bird Wall Hanging"
+   ],
+   "label": "Decorative bird wall hangings",
+   "next_review": "After measured searches or materially changed evidence.",
+   "overlaps": [],
+   "parent_id": "branch-hd-walls-and-displays",
+   "phrases": [
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find ads for decorative bird pieces hung on walls.",
+     "source": "meta",
+     "text": "bird wall hanging decor"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Find listings for decorative bird pieces hung on walls.",
+     "source": "marketplace",
+     "text": "bird wall hanging decor"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find this type of product in dropshipping catalogues.",
+     "source": "dropship",
+     "text": "bird wall hanging"
+    }
+   ],
+   "problem": "People seeking an affordable decorative wall accent",
+   "rationale": "The supplied ad names a bird wall hanging and describes it as a budget-friendly home item, supporting a distinct decorative wall-art family.",
+   "review_note": "Accepted research direction; not verified demand or a recommendation.",
+   "reviewed_at": "2026-10-16T07:08:11+00:00",
+   "season": {
+    "kind": "unknown",
+    "months": []
+   },
+   "sources": [
+    "page-1b7c2d333fee133e9c332a5ef030238437cf296d"
+   ]
+  },
+  {
+   "aliases": [],
+   "author": "bounded-role-c",
+   "basis": "observed",
+   "category": "Home and Kitchen",
+   "definition": "This rack expands by sliding outward and can be used beneath shelves or across surfaces. The existing under-shelf basket family describes a basket that slides onto a shelf; the rack’s adjustable expansion and broader placement are a distinct storage mechanism and use.",
+   "disposition": "usable",
+   "examples": [
+    {
+     "basis": "observed",
+     "label": "Spacesaver Adjustable Storage Rack (Pack of 4)",
+     "sources": [
+      "page-9ad0a1c14ac133e6dfd35a598acd84c138e01e0f"
+     ]
+    }
+   ],
+   "excluded": [
+    "Seller, colour or ordinary size changes alone are not distinct families."
+   ],
+   "id": "family-e0089e2a5a0dc15e1c77e984ae2cfb1d969e1b9d",
+   "included": [
+    "Spacesaver Adjustable Storage Rack (Pack of 4)"
+   ],
+   "label": "Expandable storage racks",
+   "next_review": "After measured searches or materially changed evidence.",
+   "overlaps": [],
+   "parent_id": "branch-hk-kitchen-space-and-access",
+   "phrases": [
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find ads for adjustable racks that expand to create storage space.",
+     "source": "meta",
+     "text": "adjustable expandable storage rack"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Find listings for expandable racks that add storage below shelves.",
+     "source": "marketplace",
+     "text": "expandable under shelf storage rack"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find this type of product in dropshipping catalogues.",
+     "source": "dropship",
+     "text": "expandable storage rack"
+    }
+   ],
+   "problem": "People organizing food, drinks, or small items in refrigerators and other household spaces",
+   "rationale": "The supplied ad describes a set of racks that slide outward to expand, with uses beneath shelves and on tables, desks, and cabinets. That supports a distinct expandable-rack family.",
+   "review_note": "Accepted research direction; not verified demand or a recommendation.",
+   "reviewed_at": "2026-10-16T07:08:11+00:00",
+   "season": {
+    "kind": "unknown",
+    "months": []
+   },
+   "sources": [
+    "page-9ad0a1c14ac133e6dfd35a598acd84c138e01e0f"
+   ]
+  },
+  {
+   "aliases": [],
+   "author": "bounded-role-c",
+   "basis": "observed",
+   "category": "Baby Products",
+   "definition": "This is a bundled baby-care kit sold as one unit, while the nearby families cover specific products such as lotion, grooming tools, and bathing items. The listing does not specify the kit contents or how its components work.",
+   "disposition": "usable",
+   "examples": [
+    {
+     "basis": "observed",
+     "label": "Baby Care Products Kit",
+     "sources": [
+      "page-24373d0dc26982bf7ab6250a2f4648afe0c2935f"
+     ]
+    }
+   ],
+   "excluded": [
+    "Seller, colour or ordinary size changes alone are not distinct families."
+   ],
+   "id": "family-798e235caabd4ce1ffa50505001661bda2ce2b3d",
+   "included": [
+    "Baby Care Products Kit"
+   ],
+   "label": "Bundled baby-care kits",
+   "next_review": "After measured searches or materially changed evidence.",
+   "overlaps": [],
+   "parent_id": "branch-bb-bathing-and-personal-care",
+   "phrases": [
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find ads presenting baby-care items together as an infant-care kit.",
+     "source": "meta",
+     "text": "baby care kit for infants"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Find supplier listings for bundled infant-care kits and see how their contents are described.",
+     "source": "marketplace",
+     "text": "baby care products kit"
+    }
+   ],
+   "problem": "Caregivers need baby-care items bundled together as a kit.",
+   "rationale": "The supplied listing identifies a baby-care kit as a purchase unit, supporting a family for bundled kits; its unspecified contents limit how narrowly the family can be defined.",
+   "review_note": "Accepted research direction; not verified demand or a recommendation.",
+   "reviewed_at": "2026-10-16T07:57:54+00:00",
+   "season": {
+    "kind": "unknown",
+    "months": []
+   },
+   "sources": [
+    "page-24373d0dc26982bf7ab6250a2f4648afe0c2935f"
+   ]
+  },
+  {
+   "aliases": [],
+   "author": "bounded-role-c",
+   "basis": "observed",
+   "category": "Baby Products",
+   "definition": "The described cot mobile provides visual stimulation and nursery interest. The supplied matching candidate focuses on soothing babies to sleep with turning toys and lullabies, functions not stated for this concept.",
+   "disposition": "usable",
+   "examples": [
+    {
+     "basis": "observed",
+     "label": "GWD cot mobile",
+     "sources": [
+      "page-00320d34974db856eea665d646709fb23ae1bb6f"
+     ]
+    }
+   ],
+   "excluded": [
+    "Seller, colour or ordinary size changes alone are not distinct families."
+   ],
+   "id": "family-bc66960b2c3193c2e72e4b685095b2cbdb2a3325",
+   "included": [
+    "GWD cot mobile"
+   ],
+   "label": "Visual stimulation cot mobiles",
+   "next_review": "After measured searches or materially changed evidence.",
+   "overlaps": [],
+   "parent_id": "branch-bb-early-play-and-childproofing",
+   "phrases": [
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds soft cot mobiles described for visual stimulation and nursery display.",
+     "source": "meta",
+     "text": "soft handcrafted cot mobile visual stimulation"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds catalogue listings for soft cot mobiles intended to provide visual interest for babies.",
+     "source": "dropship",
+     "text": "soft baby cot mobile visual stimulation"
+    }
+   ],
+   "problem": "Caregivers want visual interest above a baby's cot.",
+   "rationale": "The supplied ad describes soft, handcrafted cot mobiles for visual stimulation and nursery decor, supporting research into this use.",
+   "review_note": "Accepted research direction; not verified demand or a recommendation.",
+   "reviewed_at": "2026-10-16T08:42:55+00:00",
+   "season": {
+    "kind": "unknown",
+    "months": []
+   },
+   "sources": [
+    "page-00320d34974db856eea665d646709fb23ae1bb6f"
+   ]
+  },
+  {
+   "aliases": [],
+   "author": "bounded-role-c",
+   "basis": "observed",
+   "category": "Home and Kitchen",
+   "definition": "This is a freestanding, fixed three-shelf organiser. The supplied nearby families cover adding a level within a shelf, an adjustable expanding rack, or a pull-out drawer attached beneath a fridge shelf.",
+   "disposition": "usable",
+   "examples": [
+    {
+     "basis": "observed",
+     "label": "Standing three-shelf kitchen organiser",
+     "sources": [
+      "page-857238306059f80476f4c4a8e09bd03c9a5d90f3"
+     ]
+    }
+   ],
+   "excluded": [
+    "Seller, colour or ordinary size changes alone are not distinct families."
+   ],
+   "id": "family-2ce5a4b61ca3a69e1f3fc8b00f5b2fede1422bb0",
+   "included": [
+    "Standing three-shelf kitchen organiser"
+   ],
+   "label": "Freestanding multi-shelf kitchen organisers",
+   "next_review": "After measured searches or materially changed evidence.",
+   "overlaps": [],
+   "parent_id": "branch-hk-kitchen-space-and-access",
+   "phrases": [
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds standing organisers that provide several fixed shelves for kitchen items.",
+     "source": "meta",
+     "text": "standing kitchen organizer 3 shelves"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds catalogue listings for freestanding kitchen organisers with multiple shelves.",
+     "source": "dropship",
+     "text": "freestanding 3 tier kitchen organizer"
+    }
+   ],
+   "problem": "People need freestanding shelves to organise items in kitchen spaces.",
+   "rationale": "The supplied listing identifies a standing three-shelf kitchen organiser, supporting research into this freestanding storage form.",
+   "review_note": "Accepted research direction; not verified demand or a recommendation.",
+   "reviewed_at": "2026-10-16T08:42:55+00:00",
+   "season": {
+    "kind": "unknown",
+    "months": []
+   },
+   "sources": [
+    "page-857238306059f80476f4c4a8e09bd03c9a5d90f3"
+   ]
+  },
+  {
+   "aliases": [],
+   "author": "bounded-role-c",
+   "basis": "observed",
+   "category": "Travel and Outdoor",
+   "definition": "This organizer is described for general travel belongings. The supplied matches focus on specific contents or uses: electronics, medicines, close body carry, or compressing clothes.",
+   "disposition": "usable",
+   "examples": [
+    {
+     "basis": "observed",
+     "label": "Navy blue travel organizer",
+     "sources": [
+      "page-424bbbfca15a4d729be62ac9ad85f98d2e6d390a"
+     ]
+    }
+   ],
+   "excluded": [
+    "Seller, colour or ordinary size changes alone are not distinct families."
+   ],
+   "id": "family-bea04aab7a7c7e24587a1921af11d7b64d399b12",
+   "included": [
+    "Navy blue travel organizer"
+   ],
+   "label": "General travel organisers",
+   "next_review": "After measured searches or materially changed evidence.",
+   "overlaps": [],
+   "parent_id": "branch-to-travel-organisation-and-security",
+   "phrases": [
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds travel organisers with multiple compartments for storing and accessing general belongings.",
+     "source": "meta",
+     "text": "travel organizer multiple compartments easy access"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds listings for travel organisers with general compartments for personal belongings.",
+     "source": "dropship",
+     "text": "travel organizer multiple compartments"
+    }
+   ],
+   "problem": "Travelers need to organise general belongings for easy access during travel.",
+   "rationale": "The supplied listing describes a polyester travel organizer with multiple compartments and easy-access storage; it supports researching a general-purpose travel organiser family.",
+   "review_note": "Accepted research direction; not verified demand or a recommendation.",
+   "reviewed_at": "2026-10-16T08:42:55+00:00",
+   "season": {
+    "kind": "unknown",
+    "months": []
+   },
+   "sources": [
+    "page-424bbbfca15a4d729be62ac9ad85f98d2e6d390a"
+   ]
+  },
+  {
+   "aliases": [],
+   "author": "bounded-role-c",
+   "basis": "observed",
+   "category": "Home and Decor",
+   "definition": "This decorates a birthday by projecting images from slide patterns and can also serve as a night light. The supplied birthday kits and banners decorate with assembled party items or hanging text, not image projection.",
+   "disposition": "usable",
+   "examples": [
+    {
+     "basis": "observed",
+     "label": "Birthday projector",
+     "sources": [
+      "page-9ea0b2a6dc8eefd253d0cf55f06fe0fa0b408d84"
+     ]
+    }
+   ],
+   "excluded": [
+    "Seller, colour or ordinary size changes alone are not distinct families."
+   ],
+   "id": "family-5495f9c8a36ce88b8e1d43c60b6376314febfef0",
+   "included": [
+    "Birthday projector"
+   ],
+   "label": "Birthday pattern projectors",
+   "next_review": "After measured searches or materially changed evidence.",
+   "overlaps": [],
+   "parent_id": "branch-hd-party-and-celebration-decoration",
+   "phrases": [
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find ads for birthday-themed projectors that use slide patterns and may double as night lights.",
+     "source": "meta",
+     "text": "birthday projector with slide patterns and night light India"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Find listings describing birthday projectors with slide patterns and a night-light function.",
+     "source": "marketplace",
+     "text": "birthday projector 8 slide patterns night light"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find this product type in dropshipping catalogues.",
+     "source": "dropship",
+     "text": "birthday projector night light"
+    }
+   ],
+   "problem": "People need a way to project birthday-themed decoration and provide a night light.",
+   "rationale": "The supplied listing describes a birthday projector with eight slide patterns and a night-light feature.",
+   "review_note": "Accepted research direction; not verified demand or a recommendation.",
+   "reviewed_at": "2026-10-16T09:46:58+00:00",
+   "season": {
+    "kind": "unknown",
+    "months": []
+   },
+   "sources": [
+    "page-9ea0b2a6dc8eefd253d0cf55f06fe0fa0b408d84"
+   ]
+  },
+  {
+   "aliases": [],
+   "author": "bounded-role-c",
+   "basis": "observed",
+   "category": "Home and Kitchen",
+   "definition": "This uses a push action to drive a manual whisk or mixer and is described for mixing or blending as well as whisking. The supplied rotary hand egg beaters use a geared hand crank and are focused on beating eggs and cream.",
+   "disposition": "usable",
+   "examples": [
+    {
+     "basis": "observed",
+     "label": "Hand push mixer",
+     "sources": [
+      "page-0baa4cdf032bbe88adef0ded7763a1840e60007f"
+     ]
+    }
+   ],
+   "excluded": [
+    "Seller, colour or ordinary size changes alone are not distinct families."
+   ],
+   "id": "family-fcdb61cf9b30e9f91aece40e0ac794de0bf03936",
+   "included": [
+    "Hand push mixer"
+   ],
+   "label": "Push-operated manual mixers",
+   "next_review": "After measured searches or materially changed evidence.",
+   "overlaps": [],
+   "parent_id": "branch-hk-preparation-tools",
+   "phrases": [
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find ads for manually operated push mixers with a whisk or blending use.",
+     "source": "meta",
+     "text": "hand push manual mixer egg whisk blender India"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Find listings that clarify how push operation works and whether the tool is intended for whisking, mixing, or blending.",
+     "source": "marketplace",
+     "text": "hand push mixer stainless steel egg whisk blender"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find this product type in dropshipping catalogues.",
+     "source": "dropship",
+     "text": "hand push mixer egg whisk"
+    }
+   ],
+   "problem": "People need to whisk eggs or mix ingredients without an electric mixer.",
+   "rationale": "The supplied listing identifies a hand-push mixer with a stainless-steel whisk and describes mixing or blending ingredients.",
+   "review_note": "Accepted research direction; not verified demand or a recommendation.",
+   "reviewed_at": "2026-10-16T09:46:58+00:00",
+   "season": {
+    "kind": "unknown",
+    "months": []
+   },
+   "sources": [
+    "page-0baa4cdf032bbe88adef0ded7763a1840e60007f"
+   ]
+  },
+  {
+   "aliases": [],
+   "author": "bounded-role-c",
+   "basis": "observed",
+   "category": "Home and Decor",
+   "definition": "This labels switch controls for identification using small icons attached beside switches. The supplied wall clock stickers create a clock display, which serves a different function.",
+   "disposition": "usable",
+   "examples": [
+    {
+     "basis": "observed",
+     "label": "Switch icon sticker sheet",
+     "sources": [
+      "page-7655b83e8d9f3700c35a6f98b8659e3d289ef9b8"
+     ]
+    }
+   ],
+   "excluded": [
+    "Seller, colour or ordinary size changes alone are not distinct families."
+   ],
+   "id": "family-2c65ca50a6817f1f55af6abedc153eb229f50f10",
+   "included": [
+    "Switch icon sticker sheet"
+   ],
+   "label": "Switchboard icon labels",
+   "next_review": "After measured searches or materially changed evidence.",
+   "overlaps": [],
+   "parent_id": "branch-hd-doors-windows-and-home-fittings",
+   "phrases": [
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find ads for icon sticker sheets used to identify switches at home or in an office.",
+     "source": "meta",
+     "text": "switchboard icon stickers for home and office switches India"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Find listings for switchboard icon stickers and check that the labels are made to identify household or office switches.",
+     "source": "marketplace",
+     "text": "switchboard icon labels stickers home office"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find this product type in dropshipping catalogues.",
+     "source": "dropship",
+     "text": "switch icon sticker sheet"
+    }
+   ],
+   "problem": "People need to identify switchboard controls more easily.",
+   "rationale": "The supplied listing describes one sheet of 88 visual labels for home and office switchboards.",
+   "review_note": "Accepted research direction; not verified demand or a recommendation.",
+   "reviewed_at": "2026-10-16T09:46:58+00:00",
+   "season": {
+    "kind": "unknown",
+    "months": []
+   },
+   "sources": [
+    "page-7655b83e8d9f3700c35a6f98b8659e3d289ef9b8"
+   ]
+  },
+  {
+   "aliases": [],
+   "author": "bounded-role-c",
+   "basis": "observed",
+   "category": "Travel and Outdoor",
+   "definition": "This is a bundled oral-care set for travel or hospital amenities. Its function is providing toothbrush, toothpaste and accessories for dental hygiene, distinct from general travel organisers and the supplied travel comfort and repair items.",
+   "disposition": "usable",
+   "examples": [
+    {
+     "basis": "observed",
+     "label": "Hospital and travel dental kit",
+     "sources": [
+      "page-cddfaf06cbaf7aca0c39257a426d9ebeddb2c540"
+     ]
+    }
+   ],
+   "excluded": [
+    "Seller, colour or ordinary size changes alone are not distinct families."
+   ],
+   "id": "family-636a551536452679f2f0820c13cbfda9527fb934",
+   "included": [
+    "Hospital and travel dental kit"
+   ],
+   "label": "Travel and hospital dental kits",
+   "next_review": "After measured searches or materially changed evidence.",
+   "overlaps": [],
+   "parent_id": "branch-to-travel-comfort-and-hygiene",
+   "phrases": [
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds Meta ads for bundled travel or hospital dental kits with toothbrush and toothpaste.",
+     "source": "meta",
+     "text": "travel dental kit toothbrush toothpaste"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Finds supplier catalogue listings for bundled toothbrush and toothpaste travel sets.",
+     "source": "dropship",
+     "text": "travel toothbrush toothpaste kit"
+    }
+   ],
+   "problem": "Travelers and amenity providers need a compact bundle of oral-care items for travel or hospital use.",
+   "rationale": "The supplied listing names a complete oral-care set and identifies its contents, supporting a distinct research family for bundled dental hygiene kits.",
+   "review_note": "Accepted research direction; not verified demand or a recommendation.",
+   "reviewed_at": "2026-10-16T11:33:54+00:00",
+   "season": {
+    "kind": "unknown",
+    "months": []
+   },
+   "sources": [
+    "page-cddfaf06cbaf7aca0c39257a426d9ebeddb2c540"
+   ]
+  },
+  {
+   "aliases": [],
+   "author": "bounded-role-c",
+   "basis": "observed",
+   "category": "Home and Kitchen",
+   "definition": "This brush uses a double-sided sponge surface for scrubbing. The existing refillable-handle dish brush family holds and releases dish liquid from its handle, a materially different mechanism.",
+   "disposition": "usable",
+   "examples": [
+    {
+     "basis": "observed",
+     "label": "Double-sided dishwashing sponge brush",
+     "sources": [
+      "page-5eb67cd1ef5ea53d5e6d08cd45e38f42a08866b4",
+      "page-40608d02713bf1060fbe5cda06db3ee27e593287"
+     ]
+    }
+   ],
+   "excluded": [
+    "Seller, colour or ordinary size changes alone are not distinct families."
+   ],
+   "id": "family-6bf17d382ea315ede1ff11a9a406661ac3ff2d27",
+   "included": [
+    "Double-sided dishwashing sponge brush"
+   ],
+   "label": "Double-sided dishwashing sponge brushes",
+   "next_review": "After measured searches or materially changed evidence.",
+   "overlaps": [],
+   "parent_id": "branch-hk-sink-and-dish-organisation",
+   "phrases": [
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find ads for double-sided sponge brushes used to scrub dishes.",
+     "source": "meta",
+     "text": "double sided dishwashing sponge brush"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "validation",
+     "reason": "Find marketplace listings for sponge brushes used to wash dishes.",
+     "source": "marketplace",
+     "text": "double sided dishwashing sponge brush"
+    },
+    {
+     "country": "IN",
+     "language": "en",
+     "purpose": "discovery",
+     "reason": "Find this product type in dropshipping catalogues.",
+     "source": "dropship",
+     "text": "dishwashing sponge brush"
+    }
+   ],
+   "problem": "People need a scrubber for washing dishes.",
+   "rationale": "The supplied title and product type identify a durable double-sided sponge brush for dishwashing.",
+   "review_note": "Accepted research direction; not verified demand or a recommendation.",
+   "reviewed_at": "2026-10-16T14:15:28+00:00",
+   "season": {
+    "kind": "unknown",
+    "months": []
+   },
+   "sources": [
+    "page-5eb67cd1ef5ea53d5e6d08cd45e38f42a08866b4",
+    "page-40608d02713bf1060fbe5cda06db3ee27e593287"
+   ]
   }
  ],
  "revision": "2026-10-16-r11-map",
@@ -109233,6 +110312,123 @@
    "id": "milton-brushes",
    "title": "Spotzero by Milton India Brooms and Brushes",
    "url": "https://www.milton.in/collections/brooms-brushes?filter.v.availability=1"
+  },
+  {
+   "checked_at": "2026-10-16T07:05:29+00:00",
+   "excerpts": [
+    "Garden Cutter"
+   ],
+   "id": "catalogue-material-example-e15269a448018948d29358ee0fb6e0b7abc0fb71",
+   "title": "DeoDap categories",
+   "url": "https://deodap.in/collections/cutter"
+  },
+  {
+   "checked_at": "2026-10-16T07:08:24.6946276Z",
+   "excerpts": [
+    "​\nActive\nLibrary ID: 2022302941740591\nStarted running on 12 Aug 2026\nPlatforms\n​\n​\n​\n​\nThis ad has multiple versions\n​\nOpen Drop-down\n​\nSee ad details\nAmazon India\nSponsored\nBudget friendly home esentials under ₹ 399!\nPLAY.GOOGLE.COM\nWallkriti Bird Wall Hanging\nAI-assisted shopping app: shop groceries, beauty, fashion. Pay bills & use UPI\nShop Now"
+   ],
+   "id": "page-1b7c2d333fee133e9c332a5ef030238437cf296d",
+   "title": "Saved meta observation",
+   "url": "https://www.facebook.com/ads/library/?id=2022302941740591"
+  },
+  {
+   "checked_at": "2026-10-16T07:08:24.6946276Z",
+   "excerpts": [
+    "​\nActive\nLibrary ID: 1359063686079746\nStarted running on 15 Jun 2026\nPlatforms\n​\n​\n​\n​\n​\nThis ad has multiple versions\n​\nOpen Drop-down\n​\nSee ad details\nTrendize Décor\nSponsored\nAdjustable Storage Rack {Pack of 4}-MAKE EXTRA SPACE IN\n\nYOUR REFRIGERATOR & KITCHEN!\n\nOur Spacesaver™ Adjustable Storage Rack is ideal for organizing the contents of your refrigerator neatly. This compact form set of storage racks efficiently stores Mostly everything without taking up too much space in your refrigerator.\n\nUNIQUE DESIGN - Adjustable Design, Expandable, Simple to Install According to the Size, Fast Removal and Easy to Clean, Moved, Washable and Space-Saving.\n\nMULTI-PURPOSE STORAGE - Organise Your Food/Drinks/Small Parts. They are Used for Refrigerator, Freezer, Table, Desk, Cabinet Etc. Fits most Fridge & Tables.\n\nEXPANDABLE - Just Slide and Expand the Under Shelf Basket According to the Space That is Needed.\n\nDURABLE MATERIAL - The high-quality, food-grade plastic make of the Fridge Organizer Set ensures its durability and safe usage. The robust built of this set can not only withstand heavy weight but also resist tough impact on falling without breaking.\n\nEASY TO CLEAN - Storage Organizer Set features microbial resistance. With its smooth edges and easy to reach areas, it can be quickly cleaned with minimal hassle.  DIMENSIONS - This is an expandable tray. Product size - Normal : 20.5 x 16.4 x 7.5 cm ; Expandable : 24 x 14.2 x 6 cm. Weight: 135g per piece.\n\nPACKAGE INCLUDE:\n\n\t* Spacesaver™ Adjustable Storage Rack - Pack of 4 (Random Color)\n\nNOTE: Spacesaver Storage Rack is in High Demand so color may be send as per availability!  💁 85% OF OUR CUSTOMERS bought 2 Sets of Spacesaver™ Adjustable Storage Rack and SAVED more!\nTRENDIZE.IN\nTrendize Décor\nTrendize Chair Covers , Sofa Covers , L shape sofa cover , 3 Seater Sofa Cover , 5 Seater Sofa Cover, Sectional Sofa Cover , Dining Set Table and Chair Cover\nShop Now"
+   ],
+   "id": "page-9ad0a1c14ac133e6dfd35a598acd84c138e01e0f",
+   "title": "Saved meta observation",
+   "url": "https://www.facebook.com/ads/library/?id=1359063686079746"
+  },
+  {
+   "checked_at": "2026-10-16T07:28:18.6499484Z",
+   "excerpts": [
+    "Baby Care Products Kit - Color: Multicolor"
+   ],
+   "id": "page-24373d0dc26982bf7ab6250a2f4648afe0c2935f",
+   "title": "Baby Care Products Kit - Color: Multicolor",
+   "url": "https://www.tradeindia.com/products/baby-care-products-kit-c11876171.html"
+  },
+  {
+   "checked_at": "2026-10-16T08:06:12.5465020Z",
+   "excerpts": [
+    "​\nActive\nLibrary ID: 1670840860662008\nStarted running on 10 Aug 2026\nPlatforms\n​\n​\nThis ad has multiple versions\n​\nOpen Drop-down\n​\nSee ad details\nGWD Kids\nSponsored\nGive your baby something beautiful to look up to. 🦒 Soft, handcrafted cot mobiles that encourage visual stimulation while adding charm to every nursery.\n\nShop GWD Kids !\nGWD Cot Mobiles\nGWD Kids Must Haves !\nShop Now"
+   ],
+   "id": "page-00320d34974db856eea665d646709fb23ae1bb6f",
+   "title": "Saved meta observation",
+   "url": "https://www.facebook.com/ads/library/?id=1670840860662008"
+  },
+  {
+   "checked_at": "2026-10-16T07:59:14.3542702Z",
+   "excerpts": [
+    "Standing Kitchen Organiser 3 Shelves - Application: Industrial"
+   ],
+   "id": "page-857238306059f80476f4c4a8e09bd03c9a5d90f3",
+   "title": "Standing Kitchen Organiser 3 Shelves - Application: Industrial",
+   "url": "https://www.tradeindia.com/products/standing-kitchen-organiser-3-shelves-c10026110.html"
+  },
+  {
+   "checked_at": "2026-10-16T08:20:16.0955309Z",
+   "excerpts": [
+    "Travel Organizer - Durable Polyester, 15x10 Inches, Stylish Navy Blue - Multiple Compartments, Travel-safe Design, Easy Access Storage"
+   ],
+   "id": "page-424bbbfca15a4d729be62ac9ad85f98d2e6d390a",
+   "title": "Travel Organizer - Durable Polyester, 15x10 Inches, Stylish Navy Blue - Multiple Compartments, Travel-safe Design, Easy Access Storage",
+   "url": "https://www.tradeindia.com/products/travel-organizer-c5208419.html"
+  },
+  {
+   "checked_at": "2026-10-16T08:46:30+00:00",
+   "excerpts": [
+    "Birthday Projector – 8 Slide Patterns & Night Light | GiftingGrace"
+   ],
+   "id": "page-9ea0b2a6dc8eefd253d0cf55f06fe0fa0b408d84",
+   "title": "Birthday Projector – 8 Slide Patterns & Night Light | GiftingGrace",
+   "url": "https://deodap.in/products/birthday-projector-8-slide-patterns"
+  },
+  {
+   "checked_at": "2026-10-16T08:46:30+00:00",
+   "excerpts": [
+    "Hand Push Mixer – Stainless Steel Egg Whisk & Blender | Konvex"
+   ],
+   "id": "page-0baa4cdf032bbe88adef0ded7763a1840e60007f",
+   "title": "Hand Push Mixer – Stainless Steel Egg Whisk & Blender | Konvex",
+   "url": "https://deodap.in/products/hand-push-mixer-stainless-steel-egg-whisk"
+  },
+  {
+   "checked_at": "2026-10-16T08:31:51+00:00",
+   "excerpts": [
+    "Switch Icon Sticker Sheet – 88 Visual Labels for Easy Switchboard Use"
+   ],
+   "id": "page-7655b83e8d9f3700c35a6f98b8659e3d289ef9b8",
+   "title": "Switch Icon Sticker Sheet – 88 Visual Labels for Easy Switchboard Use",
+   "url": "https://deodap.in/products/smart-switch-icon-sticker-sheet-visual-labels-for-home-office-switchboards-1-sheet-88-icons"
+  },
+  {
+   "checked_at": "2026-10-16T08:20:16.0955309Z",
+   "excerpts": [
+    "Hospital & Travel Dental Kit Complete Oral Care Set | Toothbrush, Toothpaste & Accessories | Manufacturer & Supplier | Premium Hygienic Hotel & Travel Amenities | Leafglory"
+   ],
+   "id": "page-cddfaf06cbaf7aca0c39257a426d9ebeddb2c540",
+   "title": "Hospital & Travel Dental Kit Complete Oral Care Set | Toothbrush, Toothpaste & Accessories | Manufacturer & Supplier | Premium Hygienic Hotel & Travel Amenities | Leafglory",
+   "url": "https://www.tradeindia.com/products/hospital-travel-dental-kit-complete-oral-care-set-toothbrush-toothpaste-accessories-manufacturer-supplier-premium-hygienic-hotel-travel-amenities-leafglory-c11678436.html"
+  },
+  {
+   "checked_at": "2026-10-16T10:51:42+00:00",
+   "excerpts": [
+    "Dishwashing Sponge Brush – Double-Sided Durable Cleaner"
+   ],
+   "id": "page-5eb67cd1ef5ea53d5e6d08cd45e38f42a08866b4",
+   "title": "Dishwashing Sponge Brush – Double-Sided Durable Cleaner",
+   "url": "https://deodap.in/products/double-side-dishwashing-sponge-dish-washing-brush-1-pc"
+  },
+  {
+   "checked_at": "2026-10-16T08:31:51+00:00",
+   "excerpts": [
+    "Dishwashing Sponge Brush – Double-Sided Durable Cleaner"
+   ],
+   "id": "page-40608d02713bf1060fbe5cda06db3ee27e593287",
+   "title": "Dishwashing Sponge Brush – Double-Sided Durable Cleaner",
+   "url": "https://deodap.in/products/double-side-dishwashing-sponge-dish-washing-brush-1-pc"
   }
  ]
 }

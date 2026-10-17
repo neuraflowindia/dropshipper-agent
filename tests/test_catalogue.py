@@ -115,5 +115,26 @@ class CabinetCatalogueAdmissionTests(unittest.TestCase):
             self.assertNotIn("refinement", plan["actions"][0])
 
 
+LIVE_CATALOGUE = Path(__file__).resolve().parents[1] / "config" / "research" / "catalogue.json"
+# The 12 headings the AI added on 16 October, exported from the old event store (Plan R19 task 0.2).
+AI_ADDED_16_OCTOBER = {
+    "Garden cutting tools", "Decorative bird wall hangings", "Expandable storage racks",
+    "Bundled baby-care kits", "Visual stimulation cot mobiles", "Freestanding multi-shelf kitchen organisers",
+    "General travel organisers", "Birthday pattern projectors", "Push-operated manual mixers",
+    "Switchboard icon labels", "Travel and hospital dental kits", "Double-sided dishwashing sponge brushes",
+}
+
+
+class LiveCatalogueTests(unittest.TestCase):
+    """The live file itself (this module's other tests use the frozen r10 copy)."""
+
+    def test_catalogue_has_1706_headings(self):
+        catalogue = load_catalogue(LIVE_CATALOGUE)
+        self.assertEqual(len(catalogue["families"]), 1706)
+        self.assertEqual(len({family["id"] for family in catalogue["families"]}), 1706)
+        labels = {family["label"] for family in catalogue["families"]}
+        self.assertLessEqual(AI_ADDED_16_OCTOBER, labels)
+
+
 if __name__ == "__main__":
     unittest.main()
